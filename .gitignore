@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.env*
+!.env.example
+*.tsbuildinfo
+artifacts/visual/*.png
+artifacts/lighthouse/
+artifacts/a11y/
+artifacts/a11y2/
+backups/
