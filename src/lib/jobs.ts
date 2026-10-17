@@ -7,6 +7,7 @@ import { reprocessEvent } from "./billing";
 import { notifyOrg } from "./saas-notify";
 import { limitedShared } from "./security";
 import { alert, log } from "./log";
+import { closeStaleSessions } from "./punch";
 
 const day = 86400000;
 const weekKey = (d: Date) => { const s = new Date(d); s.setUTCHours(0, 0, 0, 0); s.setUTCDate(s.getUTCDate() - ((s.getUTCDay() + 6) % 7)); return s.toISOString().slice(0, 10); };
@@ -87,9 +88,15 @@ async function weeklyReports(now: Date) {
   return { organizations: orgs.length, sent };
 }
 
+/** Sessions nobody punched out of are closed after 16 hours and flagged, so presence lists never show people inside for days. */
+async function stalePunches(now: Date) {
+  return { closed: await closeStaleSessions({}, now) };
+}
+
 const JOBS: [string, (now: Date) => Promise<unknown>][] = [
   ["saas-jobs", (now) => runSaasJobs(now)],
   ["membership-expiry", membershipExpiry],
+  ["stale-punches", stalePunches],
   ["fee-due-reminders", feeDueReminders],
   ["revision-reminders", revisionReminders],
   ["billing-reconciliation", billingReconciliation],

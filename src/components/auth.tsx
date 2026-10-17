@@ -16,6 +16,7 @@ const authSchema = z.object({
   role: z.enum(["student", "owner"]),
   library: z.string().optional(),
   referralCode: z.string().optional(),
+  libraryCode: z.string().optional(),
 });
 export function Auth({ register }: { register: boolean }) {
   const queryClient = useQueryClient();
@@ -96,7 +97,7 @@ export function Auth({ register }: { register: boolean }) {
                       ? "/owner/onboarding"
                       : result.role === "owner" || result.role === "staff"
                       ? "/owner"
-                      : "/app",
+                      : result.join ? "/app/join" : "/app",
                 );
                 router.refresh();
               } catch (e) {
@@ -130,6 +131,13 @@ export function Auth({ register }: { register: boolean }) {
                       {...field("library")}
                       placeholder="The Reading Room"
                     />
+                  </label>
+                )}
+                {role === "student" && (
+                  <label>
+                    Library ID (optional)
+                    <input maxLength={20} autoCapitalize="characters" autoComplete="off" {...field("libraryCode")} placeholder="LIB-AB12CD" />
+                    <span className="pr-hint">Ask your library for it. You can also add it later under Join a library.</span>
                   </label>
                 )}
                 {role === "owner" && (

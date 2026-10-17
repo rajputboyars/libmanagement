@@ -1,4 +1,4 @@
-# StudyQuest — Release readiness
+ACCEPTED (design limit): documented in README under Offline behaviour 
 
 **Release decision: NOT READY for production launch.**
 The application passes every automated check that can run without real infrastructure, but mandatory production controls that need accounts, infrastructure or people (backups on the real database, monitoring and alerting, live payment gateway, email delivery, HTTPS domain, legal pages, a pilot) have not been done and cannot be done from the codebase. Nothing here has been deployed, no live credentials were used and no live payment was made.
@@ -97,7 +97,17 @@ Remaining: landing page style/layout cost (~1 s on throttled CPU) — server-ren
 
 ### 7. Reliability — PASS (automated), load NOT TESTED
 - Jobs (membership expiry, fee and revision reminders, trial/billing/payment/onboarding reminders, weekly reports, notification retries, billing reconciliation) are idempotent: a second run sends nothing new; one failing job does not stop others; each run recorded in `JobRun`; `/api/ready` flags stale jobs; worker has a shared lock.
-- PWA: valid manifest with 192/512/maskable PNG icons, shortcuts; service worker caches only immutable static assets and an offline page — never API responses or HTML; caches are cleared on sign-out/deletion; online/offline banner. **NOT TESTED in a browser:** installability prompt, offline page behaviour, service-worker update flow. **Not implemented:** offline-capable focus timer (the timer needs the server for validation; the UI states that rewards and payments need a connection).
+- PWA (tested 2026-10-17 with `scripts/pwa-check.mjs`, headless Chrome, production build): **32/32 automated checks PASS** (25 original + 7 regression checks for the fixes below) — valid manifest, 192/512/maskable PNG icons with correct pixel sizes, Chrome reports no installability errors, service worker activates, precache holds only the offline page and icons, static assets cached on the second visit, no `/api` responses and no HTML cached, dedicated offline page shown on offline navigation (with the worker target also offline), API calls fail while offline, in-app offline banner appears and clears, `clear-caches` empties all caches, `sw.js` is never HTTP-cached.
+  **PWA bugs found and FIXED (verified by `scripts/pwa-check.mjs`):**
+  | # | Bug | Severity | Fix |
+  |---|---|---|---|
+  | P1 | Owners, staff and admins who open the installed app land on `/app?source=pwa` (the student area) and see "This workspace requires a different role" | Medium |  FIXED: `Experience` redirects signed-in people to their own workspace (owner/staff → `/owner`, admin → `/super-admin`, student → `/app`); verified for owner, admin and student |
+  | P2 | The fixed offline banner (87 px tall at 390 px wide) overlaps the 66 px mobile bottom navigation (banner y 701–788, nav y 734–800), blocking taps on nav items while offline | Medium |  FIXED: banner is now a sticky bar at the top with shorter text; verified no overlap with the bottom nav (banner y 0–58, nav y 734–800) |
+  | P3 | Starting a focus session while offline shows a raw "Failed to fetch" error instead of a friendly message; the Begin focus button stays enabled | Low |  FIXED: failed requests while offline now report "You're offline. Reconnect and try again. Nothing was saved or confirmed."; verified on Begin focus |
+  | P4 | The service worker's runtime cache is unbounded and its name never changes, so old hashed `/_next/static` chunks accumulate across deployments | Low |  FIXED: cache renamed v2, runtime entries capped at 120 with serialised oldest-first eviction; verified with 150 distinct assets (87 retained) |
+  | P5 | Signed-out users opening the installed app get the "Interactive preview" student sample instead of the sign-in page | Low |  FIXED: signed-out `?source=pwa` launches redirect to `/login`; verified |
+  | P6 | Offline support is limited by design: only the offline page works offline (no cached app shell, no offline focus timer); previously visited pages are not available offline | Info |  ACCEPTED design limit; documented in README (Offline behaviour) |
+  **Not tested:** installation on a real phone (Android Chrome add-to-home-screen, iOS Safari), service-worker update flow after a new deployment, push notifications (not implemented).
 - Load, soak and failover behaviour: **NOT TESTED**.
 
 ### 8. Backups / restoration — PASS (drill) · BLOCKED (real provider)

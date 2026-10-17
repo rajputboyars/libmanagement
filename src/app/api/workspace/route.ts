@@ -26,6 +26,7 @@ import {
   QuestProgress,
   StaffMembership,
 } from "@/lib/models";
+import { punchIn } from "@/lib/punch";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
 import { XP, reward, activeSeconds } from "@/lib/rules";
 const schemas = {
@@ -321,15 +322,7 @@ export async function POST(req: NextRequest) {
         }))
       )
         throw new Error("An active library membership is required");
-      await Attendance.findOneAndUpdate(
-        {
-          libraryId,
-          userId: user._id,
-          day: new Date().toISOString().slice(0, 10),
-        },
-        { $setOnInsert: { checkIn: new Date() } },
-        { upsert: true },
-      );
+      await punchIn({ libraryId, userId: user._id, method: "qr" });
       return NextResponse.json({ ok: true });
     }
     if (action === "rest-day") {
@@ -859,15 +852,7 @@ export async function POST(req: NextRequest) {
             }).session(session))
           )
             throw new Error("Student not found");
-          record = await Attendance.findOneAndUpdate(
-            {
-              libraryId,
-              userId: data.userId,
-              day: new Date().toISOString().slice(0, 10),
-            },
-            { $setOnInsert: { checkIn: new Date() } },
-            { upsert: true, new: true, session },
-          );
+          record = (await punchIn({ libraryId, userId: data.userId, method: "manual" })).ok ? { ok: true } : { ok: true, alreadyInside: true };
         } else if (action === "resolve") {
           const data = z.object({ id: objectId }).parse(body.data);
           record = await Complaint.findOneAndUpdate(

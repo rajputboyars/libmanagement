@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUI } from "@/lib/ui-store";
 import { PublicPage } from "@/components/site";
-import { Auth } from "@/components/lazy";
+import { Auth, StudentJoin, StudentPunch, OwnerJoinRequests, OwnerPresence } from "@/components/lazy";
 import { Empty, Garden } from "@/components/ui-bits";
 import { motion } from "motion/react";
 import {
@@ -63,7 +63,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { level, streak } from "@/lib/rules";
-import { BranchSwitcher, PlanBanner } from "@/components/org-chrome";
+import { BranchSwitcher, JoinBanner, LibraryIdChip, PlanBanner } from "@/components/org-chrome";
 import { clearClientCaches } from "@/components/pwa";
 import { Phase2Experience, LearningIntelligence, DoubtSolver, RewardsMarketplace, LibraryDiscovery, Maintenance, ExamPrep, TestResult, TestRunner, PrepAdmin, OwnerBilling, OwnerBranches, OwnerCrm, OwnerSupport, Onboarding, SaasAdmin, PilotImport, AccountSecurity, ForgotPassword, ResetPassword, Community, CommunityModeration, DemoPage, SandboxCheckout, SaasPricing } from "@/components/lazy";
 type Row = Record<string, string | number | boolean>;
@@ -125,6 +125,8 @@ const studentNav: [string, string, LucideIcon][] = [
   ["/app/doubts", "Doubt solver", HelpCircle],
   ["/app/rewards", "Rewards", Gift],
   ["/app/library-requests", "Library requests", Building2],
+  ["/app/join", "Join a library", Building2],
+  ["/app/punch", "Punch in / out", Clock3],
   ["/app/prep", "Exam prep", Target],
   ["/app/planner", "Study planner", CalendarDays],
   ["/app/quiz", "Quiz arena", HelpCircle],
@@ -156,6 +158,8 @@ const ownerNav: [string, string, LucideIcon][] = [
   ["/owner/complaints", "Complaints", MessageSquare],
   ["/owner/rewards", "Rewards", Trophy],
   ["/owner/discovery", "Public listing", Building2],
+  ["/owner/join-requests", "Join requests", Users],
+  ["/owner/presence", "Live presence", CheckCircle2],
   ["/owner/waitlist", "Waitlist", Users],
   ["/owner/crm", "Admissions", Users],
   ["/owner/branches", "Branches", Building2],
@@ -193,6 +197,16 @@ export function Experience({ path }: { path: string }) {
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
   }, [dark]);
+  useEffect(() => {
+    if (isLoading) return;
+    const role = d.user?.role as string | undefined;
+    const home = role === "super-admin" ? "/super-admin" : role === "owner" || role === "staff" ? "/owner" : role === "student" ? "/app" : null;
+    const area = path.startsWith("/super-admin") ? "/super-admin" : path.startsWith("/owner") ? "/owner" : path.startsWith("/app") ? "/app" : null;
+    // A signed-in person who lands in the wrong area (for example an owner opening the installed app at /app) goes to their own workspace.
+    if (home && area && area !== home) router.replace(home);
+    // The installed app (start_url …?source=pwa) opens the sign-in page when nobody is signed in, not the sample preview.
+    else if (!home && area === "/app" && new URLSearchParams(window.location.search).get("source") === "pwa") router.replace("/login");
+  }, [isLoading, d.user?.role, path, router]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 5000);
@@ -264,6 +278,7 @@ export function Experience({ path }: { path: string }) {
   const rewardsPath = path === "/app/rewards" || path === "/owner/rewards";
   const discoveryPath = ["/owner/discovery", "/owner/waitlist", "/app/library-requests"].includes(path);
   const saasOwnerPath = ["/owner/billing", "/owner/branches", "/owner/crm", "/owner/support", "/owner/onboarding"].includes(path);
+  const joinPath = ["/app/join", "/app/punch", "/owner/join-requests", "/owner/presence"].includes(path);
   const importPath = path === "/owner/import";
   const securityPath = path === "/app/security" || path === "/owner/security";
   const saasAdminPath = path === "/super-admin/business";
@@ -305,6 +320,7 @@ export function Experience({ path }: { path: string }) {
           <ChevronRight size={15} />
         </div>
         {owner && !preview && <BranchSwitcher />}
+        {owner && !preview && String(d.user?.role) === "owner" && <LibraryIdChip notify={setToast} />}
         <div className="nav-label">{owner ? "WORKSPACE" : "YOUR JOURNEY"}</div>
         <nav>
           {nav.map(([href, label, Icon]) => (
@@ -407,6 +423,7 @@ export function Experience({ path }: { path: string }) {
         </header>
         <main className="main-content">
           {owner && !preview && path !== "/owner/onboarding" && <PlanBanner />}
+          {!owner && !admin && !preview && String(d.user?.role) === "student" && path !== "/app/join" && <JoinBanner />}
           {preview && (
             <div className="preview-banner">
               <Sparkles size={14} />
@@ -429,6 +446,8 @@ export function Experience({ path }: { path: string }) {
             </div>
           ) : isLoading ? (
             <div className="skeleton" />
+          ) : joinPath ? (
+            preview ? <div className="mt-empty"><h2>Sign in to use this page</h2><p>Preview mode saves nothing.</p></div> : path === "/app/join" ? <StudentJoin notify={setToast} /> : path === "/app/punch" ? <StudentPunch notify={setToast} /> : path === "/owner/join-requests" ? <OwnerJoinRequests notify={setToast} /> : <OwnerPresence notify={setToast} />
           ) : importPath ? (
             preview ? <div className="mt-empty"><h2>Sign in to import</h2></div> : <PilotImport notify={setToast} />
           ) : securityPath ? (

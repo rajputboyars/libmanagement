@@ -7,6 +7,8 @@ import { User, Library, StudentProfile } from "@/lib/models";
 import { createOrganization, ensurePlans, linkPendingStudent } from "@/lib/saas-server";
 import { attachReferral } from "@/lib/referrals";
 import { handleAuthExtra } from "@/lib/auth-extra";
+import { createJoinRequest } from "@/lib/join-request";
+import { newLibraryCode } from "@/lib/join";
 import { LOGIN_LIMITS, accountKey, clearLimit, clientIp, ipKey, isLocked, limitedShared, warnAuth } from "@/lib/security";
 import {
   currentUser,
@@ -23,6 +25,7 @@ const input = z.object({
   role: z.enum(["student", "owner"]).optional(),
   library: z.string().min(2).max(100).optional(),
   referralCode: z.string().trim().max(20).optional(),
+  libraryCode: z.string().trim().max(20).optional(),
 });
 export async function GET() {
   const user = await currentUser();
@@ -53,6 +56,7 @@ export async function POST(
     secret();
     await db();
     let user;
+    let joinResultOut: string | undefined;
     if (action === "register") {
       if (!data.name) throw new Error("Name is required");
       const passwordHash = await bcrypt.hash(data.password, 12);
@@ -76,6 +80,7 @@ export async function POST(
             const [library] = await Library.create(
               [
                 {
+                  libraryCode: newLibraryCode(),
                   name: data.library || `${data.name}'s library`,
                   ownerId: user._id,
                 },
@@ -92,6 +97,12 @@ export async function POST(
       } finally {
         await session.endSession();
       }
+      let joinNotice: string | undefined;
+      if (data.role !== "owner" && user && data.libraryCode) {
+        try { await createJoinRequest((user as { _id: string })._id, data.libraryCode); joinNotice = "requested"; }
+        catch (e) { joinNotice = e instanceof Error ? e.message : "Library ID could not be used"; }
+      }
+      joinResultOut = joinNotice;
       if (data.role !== "owner" && user) await linkPendingStudent((user as { _id: string })._id, data.email).catch(() => null);
       if (newOrgId && data.referralCode) await attachReferral(newOrgId as string, data.referralCode).catch(() => null);
     } else if (action === "login") {
@@ -112,7 +123,7 @@ export async function POST(
       await clearLimit(acct);
     } else return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!user) throw new Error("Unable to create account");
-    const response = NextResponse.json({ role: user.role });
+    const response = NextResponse.json({ role: user.role, ...(joinResultOut ? { join: joinResultOut } : {}) });
     response.cookies.set("sq-session", await issueSession(String(user._id), user.sessionVersion ?? 0), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

@@ -33,3 +33,22 @@ export const ProductEvent = model(
   { name: { type: String, required: true, maxlength: 60 }, organizationId: id, day: { type: String, required: true }, createdAt: { type: Date, default: Date.now, expires: 400 * 86400 } },
   [[{ name: 1, day: 1 }, {}]],
 );
+
+/** A student's request to join a library by its Library ID. The owner verifies it before the student is linked. */
+export const JoinRequest = model(
+  "JoinRequest",
+  {
+    libraryId: { type: id, required: true },
+    userId: { type: id, required: true },
+    status: { type: String, enum: ["pending", "approved", "rejected", "cancelled"], default: "pending" },
+    message: { type: String, default: "", trim: true, maxlength: 300 },
+    note: { type: String, default: "", trim: true, maxlength: 300 },
+    decidedBy: id,
+    decidedAt: Date,
+  },
+  [
+    [{ libraryId: 1, status: 1, createdAt: -1 }, {}],
+    [{ userId: 1, createdAt: -1 }, {}],
+    [{ userId: 1 }, { unique: true, partialFilterExpression: { status: "pending" } }],
+  ],
+);

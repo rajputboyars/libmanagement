@@ -36,3 +36,25 @@ export function BranchSwitcher() {
   );
 }
 
+
+/** Owner sidebar chip: the Library ID students use to join. */
+export function LibraryIdChip({ notify }: { notify?: (m: string) => void }) {
+  const q = useQuery<Json>({ queryKey: ["join", "owner", false], queryFn: () => getJson("/api/join?view=requests"), staleTime: 60000, retry: false });
+  const d = q.data;
+  if (!d?.code) return null;
+  return (
+    <div className="sq-switch">
+      <span>Library ID{d.requests?.length ? ` · ${d.requests.length} to verify` : ""}</span>
+      <button className="button secondary" style={{ minHeight: 44, justifyContent: "space-between" }} aria-label={`Library ID ${d.code}. Copy`} onClick={() => { navigator.clipboard?.writeText(d.code); notify?.("Library ID copied."); }}>{d.code} <span aria-hidden>⧉</span></button>
+    </div>
+  );
+}
+
+/** Shown to students who have not joined a library yet. Study mode keeps working without one. */
+export function JoinBanner() {
+  const q = useQuery<Json>({ queryKey: ["join", "me"], queryFn: () => getJson("/api/join"), staleTime: 60000, retry: false });
+  const d = q.data;
+  if (!d || d.linked) return null;
+  const pending = (d.requests as Json[]).some((r) => r.status === "pending");
+  return <div className="sq-banner" role="status"><Building2 size={16} /><span>{pending ? "Your library is verifying your registration." : "Using a study library? Enter its Library ID to join it."}</span><Link href="/app/join">{pending ? "View status" : "Join a library"}</Link></div>;
+}

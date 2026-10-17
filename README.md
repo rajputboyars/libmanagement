@@ -83,3 +83,7 @@ Build for deployment with `npm run build`, then `npm start`. Supply production e
 - Existing databases: `npm run migrate:orgs -- --dry` then apply with approval.
 - Tools: `scripts/responsive-audit.mjs` (overflow, touch targets and screenshot baselines across 10 viewports via Chrome DevTools Protocol), `scripts/measure-bundle.mjs` (first-load JS), `scripts/qa-server.ts` (seeded local server on a disposable in-memory database).
 - Verification: `npm run typecheck && npm run lint && npm test && npm run build && npm run test:integration && npm run test:http`.
+
+## Offline behaviour (PWA)
+
+The installed app caches only static files and an offline page. It never stores API responses, pages or personal data, and caches are cleared on sign-out. Offline, you see a clear offline page; study sessions, quizzes, rewards and payments need a connection and are never confirmed or scored locally. There is no offline app shell or offline focus timer yet. Check it with `node scripts/pwa-check.mjs <url>`.

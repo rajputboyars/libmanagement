@@ -4,6 +4,7 @@ import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { Library, Membership, SeatAssignment, StaffMembership, StudentProfile, User } from "@/lib/models";
 import { Organization, OrganizationMembership, StudentTransfer } from "@/lib/saas-models";
+import { newLibraryCode } from "@/lib/join";
 import { PlanError, accessForLibrary, accessibleBranches, activeStudentCount, assertWritable, audit, verifyBranchAccess, verifyOrgOwner } from "@/lib/saas-server";
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
         if (count >= 1 && !access!.entitlements.features.includes("multi-branch")) throw new PlanError("Multiple branches are available on the Business plan. Upgrade from Billing.", "feature");
         if (count + 1 > access!.entitlements.limits.branches) throw new PlanError(`Your plan allows ${access!.entitlements.limits.branches} branch(es).`, "limit");
         const org = await Organization.findById(orgId).lean<{ ownerId: unknown; name: string }>();
-        record = await Library.create({ name: `${org!.name} — ${v.branchName}`, branchName: v.branchName, ownerId: org!.ownerId, organizationId: orgId, city: v.city, address: v.address });
+        record = await Library.create({ libraryCode: newLibraryCode(), name: `${org!.name} — ${v.branchName}`, branchName: v.branchName, ownerId: org!.ownerId, organizationId: orgId, city: v.city, address: v.address });
         await audit({ organizationId: orgId, actorId: user._id, actorRole: "org-owner", action: "branch.create", targetType: "library", targetId: String((record as { _id: unknown })._id) });
         break;
       }

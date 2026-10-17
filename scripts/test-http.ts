@@ -895,6 +895,110 @@ async function main() {
     assert.equal(jobs2["fee-due-reminders"].sent, 0);
     assert.ok(await JobRun.exists({ name: "billing-reconciliation", status: "ok" }));
     assert.equal(Object.values(jobs1).some((r) => (r as { error?: string }).error), false, "no job reported an error");
+    // ---- Library ID → student request → owner verification → seat allotment → punch in/out ----
+    const libOwner = await account("owner", "libowner@join.invalid");
+    const jr = (cookie: string, action: string, data: Record<string, unknown> = {}, status = 200) => api("/api/join", cookie, action, data, status);
+    const pu = (cookie: string, action: string, data: Record<string, unknown> = {}, status = 200) => api("/api/punch", cookie, action, data, status);
+    const ownerView = await getJson("/api/join?view=requests", libOwner);
+    const libraryCode = ownerView.code as string;
+    assert.match(libraryCode, /^LIB-[A-HJ-KM-NP-Z2-9]{6}$/, "every library gets a readable Library ID");
+    assert.equal((await getJson("/api/join?view=requests", libOwner)).code, libraryCode, "the Library ID is stable");
+    assert.notEqual((await getJson("/api/join?view=requests", other)).code, libraryCode, "each library has its own ID");
+    // students look the ID up before sending a request
+    const idPreview = await getJson(`/api/join?code=${encodeURIComponent(libraryCode.toLowerCase().replace("-", " "))}`, student);
+    assert.equal(idPreview.code, libraryCode); assert.ok(idPreview.library.name);
+    assert.equal((await fetch(`${base}/api/join?code=LIB-ZZZZZZ`, { headers: { cookie: student } })).status, 404);
+    assert.equal((await fetch(`${base}/api/join?code=${libraryCode}`)).status, 401, "lookup requires sign-in");
+    // a bad ID at registration does not block the account
+    const badReg = await send("/api/auth/register", { name: "Typo Student", email: "typo@join.invalid", password: pw(), role: "student", libraryCode: "LIB-ZZZZZZ" }, { Origin: base });
+    assert.equal(badReg.status, 200); assert.notEqual((await rawJson(badReg)).join, "requested");
+    // register with the Library ID → pending request
+    const joinPassword = pw();
+    const reg1 = await send("/api/auth/register", { name: "Join Student", email: "join1@join.invalid", password: joinPassword, role: "student", libraryCode }, { Origin: base });
+    assert.equal(reg1.status, 200); assert.equal((await rawJson(reg1)).join, "requested");
+    const joiner = (reg1.headers.get("set-cookie") ?? "").split(";")[0];
+    const joinerUser = await User.findOne({ email: "join1@join.invalid" });
+    assert.equal(joinerUser!.libraryId, undefined, "the student is not linked until the owner verifies");
+    await pu(joiner, "in", {}, 400); // no library yet
+    await jr(joiner, "request", { code: libraryCode }, 400); // one pending request at a time
+    const waiting = await getJson("/api/join?view=requests", libOwner);
+    assert.equal(waiting.requests.length, 1); assert.equal(waiting.requests[0].student.email, "join1@join.invalid");
+    const requestId = waiting.requests[0]._id;
+    await jr(joiner, "approve", { id: requestId }, 403); // students cannot approve
+    await jr(other, "approve", { id: requestId }, 400); // another library cannot approve it
+    assert.equal((await getJson("/api/join?view=requests", other)).requests.length, 0, "requests are private to their library");
+    // owner approves only: linked, but cannot punch without an active membership
+    await jr(libOwner, "approve", { id: requestId });
+    assert.equal(String((await User.findById(joinerUser!._id))!.libraryId).length, 24);
+    const prePunch = await pu(joiner, "in", {}, 400); assert.match(prePunch.error, /membership/i);
+    assert.equal((await getJson("/api/punch", joiner)).membershipActive, false);
+    await jr(libOwner, "approve", { id: requestId }, 400); // already decided
+    // allot a seat (existing validated allocation) and punch
+    await post(libOwner, "seats", { label: "J1", floor: "G" }); await post(libOwner, "shifts", { name: "Day", start: 360, end: 1320 }); await post(libOwner, "plans", { name: "Monthly", amount: 100000, days: 30 });
+    const jstate = await get(libOwner);
+    await post(libOwner, "memberships", { userId: String(joinerUser!._id), planId: jstate.plans[0]._id, seatId: jstate.seats[0]._id, start: new Date(Date.now() - 5000).toISOString(), shiftStart: 360, shiftEnd: 1320, discount: 0 });
+    assert.equal((await getJson("/api/punch", joiner)).membershipActive, true);
+    const inRes = await pu(joiner, "in");
+    assert.ok(inRes.at);
+    assert.match((await pu(joiner, "in", {}, 400)).error, /already punched in/i);
+    const presence = await getJson("/api/punch", libOwner);
+    const inside = presence.inside.find((s: { name: string }) => s.name === "Join Student");
+    assert.ok(inside && inside.seat === "J1", "the library sees who is inside and on which seat");
+    assert.equal((await getJson("/api/punch", joiner)).inside, true);
+    await pu(joiner, "out");
+    assert.match((await pu(joiner, "out", {}, 400)).error, /not punched in/i);
+    await pu(joiner, "in"); await pu(joiner, "out"); // a second visit the same day
+    const mine = await getJson("/api/punch", joiner);
+    assert.equal(mine.inside, false); assert.equal(mine.today.sessions.length, 2, "both visits are in the student's history");
+    const libLog = (await getJson("/api/punch", libOwner)).log.find((r: { name: string }) => r.name === "Join Student");
+    assert.equal(libLog.sessions.length, 2, "and in the library's record");
+    const legacy = await getJson("/api/workspace?resource=attendance", libOwner);
+    assert.ok(legacy.records.length >= 1 && legacy.records.some((r: { checkOut?: string }) => r.checkOut), "existing attendance screens still see the day record with first in and last out");
+    // simultaneous punch-ins from two devices: only one succeeds
+    const parallel = await Promise.all(Array.from({ length: 6 }, () => send("/api/punch", { action: "in", data: {} }, { cookie: joiner, Origin: base })));
+    assert.equal(parallel.filter((r) => r.status === 200).length, 1, "exactly one concurrent punch-in is recorded");
+    // owner can close a forgotten punch-out; other libraries cannot
+    await pu(other, "manual-out", { userId: String(joinerUser!._id) }, 400);
+    await pu(libOwner, "manual-out", { userId: String(joinerUser!._id) });
+    assert.equal((await getJson("/api/punch", joiner)).inside, false);
+    await pu(joiner, "manual-out", { userId: String(joinerUser!._id) }, 403);
+    // stale open visits are closed and flagged, never counted
+    const { Attendance: AttendanceDoc } = await import("../src/lib/models");
+    await AttendanceDoc.updateOne({ userId: joinerUser!._id, day: new Date().toISOString().slice(0, 10) }, { $push: { sessions: { inAt: new Date(Date.now() - 20 * 3600000), method: "app" } } });
+    const afterStale = await getJson("/api/punch", joiner);
+    assert.equal(afterStale.inside, false, "a visit open for 20 hours is closed automatically");
+    assert.ok(afterStale.today.sessions.some((s: { auto: boolean }) => s.auto));
+    await pu(joiner, "in"); await pu(joiner, "out");
+    const joinedLibId = String((await User.findById(joinerUser!._id))!.libraryId);
+    // QR proof-of-presence mode
+    await jr(libOwner, "set-policy", { punchPolicy: "qr" });
+    assert.match((await pu(joiner, "in", {}, 400)).error, /scan the QR/i);
+    assert.match((await pu(joiner, "in", { token: "not-a-token" }, 400)).error, /expired or is invalid/i);
+    const makeToken = async (lib: string, purpose = "attendance") => new SignJWT({ libraryId: lib, purpose }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("10m").sign(new TextEncoder().encode(sessionSecret));
+    assert.match((await pu(joiner, "in", { token: await makeToken(String(otherCtx.activeBranchId)) }, 400)).error, /not for your library/i);
+    assert.match((await pu(joiner, "in", { token: await makeToken(joinedLibId, "other") }, 400)).error, /not for your library/i);
+    await pu(joiner, "in", { token: await makeToken(joinedLibId) });
+    await pu(joiner, "out"); // leaving never needs a code
+    await jr(libOwner, "set-policy", { punchPolicy: "app" });
+    await jr(libOwner, "set-policy", { punchPolicy: "qr" }); await jr(libOwner, "set-policy", { punchPolicy: "app" });
+    await jr(joiner, "set-policy", { punchPolicy: "qr" }, 403);
+    // rejection path
+    const reg2 = await send("/api/auth/register", { name: "Rejected Student", email: "join2@join.invalid", password: pw(), role: "student", libraryCode }, { Origin: base });
+    const rejCookie = (reg2.headers.get("set-cookie") ?? "").split(";")[0];
+    const rejReq = (await getJson("/api/join?view=requests", libOwner)).requests[0]._id;
+    await jr(libOwner, "reject", { id: rejReq, note: "Not in our batch list" });
+    const rejView = await getJson("/api/join", rejCookie);
+    assert.equal(rejView.linked, null); assert.equal(rejView.requests[0].status, "rejected"); assert.equal(rejView.requests[0].note, "Not in our batch list");
+    await pu(rejCookie, "in", {}, 400);
+    await jr(rejCookie, "request", { code: libraryCode }); // may try again after a rejection
+    await jr(joiner, "request", { code: libraryCode }, 400); // already in a library
+    // a student cannot read another library's requests or presence presence
+    assert.equal((await fetch(`${base}/api/punch?day=2026-01-01`, { headers: { cookie: joiner } })).status, 200); // students get their own view, not the library's
+    assert.equal((await getJson("/api/punch?day=2026-01-01", joiner)).log, undefined);
+    // forgotten punch-outs are closed by the scheduled job too
+    await AttendanceDoc.updateOne({ userId: joinerUser!._id, day: new Date().toISOString().slice(0, 10) }, { $push: { sessions: { inAt: new Date(Date.now() - 30 * 3600000), method: "app" } } });
+    const jobRun = (await sa("jobs-run", {})).record.results["stale-punches"];
+    assert.ok(jobRun.closed >= 1, "the stale-punches job closes forgotten visits");
     console.log(
       "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant.",
     );

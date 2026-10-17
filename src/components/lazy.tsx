@@ -34,3 +34,7 @@ export const DemoPage = dynamic(() => import("./saas-public").then((m) => m.Demo
 export const SandboxCheckout = dynamic(() => import("./saas-public").then((m) => m.SandboxCheckout), { loading: Skeleton });
 export const SaasPricing = dynamic(() => import("./saas-public").then((m) => m.SaasPricing), { loading: Skeleton });
 export const Auth = dynamic(() => import("./auth").then((m) => m.Auth), { loading: Skeleton });
+export const StudentJoin = dynamic(() => import("./join").then((m) => m.StudentJoin), { loading: Skeleton });
+export const StudentPunch = dynamic(() => import("./join").then((m) => m.StudentPunch), { loading: Skeleton });
+export const OwnerJoinRequests = dynamic(() => import("./join").then((m) => m.OwnerJoinRequests), { loading: Skeleton });
+export const OwnerPresence = dynamic(() => import("./join").then((m) => m.OwnerPresence), { loading: Skeleton });

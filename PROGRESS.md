@@ -226,3 +226,21 @@ Release decision: **NOT READY** — see [RELEASE_READINESS.md](RELEASE_READINESS
 - [x] Tests: 80 unit (78 pass, 2 skipped DB tests that run in integration), 3 integration, extended HTTP workflow (security, privacy, concurrency, pilot, jobs, SEO/PWA endpoints); all PASS
 
 Not done (blocked on external access): provider backups, monitoring provider, Razorpay test/live verification, email provider, hosted CI run, staging/production infrastructure, legal review, real pilot.
+
+### PWA check (2026-10-17)
+
+`scripts/pwa-check.mjs` (CDP): 25/25 checks pass. Six issues recorded in RELEASE_READINESS.md (P1–P6): owner/admin start-page dead end, offline banner overlapping the mobile bottom nav, raw "Failed to fetch" on offline actions, unbounded service-worker cache, signed-out installed-app lands on a preview, offline support limited by design. Not fixed; not tested on real devices.
+
+### PWA fixes (2026-10-17)
+
+P1–P5 fixed and covered by 7 new checks in `scripts/pwa-check.mjs` (32/32 pass): role-aware redirect, top offline bar, friendly offline errors, bounded versioned cache (v2), signed-out installed-app launch opens sign-in. P6 (offline limits) documented as a design limit. Still untested on real phones.
+
+## Library ID, join verification and punch in/out
+
+Flow: a library gets a Library ID (`LIB-XXXXXX`, shown to the owner at `/owner/join-requests`) -> a student enters it while registering or under `/app/join` -> the owner approves (optionally allotting a seat, using the existing validated membership rules) -> the student punches in on arrival and out on leaving at `/app/punch`.
+
+- One `Attendance` document per library, student and day holds `sessions[]`, so the student history and the library log read the same record. Owner views: `/owner/presence` (who is inside now, day log).
+- Sessions left open for over 16 hours are auto-closed, flagged and counted as 0 minutes (job `stale-punches` and lazily on read).
+- Punch-in needs an active membership. Optional `punchPolicy: "qr"` (Pro, `qr-attendance`) requires scanning the desk QR to punch in.
+- Existing libraries get an ID lazily or via `npm run migrate:orgs`.
+- Verified: typecheck, lint, unit tests (87 run, 85 pass, 2 skipped), extended HTTP workflow, screen tour, and a manual browser walkthrough (register with a sloppy ID -> approve and allot seat A1 -> punch in/out -> visit visible in the owner's log).

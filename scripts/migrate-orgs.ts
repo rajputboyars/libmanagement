@@ -6,6 +6,7 @@
 import mongoose from "mongoose";
 import { Library } from "../src/lib/models";
 import { ensureOrganizationForLibrary } from "../src/lib/saas-server";
+import { ensureLibraryCode } from "../src/lib/join";
 
 async function main() {
   const dry = process.argv.includes("--dry");
@@ -14,6 +15,10 @@ async function main() {
   const pending = await Library.find({ organizationId: { $exists: false } }).select("_id name").lean<{ _id: unknown; name: string }[]>();
   console.log(`${pending.length} libraries without an organization${dry ? " (dry run)" : ""}`);
   if (!dry) for (const l of pending) { const id = await ensureOrganizationForLibrary(l._id as never); console.log(`  ${l.name} -> organization ${id}`); }
+  // Library IDs for every library that does not have one yet (idempotent).
+  const noCode = await Library.find({ libraryCode: { $exists: false } }).select("_id").lean<{ _id: unknown }[]>();
+  console.log(`${noCode.length} libraries without a Library ID${dry ? " (dry run)" : ""}`);
+  if (!dry) for (const l of noCode) await ensureLibraryCode(l._id);
   await mongoose.disconnect();
 }
 main().catch((e) => { console.error(e); process.exit(1); });

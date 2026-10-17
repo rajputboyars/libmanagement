@@ -13,7 +13,7 @@ const PRIVATE = ["/app", "/owner", "/super-admin", "/billing", "/login", "/regis
 export async function generateMetadata({ params }: { params: Promise<{ slug?: string[] }> }): Promise<Metadata> {
   const { slug = [] } = await params;
   const path = "/" + slug.join("/");
-  if (PRIVATE.some((p) => path === p || path.startsWith(p + "/"))) return { title: "StudyQuest", robots: { index: false, follow: false } };
+  if (PRIVATE.some((p) => path === p || path.startsWith(p + "/"))) return { title: { absolute: "StudyQuest" }, robots: { index: false, follow: false } };
   const meta = PUBLIC[path];
   if (!meta) return { title: "Page not found", robots: { index: false } };
   return { title: path === "/" ? { absolute: meta.title } : meta.title, description: meta.description, alternates: { canonical: path }, openGraph: { title: meta.title, description: meta.description, url: path, type: "website" } };

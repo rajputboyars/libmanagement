@@ -3,7 +3,8 @@
  * It never caches /api responses or HTML documents, so no personal, financial or authenticated data is stored on the device.
  * Bump VERSION to invalidate old caches.
  */
-const VERSION = "v1";
+const VERSION = "v2";
+const MAX_RUNTIME_ENTRIES = 120; // oldest runtime entries are evicted so old build chunks cannot pile up
 const STATIC = `sq-static-${VERSION}`;
 const PRECACHE = ["/offline.html", "/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png"];
 
@@ -16,6 +17,14 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "clear-caches") event.waitUntil(caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))));
 });
+let trimQueue = Promise.resolve();
+async function trimCache(max) {
+  const cache = await caches.open(STATIC);
+  const keys = await cache.keys();
+  const runtime = keys.filter((r) => { const u = new URL(r.url); return !(u.search === "" && PRECACHE.includes(u.pathname)); });
+  await Promise.all(runtime.slice(0, Math.max(0, runtime.length - max)).map((r) => cache.delete(r)));
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -28,5 +37,15 @@ self.addEventListener("fetch", (event) => {
   }
   const immutable = url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/") || /\.(?:woff2?|svg|png)$/.test(url.pathname);
   if (!immutable) return;
-  event.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(STATIC).then((c) => c.put(req, copy)); } return res; })));
+  event.respondWith((async () => {
+    const hit = await caches.match(req);
+    if (hit) return hit;
+    const res = await fetch(req);
+    if (res.ok) {
+      const copy = res.clone();
+      // Store and trim while the event is still alive; trims are serialised so concurrent fetches cannot overshoot the cap.
+      event.waitUntil(trimQueue = trimQueue.then(async () => { await (await caches.open(STATIC)).put(req, copy); await trimCache(MAX_RUNTIME_ENTRIES); }).catch(() => null));
+    }
+    return res;
+  })());
 });

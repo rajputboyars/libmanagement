@@ -39,6 +39,8 @@ export const Library = model("Library", {
     enum: ["trial", "active", "paused"],
     default: "trial",
   },
+  libraryCode: { type: String, uppercase: true, trim: true, unique: true, sparse: true },
+  punchPolicy: { type: String, enum: ["app", "qr"], default: "app" },
   organizationId: { type: id, index: true },
   branchName: { type: String, default: "", trim: true, maxlength: 80 },
   publicSlug: { type: String, lowercase: true, trim: true, sparse: true, unique: true },
@@ -174,7 +176,15 @@ export const Expense = model("Expense", {
 });
 export const Attendance = model(
   "Attendance",
-  { ...tenant, userId: id, day: String, checkIn: Date, checkOut: Date },
+  {
+    ...tenant,
+    userId: id,
+    day: String,
+    checkIn: Date,
+    checkOut: Date,
+    // Every punch-in/out pair of the day. checkIn/checkOut keep the first in and last out for older screens and reports.
+    sessions: [{ _id: false, inAt: { type: Date, required: true }, outAt: Date, method: { type: String, enum: ["app", "qr", "manual"], default: "app" }, auto: { type: Boolean, default: false } }],
+  },
   [[{ libraryId: 1, userId: 1, day: 1 }, { unique: true }]],
 );
 export const Complaint = model("Complaint", {
