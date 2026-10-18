@@ -71,3 +71,26 @@ export async function punchOut(input: { libraryId: unknown; userId: unknown; now
   );
   return doc ? { ok: true as const, at: now, record: doc } : { ok: false as const, reason: "not-in" as const };
 }
+
+// ───────────────────────── Location check (geofence) ─────────────────────────
+export const PUNCH_RADIUS_M = 100;
+/** A reading less precise than this cannot prove the student is inside the radius. */
+export const MAX_ACCURACY_M = 100;
+export type Point = { lat: number; lng: number };
+
+/** Great-circle distance in metres (haversine). */
+export function distanceMeters(a: Point, b: Point) {
+  const rad = (d: number) => (d * Math.PI) / 180, R = 6371000;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+export type GeoResult = { ok: true; distance: number } | { ok: false; reason: "no-location" | "inaccurate" | "outside"; distance?: number };
+/** Checks a reading from the student's phone against the library's point. */
+export function checkGeofence(fence: Point, reading?: { lat?: number; lng?: number; accuracy?: number }): GeoResult {
+  if (reading?.lat === undefined || reading.lng === undefined) return { ok: false, reason: "no-location" };
+  if (reading.accuracy !== undefined && reading.accuracy > MAX_ACCURACY_M) return { ok: false, reason: "inaccurate" };
+  const distance = distanceMeters(fence, { lat: reading.lat, lng: reading.lng });
+  return distance <= PUNCH_RADIUS_M ? { ok: true, distance } : { ok: false, reason: "outside", distance };
+}

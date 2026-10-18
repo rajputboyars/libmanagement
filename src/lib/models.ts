@@ -41,6 +41,8 @@ export const Library = model("Library", {
   },
   libraryCode: { type: String, uppercase: true, trim: true, unique: true, sparse: true },
   punchPolicy: { type: String, enum: ["app", "qr"], default: "app" },
+  // Where the library is. When set, students can only punch in and out within PUNCH_RADIUS_M of this point.
+  geofence: { lat: { type: Number, min: -90, max: 90 }, lng: { type: Number, min: -180, max: 180 } },
   organizationId: { type: id, index: true },
   branchName: { type: String, default: "", trim: true, maxlength: 80 },
   publicSlug: { type: String, lowercase: true, trim: true, sparse: true, unique: true },

@@ -999,6 +999,29 @@ async function main() {
     await AttendanceDoc.updateOne({ userId: joinerUser!._id, day: new Date().toISOString().slice(0, 10) }, { $push: { sessions: { inAt: new Date(Date.now() - 30 * 3600000), method: "app" } } });
     const jobRun = (await sa("jobs-run", {})).record.results["stale-punches"];
     assert.ok(jobRun.closed >= 1, "the stale-punches job closes forgotten visits");
+
+    // ---- 100 m location check on punch in / out ----
+    const here = { lat: 28.6139, lng: 77.209 }; // one degree of latitude is about 111,195 m
+    const near = { lat: here.lat + 0.0005, lng: here.lng, accuracy: 15 }; // about 56 m away
+    const far = { lat: here.lat + 0.002, lng: here.lng, accuracy: 15 }; // about 222 m away
+    assert.equal((await getJson("/api/punch", joiner)).geo, null, "no location limit until the owner sets one");
+    await jr(joiner, "set-location", here, 403); // students cannot set it
+    await jr(libOwner, "set-location", { lat: 120, lng: 0 }, 422);
+    await jr(libOwner, "set-location", here);
+    assert.equal((await getJson("/api/punch", joiner)).geo.radiusM, 100);
+    assert.deepEqual((await getJson("/api/join?view=owner", libOwner)).library.location, here);
+    assert.equal((await getJson("/api/punch", joiner)).inside, false);
+    assert.match((await pu(joiner, "in", {}, 400)).error, /allow location/i);
+    assert.match((await pu(joiner, "in", far, 400)).error, /out of geolocation/i);
+    assert.match((await pu(joiner, "in", { ...near, accuracy: 900 }, 400)).error, /not accurate/i);
+    assert.equal((await getJson("/api/punch", joiner)).inside, false, "a rejected punch records nothing");
+    await pu(joiner, "in", near);
+    assert.match((await pu(joiner, "out", far, 400)).error, /out of geolocation/i);
+    assert.equal((await getJson("/api/punch", joiner)).inside, true, "still inside after a rejected punch-out");
+    await pu(joiner, "out", near);
+    await pu(joiner, "in", near);
+    await pu(libOwner, "manual-out", { userId: String(joinerUser!._id) }); // the owner's manual close needs no location
+    assert.equal((await getJson("/api/punch", joiner)).inside, false);
     console.log(
       "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant.",
     );

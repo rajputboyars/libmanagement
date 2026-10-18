@@ -1,0 +1,222 @@
+<title>StudyQuest Screens</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: left sidebar grouped by role with one tab per screen; main area shows the screen, then a detailed feature write-up under it. */
+:root { --bg: #f3f5f2; --panel: #ffffff; --fg: #17211c; --muted: #5d6b63; --line: #d9dfd9; --accent: #1f6f5c; --accent-soft: #e2efe9; --accent-fg: #ffffff;
+  --display: "Fraunces", Georgia, serif; --body: "Instrument Sans", system-ui, sans-serif; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #121815; --panel: #1b241f; --fg: #e8eee9; --muted: #98a79d; --line: #2d3a33; --accent: #5fc2a6; --accent-soft: #1f3a31; --accent-fg: #0d1511; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #121815; --panel: #1b241f; --fg: #e8eee9; --muted: #98a79d; --line: #2d3a33; --accent: #5fc2a6; --accent-soft: #1f3a31; --accent-fg: #0d1511; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 48px; }
+.app { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 28px; align-items: start; }
+.side { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; padding-right: 4px; }
+.brand { font: 600 1.35rem/1.2 var(--display); margin: 0 0 2px; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+.grp { margin: 0 0 16px; }
+.grp h2 { font: 600 11px/1 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; padding: 0 10px; }
+.item { display: block; width: 100%; text-align: left; font: inherit; padding: 7px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--fg); cursor: pointer; }
+.item:hover { background: var(--accent-soft); }
+.item[aria-current="page"] { background: var(--accent); color: var(--accent-fg); }
+.role { display: block; width: 100%; text-align: left; font: inherit; font-weight: 600; padding: 10px 12px; margin-bottom: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--fg); cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+.role small { opacity: .7; font-weight: 400; font-variant-numeric: tabular-nums; }
+.role:hover { background: var(--accent-soft); }
+.role[aria-current="page"] { background: var(--accent); color: var(--accent-fg); }
+.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 0 12px; margin-bottom: 8px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.tab { font: inherit; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+.tab:hover { border-color: var(--accent); }
+.tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.role:focus-visible, .tab:focus-visible, .nav:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+main { min-width: 0; }
+.crumb { color: var(--muted); font-size: 13px; margin: 0 0 4px; }
+.crumb code { font: 12.5px ui-monospace, Consolas, monospace; }
+h1 { font: 600 clamp(1.6rem, 3.5vw, 2.2rem)/1.15 var(--display); margin: 0 0 8px; text-wrap: balance; }
+.lead { font-size: 1.05rem; max-width: 70ch; margin: 0 0 18px; }
+.preview { border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: auto; max-height: 78vh; }
+.preview .sp { position: relative; }
+.preview iframe { position: absolute; top: 0; left: 0; width: 1280px; height: 1800px; border: 0; transform-origin: 0 0; background: #fff; }
+.detail { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 28px; margin-top: 24px; }
+.detail h2 { font: 600 1.15rem/1.3 var(--display); margin: 0 0 10px; }
+.feat { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.feat li { padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.feat strong { display: block; margin-bottom: 2px; }
+.feat span { color: var(--muted); }
+.aside { display: grid; gap: 16px; align-content: start; }
+.box { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.box h3 { margin: 0 0 6px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.box p { margin: 0; }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin-top: 24px; }
+.nav { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+.nav[disabled] { opacity: .4; cursor: default; }
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .side { position: static; max-height: none; }
+  .groups { display: flex; gap: 6px; flex-wrap: wrap; }
+  .role { width: auto; }
+  .sub { display: none; }
+  .detail { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=Instrument+Sans:wght@400;600&display=swap">
+
+<div class="app">
+  <nav class="side" id="side" aria-label="Roles">
+    <p class="brand">StudyQuest</p>
+    <p class="sub">Pick a role to see its screens.</p>
+    <div class="groups" id="groups"></div>
+  </nav>
+  <main id="main"></main>
+</div>
+
+<script>
+const D = /*DATA*/;
+const ROLES = [
+  ["public", "Public visitor"],
+  ["student", "Student"],
+  ["owner", "Library owner"],
+  ["admin", "Super admin"],
+];
+// Per screen: name, one-line purpose, who uses it, feature list [title, detail], and what happens next.
+const INFO = {
+"public:/": { n: "Home", s: "The landing page. It explains StudyQuest in a few seconds and moves visitors toward registering or finding a library.", who: "Anyone visiting before they have an account.", f: [
+  ["Clear promise and sign-up", "Headline, short pitch and two buttons: start free, or find a library near you."],
+  ["Proof of what is inside", "Highlights seat management, fee tracking, focus timer and the student community so owners and students both see their side."],
+  ["Entry to every public page", "Header links to Features, Pricing and Discover; Log in and Get started are always visible."]], next: "Visitors continue to Register or Discover." },
+"public:/features": { n: "Features", s: "A walk through what the platform gives students and library owners.", who: "Visitors deciding whether to sign up.", f: [
+  ["Seats, shifts and memberships", "Explains how owners allot seats and run monthly plans without paper registers."],
+  ["Focus timer and learning tools", "Shows the student side: planner, quizzes, streaks and rewards."],
+  ["Payments and dues", "Fee collection and pending dues in one place."],
+  ["Community and privacy", "Study groups and events, with each student's data kept private to them."]], next: "Ends with a call to start free." },
+"public:/pricing": { n: "Pricing", s: "Subscription plans for libraries, with what each plan includes and where the limits are.", who: "Library owners comparing plans.", f: [
+  ["Plan comparison", "Side-by-side plans with price, student limits and included features."],
+  ["Feature gates", "Shows which features need a higher plan, such as QR attendance and extra branches."],
+  ["Start free", "Owners can begin on the free plan and upgrade later from Billing."]], next: "Owners go on to Register." },
+"public:/discover": { n: "Discover libraries", s: "A public directory where students search for study libraries near them.", who: "Students who do not yet have a Library ID.", f: [
+  ["Search and filters", "Find libraries by city, facilities and availability."],
+  ["Library profile", "Each listing opens a public page with timings, amenities and photos."],
+  ["Contact and join", "Students reach the library, get its Library ID, and join through the app."]], next: "A student takes the Library ID to Register or Join a library." },
+"public:/login": { n: "Log in", s: "Sign-in for students, library owners and staff.", who: "Existing users of every role.", f: [
+  ["One sign-in, role-aware", "After login each person lands in their own area: student app, owner console or admin."],
+  ["Account protection", "Rate-limited attempts and secure sessions. A password reset link is one click away."],
+  ["Return to where you were", "Students waiting on a join request land on the Join page."]], next: "Goes to the student app, owner console or super admin." },
+"public:/register": { n: "Register", s: "Create an account as a student or as a library owner.", who: "New students and new library owners.", f: [
+  ["Student or owner path", "Students give basic details; owners also name their library and city."],
+  ["Library ID field (students)", "Optional. A student types the Library ID from their library and a join request is created automatically. Spaces, case and a missing dash are forgiven."],
+  ["New library gets a Library ID", "When an owner registers, the library receives its ID like LIB-AB12CD to share with students."]], next: "Students go to Join a library; owners go to their dashboard." },
+"student:/app": { n: "Student home", s: "The student's daily starting point: what to study today and how they are doing.", who: "Students.", f: [
+  ["Today's plan", "Tasks and study blocks for the day."],
+  ["Streak and progress", "Study streak, time studied and goals so the habit stays visible."],
+  ["Library status banner", "If the student has not joined a library, a banner points to Join a library."],
+  ["Shortcuts", "Roadmap, planner, quiz, rewards, punch in/out and more are one tap away."]], next: "Links out to every student screen." },
+"student:/app/join": { n: "Join a library", s: "Connect the student to their library using its Library ID. This is the first step of the join flow.", who: "Students who are not linked to a library yet.", f: [
+  ["Enter the Library ID", "Type the ID your library gave you. The app shows the library name and city so you know it is the right one."],
+  ["Send a request", "Add an optional message (name, batch, exam). Only the library owner sees it."],
+  ["Getting-started quest", "Four steps with a progress bar and XP: enter the ID, get verified, get a seat, first punch-in."],
+  ["Live status", "Pending, approved or not approved, with a notification when the owner decides. A pending request can be cancelled."]], next: "After approval and a seat, the student can punch in." },
+"student:/app/punch": { n: "Punch in / out", s: "Record arrival and departure at the library. Every visit is saved for the student and for the library at the same time.", who: "Students whose library has approved them and allotted a seat.", f: [
+  ["Punch in on arrival", "One tap. It needs an active membership. Libraries on the Pro plan can require scanning the desk QR to prove presence."],
+  ["Punch out on leaving", "One tap. The visit length is shown straight away."],
+  ["Time studied", "Today, last 7 days and visits today, so students see their own effort."],
+  ["Recent visits", "A list of days with in and out times. A visit left open over 16 hours is closed automatically and counted as 0 minutes."],
+  ["Shared record", "The same record feeds the library's Live presence and Attendance screens."]], next: "The owner sees the visit on Live presence." },
+"student:/app/roadmap": { n: "Exam roadmap", s: "A structured syllabus path for the student's target exam.", who: "Students preparing for an exam.", f: [
+  ["Topic map", "Subjects and topics laid out in the order to study them."],
+  ["Progress per topic", "Mark topics done and see how much of the syllabus is covered."],
+  ["What next", "Suggests the next topic based on what is incomplete."]], next: "Feeds the planner and quizzes." },
+"student:/app/planner": { n: "Study planner", s: "Plan study time by day and week.", who: "Students.", f: [
+  ["Daily and weekly view", "Add tasks and study blocks against dates."],
+  ["Goals", "Set targets and watch them fill as the week goes on."],
+  ["Revision reminders", "Topics come back for revision on a schedule."]], next: "Completed tasks add to the streak." },
+"student:/app/quiz": { n: "Practice quiz", s: "Short quizzes to test a topic.", who: "Students.", f: [
+  ["Topic quizzes", "Questions drawn from the question bank for the chosen topic."],
+  ["Instant results", "Score and correct answers right after finishing."],
+  ["Accuracy tracking", "Weak topics are flagged so they get more practice."]], next: "Results feed learning insights and rewards." },
+"student:/app/rewards": { n: "Rewards", s: "XP, badges and rewards earned by studying and showing up.", who: "Students.", f: [
+  ["XP and badges", "Earned for streaks, quizzes, focus sessions and attendance."],
+  ["Reward store", "Spend points on rewards offered by the library."],
+  ["Motivation loop", "Visible progress that encourages daily study."]], next: "Libraries can add their own rewards." },
+"owner:/owner": { n: "Owner dashboard", s: "The owner's overview of the library for today.", who: "Library owners and permitted staff.", f: [
+  ["Occupancy", "Seats taken and free right now."],
+  ["Collections and dues", "Fees collected and what is still pending."],
+  ["Needs attention", "Memberships ending soon, open complaints and waiting requests."],
+  ["Library ID chip", "The ID is always visible in the sidebar with a copy button."]], next: "Links to every owner screen." },
+"owner:/owner/join-requests": { n: "Join requests", s: "Verify the students who joined with your Library ID, and give them a seat in the same step.", who: "Library owners, and staff with the students permission.", f: [
+  ["Your Library ID", "Large, with a Copy button. Share it with students."],
+  ["Waiting list", "Each request shows the student name, email, time and any message."],
+  ["Approve and allot seat", "Pick the fee plan, shift and seat, and a start date. The server checks seat clashes, seats under maintenance and plan limits."],
+  ["Approve only or reject", "Approve to link the student without a seat yet, or reject with a note. The student is notified either way."],
+  ["QR punch-in option", "On the Pro plan, require students to scan the desk QR to punch in."],
+  ["All requests", "A history of approved, rejected and cancelled requests."]], next: "The approved student can now punch in." },
+"owner:/owner/presence": { n: "Live presence", s: "See who is inside the library right now, and the log for any day.", who: "Library owners, and staff with the attendance permission.", f: [
+  ["Inside now", "Each student with seat and the time they punched in."],
+  ["Day log", "Every visit for the chosen day with in and out times and total minutes."],
+  ["Totals", "Students visited, total study minutes and visits that were auto-closed."],
+  ["Manual punch-out", "If a student forgets, the owner can punch them out. The action is recorded in the audit log."]], next: "Same data as the student's own history." },
+"owner:/owner/students": { n: "Students", s: "Everyone linked to the library.", who: "Library owners and staff.", f: [
+  ["Student list", "Name, contact, plan, seat and membership status."],
+  ["Add and edit", "Create students directly or import them in bulk."],
+  ["Per-student detail", "Payments, attendance and notes for one student."]], next: "Links to memberships and payments." },
+"owner:/owner/seats": { n: "Seat map", s: "A visual map of every seat and who sits there.", who: "Library owners and staff.", f: [
+  ["Free, taken and out-of-service", "Colour-coded seats at a glance."],
+  ["Assign and move", "Allot a seat to a student or move them. Overlaps are blocked by the server."],
+  ["Maintenance", "Mark a seat out of service so it cannot be allotted."]], next: "Allotments come from Join requests or Memberships." },
+"owner:/owner/attendance": { n: "Attendance", s: "Attendance history built from punch in and out records.", who: "Library owners and staff.", f: [
+  ["By day and student", "See who came, when, and for how long."],
+  ["Same source as presence", "One record per student per day, so owner and student views always agree."],
+  ["Patterns", "Spot students who stopped coming."]], next: "Feeds reports." },
+"owner:/owner/payments": { n: "Payments", s: "Record fee payments and track dues.", who: "Library owners and staff.", f: [
+  ["Record a payment", "Cash, UPI or other modes against a student's membership."],
+  ["Pending dues", "See who owes what and since when."],
+  ["Receipts and history", "Every payment is kept with its date and mode."]], next: "Totals show on the dashboard and reports." },
+"admin:/super-admin": { n: "Platform overview", s: "The platform operator's view across every library.", who: "Super admins only.", f: [
+  ["All libraries", "Search and review every library and branch on the platform."],
+  ["Subscriptions and business", "Plans, revenue and growth for the whole product."],
+  ["Moderation and content", "Syllabus, question bank and reports from users."],
+  ["Audit and safety", "Platform actions are logged."]], next: "Deeper pages: libraries, subscriptions, analytics, syllabus, question bank." },
+};
+const doc = (html) => "<!doctype html><html><head><meta charset=utf-8><style>" + D.css + "</style></head><body>" + html + "</body></html>";
+const $ = (id) => document.getElementById(id);
+const key = (s) => s.role + "-" + (s.path === "/" ? "home" : s.path.replace(/^\//, "").replace(/\//g, "-"));
+const list = ROLES.flatMap(([r]) => D.screens.filter((s) => s.role === r));
+let cur = Math.max(0, list.findIndex((s) => key(s) === location.hash.slice(1)));
+const info = (s) => INFO[s.role + ":" + s.path] || { n: s.path, s: "", who: "", f: [], next: "" };
+
+function select(i) {
+  cur = i; const s = list[i]; try { history.replaceState(null, "", "#" + key(s)); } catch {}
+  draw(); window.scrollTo(0, 0);
+}
+function sidebar() {
+  $("groups").innerHTML = "";
+  const curRole = list[cur].role;
+  ROLES.forEach(([r, label]) => {
+    const b = document.createElement("button"); b.className = "role"; b.type = "button";
+    const first = list.findIndex((s) => s.role === r);
+    b.innerHTML = "<span></span><small></small>"; b.firstChild.textContent = label; b.lastChild.textContent = list.filter((s) => s.role === r).length;
+    if (r === curRole) b.setAttribute("aria-current", "page");
+    b.onclick = () => select(first); $("groups").appendChild(b);
+  });
+}
+function draw() {
+  sidebar();
+  const s = list[cur], n = info(s), role = ROLES.find((r) => r[0] === s.role)[1];
+  const m = $("main"); m.innerHTML = "";
+  const add = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; m.appendChild(e); return e; };
+  const tabs = add("div", "tabs"); tabs.setAttribute("role", "tablist");
+  list.forEach((x, i) => { if (x.role !== s.role) return; const b = document.createElement("button"); b.className = "tab"; b.type = "button"; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(i === cur)); b.textContent = info(x).n; b.onclick = () => select(i); tabs.appendChild(b); });
+  const c = add("p", "crumb"); c.append(role + " / "); const code = document.createElement("code"); code.textContent = s.path; c.appendChild(code);
+  add("h1", "", n.n); add("p", "lead", n.s);
+  const pv = add("div", "preview"); const sp = document.createElement("div"); sp.className = "sp"; pv.appendChild(sp);
+  const f = document.createElement("iframe"); f.setAttribute("sandbox", ""); f.setAttribute("title", n.n + " screen"); f.srcdoc = doc(s.html); sp.appendChild(f);
+  const fit = () => { const k = Math.max(0.2, Math.min(1, pv.clientWidth / 1280)); f.style.transform = "scale(" + k + ")"; sp.style.height = 1800 * k + "px"; };
+  fit(); window.onresize = fit;
+  const d = add("div", "detail"); const left = document.createElement("div"); const aside = document.createElement("div"); aside.className = "aside"; d.append(left, aside);
+  const h = document.createElement("h2"); h.textContent = "What this page gives you"; left.appendChild(h);
+  const ul = document.createElement("ul"); ul.className = "feat";
+  n.f.forEach(([t, x]) => { const li = document.createElement("li"); const st = document.createElement("strong"); st.textContent = t; const sp2 = document.createElement("span"); sp2.textContent = x; li.append(st, sp2); ul.appendChild(li); });
+  left.appendChild(ul);
+  const box = (t, x) => { const b = document.createElement("div"); b.className = "box"; const hh = document.createElement("h3"); hh.textContent = t; const p = document.createElement("p"); p.textContent = x; b.append(hh, p); aside.appendChild(b); };
+  box("Who uses it", n.who); box("What happens next", n.next); box("Screen path", s.path);
+  const pg = add("div", "pager"); const mk = (txt, i) => { const b = document.createElement("button"); b.className = "nav"; b.type = "button"; b.textContent = txt; if (i < 0 || i >= list.length) b.disabled = true; else b.onclick = () => select(i); pg.appendChild(b); };
+  mk("Previous screen", cur - 1); mk("Next screen", cur + 1);
+}
+draw();
+</script>

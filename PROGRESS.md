@@ -244,3 +244,11 @@ Flow: a library gets a Library ID (`LIB-XXXXXX`, shown to the owner at `/owner/j
 - Punch-in needs an active membership. Optional `punchPolicy: "qr"` (Pro, `qr-attendance`) requires scanning the desk QR to punch in.
 - Existing libraries get an ID lazily or via `npm run migrate:orgs`.
 - Verified: typecheck, lint, unit tests (87 run, 85 pass, 2 skipped), extended HTTP workflow, screen tour, and a manual browser walkthrough (register with a sloppy ID -> approve and allot seat A1 -> punch in/out -> visit visible in the owner's log).
+
+### Location check for punch in / out
+
+- The owner saves the library location once (`/owner/join-requests` -> "Library location" -> "Use my current location", owner only, audited). Students can then punch in and out only within **100 m** of it; otherwise the API answers "You are out of geolocation" with the distance.
+- The phone sends its coordinates and accuracy with each punch; the server measures the distance (haversine). Coordinates are checked, never stored. A reading less accurate than 100 m is refused, and a missing location (permission denied) is refused with a clear message.
+- Owner manual punch-out and the 16-hour auto-close need no location. Until an owner sets a location, a library has no limit (nothing to measure against); the owner page shows "not set".
+- `Permissions-Policy` now allows `geolocation=(self)`. A browser app cannot prove a location: a determined person can fake GPS. This stops casual remote punching; the optional desk-QR mode is the stronger check.
+- Verified: typecheck, lint, 91 unit tests (89 pass, 2 skipped), HTTP workflow (set location, inside/outside/inaccurate/missing, punch-out rule, manual close). Not verified: a real phone's GPS prompt in a browser.

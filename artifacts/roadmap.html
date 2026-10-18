@@ -1,0 +1,126 @@
+<title>StudyQuest Roadmap</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one column. Intro, a priority legend, then a vertical path of steps; each step opens to show kya hai, fayda, kaise kaam karta hai. */
+:root { --bg: #f4f6f3; --panel: #ffffff; --fg: #17211c; --muted: #5d6b63; --line: #d9dfd9; --accent: #1f6f5c; --accent-soft: #e2efe9; --accent-fg: #ffffff;
+  --p1: #b23a2f; --p1s: #f7e0dd; --p2: #96620a; --p2s: #f8ecd2; --p3: #2f5f9e; --p3s: #dfe9f6; --ok: #1d7a43; --ok-soft: #dff1e5;
+  --display: "Fraunces", Georgia, serif; --body: "Instrument Sans", system-ui, sans-serif; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #121815; --panel: #1b241f; --fg: #e8eee9; --muted: #98a79d; --line: #2d3a33; --accent: #5fc2a6; --accent-soft: #1f3a31; --accent-fg: #0d1511;
+  --p1: #f08a82; --p1s: #3d1f1c; --p2: #e6b45a; --p2s: #3a2f16; --p3: #8fb8ee; --p3s: #1c2c44; --ok: #6fd391; --ok-soft: #1c3526; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #121815; --panel: #1b241f; --fg: #e8eee9; --muted: #98a79d; --line: #2d3a33; --accent: #5fc2a6; --accent-soft: #1f3a31; --accent-fg: #0d1511;
+  --p1: #f08a82; --p1s: #3d1f1c; --p2: #e6b45a; --p2s: #3a2f16; --p3: #8fb8ee; --p3s: #1c2c44; --ok: #6fd391; --ok-soft: #1c3526; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.6 var(--body); padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+.wrap { max-width: 820px; margin: 0 auto; }
+h1 { font: 600 clamp(1.9rem, 5vw, 2.8rem)/1.1 var(--display); margin: 0 0 10px; text-wrap: balance; }
+.lead { color: var(--muted); max-width: 60ch; margin: 0 0 22px; font-size: 1.05rem; }
+.idea { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); margin-bottom: 22px; }
+.idea div { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.idea b { display: block; margin-bottom: 2px; }
+.idea span { color: var(--muted); font-size: 14.5px; }
+.filters { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
+.filters button { font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+.filters button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.filters button:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.group { margin-top: 30px; }
+.group h2 { font: 600 1.35rem/1.25 var(--display); margin: 0 0 2px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.tag { font: 600 12px/1 var(--body); padding: 4px 9px; border-radius: 99px; }
+.tag.p1 { background: var(--p1s); color: var(--p1); } .tag.p2 { background: var(--p2s); color: var(--p2); } .tag.p3 { background: var(--p3s); color: var(--p3); } .tag.p0 { background: var(--accent-soft); color: var(--accent); }
+.gd { color: var(--muted); margin: 0 0 12px; }
+.path { list-style: none; margin: 0; padding: 0 0 0 22px; border-left: 2px solid var(--line); display: grid; gap: 10px; }
+.step { position: relative; }
+.step::before { content: ""; position: absolute; left: -29px; top: 18px; width: 12px; height: 12px; border-radius: 50%; background: var(--line); border: 2px solid var(--bg); }
+.step[data-s="done"]::before { background: var(--ok); }
+.step[data-s="next"]::before { background: var(--p2); }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+summary { cursor: pointer; list-style: none; padding: 12px 14px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+summary::-webkit-details-marker { display: none; }
+.no { font: 600 13px var(--body); color: var(--muted); font-variant-numeric: tabular-nums; }
+.name { font-weight: 600; display: block; }
+.one { color: var(--muted); font-size: 14.5px; display: block; }
+.st { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+.st.done { background: var(--ok-soft); color: var(--ok); } .st.next { background: var(--p2s); color: var(--p2); }
+.body { padding: 2px 14px 14px; display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.body h3 { margin: 0; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.body p { margin: 0; }
+.body ol { margin: 0; padding-left: 20px; }
+.page { font: 13px ui-monospace, Consolas, monospace; color: var(--muted); }
+@media (max-width: 520px) { summary { grid-template-columns: minmax(0, 1fr); gap: 4px; } .no { display: none; } .st { justify-self: start; } }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=Instrument+Sans:wght@400;600&display=swap">
+
+<div class="wrap">
+  <h1>StudyQuest roadmap: pehle Library Admin Dashboard</h1>
+  <p class="lead">Idea simple hai. Pehle library owner ka dashboard banao, jahan se woh poori library chala sake. Phir priority ke hisaab se ek-ek feature usme jodte jao. Har step ke neeche simple Hinglish me likha hai ki woh kya hai, owner ko kya fayda hai, aur kaise kaam karta hai.</p>
+  <div class="idea">
+    <div><b>1. Pehle zaroori kaam</b><span>Seat, fees, attendance. Bina iske library chalti hi nahi.</span></div>
+    <div><b>2. Phir control aur time ki bachat</b><span>Reports, reminders, staff. Owner ka kaam kam hota hai.</span></div>
+    <div><b>3. Phir library badhana</b><span>Naye students, rewards, branches, paise kamana.</span></div>
+  </div>
+  <div class="filters" id="filters" role="group" aria-label="Filter">
+    <button type="button" data-f="all" aria-pressed="true">Sab</button>
+    <button type="button" data-f="done" aria-pressed="false">Ban gaya</button>
+    <button type="button" data-f="next" aria-pressed="false">Aage banega / baaki</button>
+  </div>
+  <div id="groups"></div>
+</div>
+
+<script>
+// status: done = ban gaya, next = aage banega ya bahari setup baaki
+const G = [
+{ tag: "p0", label: "Step 0", name: "Dashboard ki neev", desc: "Yeh pehle banta hai, kyunki baaki sab features isi par tikte hain.", steps: [
+  ["Login aur roles", "Owner, staff, student aur admin ka alag-alag login.", "done", "Har banda sirf apna hissa dekhta hai. Owner poori library dekhta hai, staff sirf wahi jo owner permission de, student sirf apna data.", "Owner ki library ka data kisi aur library ko kabhi nahi dikhta. Galti se bhi nahi.", "Login karo. System role dekhkar sahi screen khol deta hai.", "/login"],
+  ["Owner dashboard", "Ek screen par library ka haal: kitni seat bhari, kitna paisa aaya, kiski fees baaki.", "done", "Owner ko roz subah ek nazar me pata chal jata hai ki aaj kya dekhna hai.", "Dashboard seat, fees aur waiting requests ka summary dikhata hai. Neeche se har feature ka button hai.", "Login ke baad pehla page. Left menu se kisi bhi section me jao.", "/owner"]]},
+{ tag: "p1", label: "Priority 1: Must", name: "Roz ka kaam", desc: "Yeh features pehle chahiye. Inke bina owner Excel aur register par hi atka rahega.", steps: [
+  ["Library ID aur student join", "Har library ko ek ID milti hai, jaise LIB-AB12CD. Student wahi ID daalkar join request bhejta hai.", "done", "Owner ko students ko ek-ek karke register nahi karna padta. Student khud aata hai, owner bas verify karta hai.", "Library banate hi ID ban jati hai. Student register ya login ke time ID daalta hai, request owner ke paas jati hai.", "Owner: Join requests page par ID copy karke students ko do. Student: Join a library page par ID daalo.", "/owner/join-requests"],
+  ["Verify aur seat allot", "Owner request approve karta hai aur usi time seat, shift aur plan de deta hai.", "done", "Ek click me student library ka member ban jata hai. Ek seat do logo ko nahi mil sakti.", "Approve and allot seat dabao, plan, shift, seat aur start date chuno. System khud check karta hai ki seat khali hai ya nahi.", "Join requests me request par Approve & allot seat dabao.", "/owner/join-requests"],
+  ["Seat map aur shifts", "Poori library ki seats ka naksha: kaun si khali, kaun si bhari, kaun si kharab.", "done", "Kaun kahan baitha hai, ek nazar me. Kharab seat galti se kisi ko nahi milti.", "Seats rang se dikhti hain. Seat ko maintenance me daalo to allot nahi hogi.", "Seat map page kholo, seat par click karke student do ya badlo.", "/owner/seats"],
+  ["Plans aur membership", "Monthly, quarterly jaise plans aur har student ki membership start aur end date.", "done", "Kiski membership kab khatam hogi, apne aap pata. Renew karna aasan.", "Plans banao, student ko plan do. System end date nikalta hai aur khatam hone se pehle yaad dilata hai.", "Plans aur Memberships pages.", "/owner/memberships"],
+  ["Fees aur payments", "Fees ka record: kisne diya, kitna diya, kitna baaki hai.", "done", "Paise ka hisaab saaf. Receipt milti hai. Dues ek jagah dikhte hain.", "Payment record karo (cash, UPI). Baaki rakam dues me dikhti hai.", "Payments page par Record payment.", "/owner/payments"],
+  ["Punch in / punch out", "Student library me aate hi punch in karta hai, jate hi punch out.", "done", "Haath se attendance register ki zarurat nahi. Kaun kitni der padha, sab record.", "Student app me ek tap. Record student ki history me bhi jata hai aur library ke record me bhi, ek hi jagah se.", "Student: Punch in / out page. Owner: Live presence aur Attendance me dekho.", "/app/punch"],
+  ["Live presence", "Abhi library ke andar kaun kaun hai.", "done", "Owner ko bina ghoome pata hai kitni bheed hai. Student punch out bhool jaye to owner punch out kar sakta hai.", "Andar baithe students, unki seat aur kab aaye. Din ka poora log bhi.", "Live presence page.", "/owner/presence"],
+  ["Students ki list aur import", "Saare students ek jagah, aur purane register se Excel/CSV import.", "done", "Naye software par aana aasan. Purana data dobara nahi likhna.", "CSV upload karo, system galtiyan check karta hai aur phir ek saath save karta hai.", "Students aur Import pages.", "/owner/students"]]},
+{ tag: "p2", label: "Priority 2: Should", name: "Control aur time ki bachat", desc: "Library chal rahi hai, ab owner ka kaam kam karne wale features.", steps: [
+  ["Reports aur expenses", "Kitna aaya, kitna gaya, kitna bacha. Mahine ka hisaab.", "done", "Profit aur kharche ka pura chitra bina calculator ke.", "Kharche likho, reports me income aur expense saath dikhte hain.", "Expenses aur Reports pages.", "/owner/reports"],
+  ["Staff aur permissions", "Receptionist ya manager ko alag login, sirf utna access jitna aap do.", "done", "Aap chhutti par bhi library chal sakti hai. Staff paise ka sab kuch nahi dekh sakta.", "Staff add karo aur permissions chuno, jaise students ya attendance.", "Settings me team section.", "/owner/settings"],
+  ["Complaints aur maintenance", "Student shikayat ya kharabi bata sakta hai. Owner ek jagah dekhta hai aur hal karta hai.", "done", "Pankha kharab, AC band, sab track hota hai. Student ko lagta hai suna ja raha hai.", "Student report karta hai, owner status badalta hai (open se resolved), student ko notification milta hai.", "Complaints aur Maintenance pages.", "/owner/maintenance"],
+  ["Notifications aur reminders", "Fees due, membership khatam, naya request: sabka alert.", "done", "Owner ko yaad nahi rakhna padta. Student ko time par yaad dilaya jata hai.", "System background me roz check karta hai aur app ke andar alert bhejta hai.", "Bell icon.", "/owner"],
+  ["Email aur SMS reminders", "Reminder app ke bahar bhi: email, SMS ya WhatsApp.", "next", "Jo student app nahi kholta use bhi fees ka yaad aa jata hai.", "Abhi ye sirf record hota hai. Chalane ke liye email ya SMS provider ka account chahiye.", "Provider jodna baaki hai.", "/owner/settings"]]},
+{ tag: "p3", label: "Priority 3: Nice to have", name: "Library badhane wale features", desc: "Jab dashboard mazboot ho jaye, tab yeh jodo.", steps: [
+  ["Library discovery aur waitlist", "Public page jahan naye students aapki library dhundhte hain. Seat full ho to waitlist.", "done", "Bina vigyapan ke naye students milte hain. Full library me bhi line lagti hai.", "Library public listing me aati hai (owner chahe to). Student visit request ya waitlist me jud sakta hai.", "Discover page aur Discovery settings.", "/discover"],
+  ["Rewards aur events", "Students ko coins aur inaam. Library ke events aur announcements.", "done", "Students regular aate hain. Library ka mahaul achha banta hai.", "Owner reward banata hai, student study coins se lete hain.", "Rewards aur Events pages.", "/owner/rewards"],
+  ["Student study tools", "Planner, quiz, mock test, revision, notes.", "done", "Student ko library ke saath padhai ka saathi bhi mil jata hai. Isliye wo library chhodta nahi.", "Student app me exam roadmap, daily practice aur mock tests.", "Student app.", "/app"],
+  ["Enquiry aur CRM", "Jo log pooch rahe hain unka record: kisko call karna hai, kaun join hua.", "done", "Koi enquiry bhoolti nahi. Pata chalta hai kaunsa source se students aate hain.", "Public enquiry form se lead aati hai, owner stage badalta hai.", "CRM page.", "/owner/crm"],
+  ["Multi-branch", "Ek owner, kai library branches. Branch ka comparison.", "done", "Dusri library kholne par alag software nahi chahiye.", "Branch banao, team do, students ek branch se dusri me transfer karo.", "Branches page.", "/owner/branches"],
+  ["Plans aur billing", "Library apna StudyQuest plan lekar paisa deti hai (Free, Pro).", "done", "Aapke liye kamai ka rasta. Free se shuru, baad me upgrade.", "Pricing page par plan chuno. Pro me QR punch jaise extra features milte hain.", "Billing page.", "/owner/billing"],
+  ["Live online payment", "Student seedha app se fees bhare (Razorpay).", "next", "Cash ki jhanjhat khatam, fees time par.", "Code taiyar hai aur test ho chuka hai. Asli paise ke liye Razorpay account aur keys chahiye.", "Razorpay setup baaki hai.", "/owner/billing"]]},
+{ tag: "p3", label: "Aage ke idea", name: "Agla kya ban sakta hai", desc: "Yeh abhi plan me pakka nahi hain. Priority aap tay karoge.", steps: [
+  ["Desk QR se punch", "Student desk par lagi QR scan karke punch in kare.", "done", "Ghar baithe jhootha punch in nahi ho sakta.", "Pro plan me owner option chalu karta hai. Ban chuka hai, bas use try karna baaki.", "Join requests me QR option.", "/owner/join-requests"],
+  ["Parents ko update", "Bachhe ki attendance ka message parents ko.", "next", "Parents ka bharosa badhta hai. School ke bachhon wali library ke liye khaas.", "Idea hai. Isme parents ki permission aur privacy ka dhyan rakhna hoga.", "Abhi plan me nahi.", ""],
+  ["Mobile app jaisa install", "Phone par app jaisa icon. Net na ho to bhi page khule.", "done", "Student bina Play Store ke app jaisa use karta hai.", "Browser se Add to Home screen. Offline page aur safe cache ban chuke hain.", "Phone browser.", "/app"]]}
+];
+const $ = (id) => document.getElementById(id);
+const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+let n = 0;
+G.forEach((g) => {
+  const sec = el("section", "group"); const h = el("h2"); h.append(g.name + " ", el("span", "tag " + g.tag, g.label)); sec.append(h, el("p", "gd", g.desc));
+  const ol = el("ol", "path");
+  g.steps.forEach(([name, one, st, fayda, how, use, page]) => {
+    n++; const li = el("li", "step"); li.dataset.s = st;
+    const d = document.createElement("details"); const s = document.createElement("summary");
+    const t = el("span"); t.append(el("span", "name", name), el("span", "one", one));
+    s.append(el("span", "no", String(n).padStart(2, "0")), t, el("span", "st " + st, st === "done" ? "Ban gaya" : "Aage / baaki"));
+    const b = el("div", "body");
+    [["Owner ko fayda", fayda], ["Kaise kaam karta hai", how], ["Kahan dekhein", use]].forEach(([k, v]) => { const w = el("div"); w.append(el("h3", "", k), el("p", "", v)); b.appendChild(w); });
+    if (page) b.appendChild(el("span", "page", "Page: " + page));
+    d.append(s, b); li.appendChild(d); ol.appendChild(li);
+  });
+  sec.appendChild(ol); $("groups").appendChild(sec);
+});
+document.querySelectorAll("#filters button").forEach((btn) => btn.onclick = () => {
+  document.querySelectorAll("#filters button").forEach((x) => x.setAttribute("aria-pressed", String(x === btn)));
+  const f = btn.dataset.f;
+  document.querySelectorAll(".step").forEach((s) => { s.hidden = f !== "all" && s.dataset.s !== f; });
+  document.querySelectorAll(".group").forEach((g) => { g.hidden = !g.querySelector(".step:not([hidden])"); });
+});
+</script>

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, secret, validOrigin } from "@/lib/auth";
 import { Attendance, Library, Membership, Seat, SeatAssignment, StaffMembership, User } from "@/lib/models";
-import { dayKey, openSession, punchIn, punchOut, sessionMinutes, closeStaleSessions, type Session } from "@/lib/punch";
+import { PUNCH_RADIUS_M, checkGeofence, dayKey, openSession, punchIn, punchOut, sessionMinutes, closeStaleSessions, type Session } from "@/lib/punch";
 import { PlanError, assertWritable, audit, ensureOrganizationForLibrary } from "@/lib/saas-server";
 
 const err = (message: string, status = 400, code?: string) => NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
@@ -19,6 +19,17 @@ async function team(user: { _id: unknown; role: string; libraryId?: unknown }) {
   const m = await StaffMembership.findOne({ userId: user._id, libraryId: user.libraryId }).lean<{ permissions: string[] }>();
   return !!m?.permissions.includes("attendance");
 }
+type Fence = { lat?: number; lng?: number } | undefined;
+const hasFence = (f: Fence): f is { lat: number; lng: number } => typeof f?.lat === "number" && typeof f?.lng === "number";
+/** Students must be within PUNCH_RADIUS_M of the library to punch in or out. Coordinates are checked, never stored. */
+function assertInside(fence: Fence, reading: { lat?: number; lng?: number; accuracy?: number }) {
+  if (!hasFence(fence)) return;
+  const r = checkGeofence(fence, reading);
+  if (r.ok) return;
+  if (r.reason === "no-location") throw new Error("Allow location access to punch in or out. Your library only accepts punches from inside the library.");
+  if (r.reason === "inaccurate") throw new Error("Your phone's location is not accurate enough. Turn on GPS or move near a window, then try again.");
+  throw new Error(`You are out of geolocation. Come within ${PUNCH_RADIUS_M} m of the library to punch (you are about ${Math.round(r.distance ?? 0)} m away).`);
+}
 const shape = (d: Day, now: Date) => ({ day: d.day, sessions: (d.sessions ?? (d.checkIn ? [{ inAt: d.checkIn, outAt: d.checkOut }] : [])).map((s) => ({ inAt: s.inAt, outAt: s.outAt ?? null, method: s.method ?? "app", auto: !!s.auto })), minutes: sessionMinutes(d.sessions ?? (d.checkIn ? [{ inAt: d.checkIn, outAt: d.checkOut }] : []), now) });
 
 export async function GET(request: NextRequest) {
@@ -31,14 +42,14 @@ export async function GET(request: NextRequest) {
     if (!user.libraryId) return NextResponse.json({ linked: false });
     await closeStaleSessions({ userId: user._id, libraryId: user.libraryId }, now);
     const [library, membership, days] = await Promise.all([
-      Library.findById(user.libraryId).select("name punchPolicy").lean<{ name: string; punchPolicy?: string }>(),
+      Library.findById(user.libraryId).select("name punchPolicy geofence").lean<{ name: string; punchPolicy?: string; geofence?: Fence }>(),
       activeMembership(user._id, user.libraryId, now),
       Attendance.find({ userId: user._id, libraryId: user.libraryId, day: { $gte: dayKey(new Date(now.getTime() - 14 * 86400000)) } }).sort({ day: -1 }).lean<Day[]>(),
     ]);
     const rows = days.map((d) => shape(d, now));
     const open = days.flatMap((d) => d.sessions ?? []).find((s) => !s.outAt);
     const week = rows.filter((r) => r.day >= dayKey(new Date(now.getTime() - 6 * 86400000))).reduce((s, r) => s + r.minutes, 0);
-    return NextResponse.json({ linked: true, library: library?.name, policy: library?.punchPolicy ?? "app", membershipActive: !!membership, membershipEnds: membership?.end ?? null, inside: !!open, since: open?.inAt ?? null, today: rows.find((r) => r.day === dayKey(now)) ?? { day: dayKey(now), sessions: [], minutes: 0 }, history: rows, weekMinutes: week, serverNow: now });
+    return NextResponse.json({ linked: true, library: library?.name, policy: library?.punchPolicy ?? "app", geo: hasFence(library?.geofence) ? { radiusM: PUNCH_RADIUS_M } : null, membershipActive: !!membership, membershipEnds: membership?.end ?? null, inside: !!open, since: open?.inAt ?? null, today: rows.find((r) => r.day === dayKey(now)) ?? { day: dayKey(now), sessions: [], minutes: 0 }, history: rows, weekMinutes: week, serverNow: now });
   }
 
   // Library team: who is inside now and the log for a day.
@@ -71,7 +82,7 @@ export async function POST(request: NextRequest) {
   if (!user) return err("Sign in required", 401);
   if (limited(`punch:${user._id}`, 60)) return err("Please slow down", 429);
   try {
-    const body = z.object({ action: z.enum(["in", "out", "manual-out"]), data: z.object({ token: z.string().max(2000).optional(), userId: z.string().regex(/^[a-f\d]{24}$/i).optional() }).default({}) }).parse(await request.json());
+    const body = z.object({ action: z.enum(["in", "out", "manual-out"]), data: z.object({ token: z.string().max(2000).optional(), userId: z.string().regex(/^[a-f\d]{24}$/i).optional(), lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional(), accuracy: z.number().min(0).max(100000).optional() }).default({}) }).parse(await request.json());
     const now = new Date();
 
     if (body.action === "manual-out") {
@@ -91,7 +102,8 @@ export async function POST(request: NextRequest) {
     await assertWritable(user.libraryId);
     if (body.action === "in") {
       if (!(await activeMembership(user._id, user.libraryId, now))) throw new Error("Your library has not activated your membership yet. Once they verify you and allot a seat, you can punch in.");
-      const library = await Library.findById(user.libraryId).select("punchPolicy").lean<{ punchPolicy?: string }>();
+      const library = await Library.findById(user.libraryId).select("punchPolicy geofence").lean<{ punchPolicy?: string; geofence?: Fence }>();
+      assertInside(library?.geofence, body.data);
       let method: "app" | "qr" = "app";
       if (library?.punchPolicy === "qr") {
         // This library requires proof of presence: the signed code shown at the desk must be scanned.
@@ -104,6 +116,8 @@ export async function POST(request: NextRequest) {
       if (!r.ok) throw new Error("You are already punched in. Punch out when you leave.");
       return NextResponse.json({ ok: true, at: now });
     }
+    const lib = await Library.findById(user.libraryId).select("geofence").lean<{ geofence?: Fence }>();
+    assertInside(lib?.geofence, body.data);
     const r = await punchOut({ libraryId: user.libraryId, userId: user._id, now });
     if (!r.ok) throw new Error("You are not punched in.");
     const session = (r.record.sessions as Session[]).filter((s) => s.outAt && new Date(s.outAt).getTime() === now.getTime())[0];

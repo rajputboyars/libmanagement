@@ -1,0 +1,168 @@
+<title>StudyQuest Build Checklist</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one readable column. Phase index on top, each phase a list of checkpoints with a build status and a personal "I checked it" box. */
+:root { --bg: #f4f6f3; --panel: #ffffff; --fg: #17211c; --muted: #5d6b63; --line: #d9dfd9; --accent: #1f6f5c; --accent-soft: #e2efe9;
+  --ok: #1d7a43; --ok-soft: #dff1e5; --warn: #96620a; --warn-soft: #f8ecd2; --bad: #a3322b; --bad-soft: #f7dfdc;
+  --display: "Fraunces", Georgia, serif; --body: "Instrument Sans", system-ui, sans-serif; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #121815; --panel: #1b241f; --fg: #e8eee9; --muted: #98a79d; --line: #2d3a33; --accent: #5fc2a6; --accent-soft: #1f3a31;
+  --ok: #6fd391; --ok-soft: #1c3526; --warn: #e6b45a; --warn-soft: #3a2f16; --bad: #f08a82; --bad-soft: #3d1f1c; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #121815; --panel: #1b241f; --fg: #e8eee9; --muted: #98a79d; --line: #2d3a33; --accent: #5fc2a6; --accent-soft: #1f3a31;
+  --ok: #6fd391; --ok-soft: #1c3526; --warn: #e6b45a; --warn-soft: #3a2f16; --bad: #f08a82; --bad-soft: #3d1f1c; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+.wrap { max-width: 860px; margin: 0 auto; }
+h1 { font: 600 clamp(1.8rem, 4.5vw, 2.6rem)/1.1 var(--display); margin: 0 0 8px; text-wrap: balance; }
+.lead { color: var(--muted); max-width: 62ch; margin: 0 0 20px; }
+.sum { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 20px; }
+.sum div { flex: 1 1 150px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.sum b { display: block; font: 600 1.6rem/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.sum span { color: var(--muted); font-size: 13px; }
+.index { display: flex; gap: 6px; flex-wrap: wrap; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; padding: 8px 0; background: var(--bg); border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.index a { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); text-decoration: none; font-size: 14px; }
+.index a:hover { border-color: var(--accent); }
+section { margin-top: 32px; }
+h2 { font: 600 1.4rem/1.2 var(--display); margin: 0 0 4px; }
+.pdesc { color: var(--muted); margin: 0 0 10px; }
+.bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin-bottom: 4px; }
+.bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.cnt { font-size: 13px; color: var(--muted); margin: 0 0 12px; font-variant-numeric: tabular-nums; }
+ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+li input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--accent); }
+li label { cursor: pointer; display: block; }
+.t { font-weight: 600; display: block; }
+.d { color: var(--muted); display: block; }
+.n { display: block; margin-top: 4px; font-size: 13.5px; }
+.pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+li:has(input:checked) .t { text-decoration: line-through; text-decoration-color: var(--muted); }
+input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.legend { font-size: 13.5px; color: var(--muted); margin: 0 0 8px; }
+.tools { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.tools button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+@media (max-width: 520px) { li { grid-template-columns: auto minmax(0, 1fr); } li .pill { grid-column: 2; justify-self: start; } }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=Instrument+Sans:wght@400;600&display=swap">
+
+<div class="wrap">
+  <h1>StudyQuest build checklist</h1>
+  <p class="lead">Every feature built so far, grouped by phase, with how far each one is verified. The status pill is from the project's own test and review notes. The tick box is yours: tick a feature once you have tried it yourself.</p>
+  <div class="sum" id="sum"></div>
+  <p class="legend"><span class="pill ok">Built and tested</span> automated tests and checks passed. <span class="pill warn">Built, check by hand</span> works in code, not yet tried in a browser with data. <span class="pill bad">Needs outside access</span> blocked until a provider or credential exists.</p>
+  <nav class="index" id="index" aria-label="Phases"></nav>
+  <div id="phases"></div>
+  <div class="tools"><button id="reset" type="button">Clear my ticks</button><span class="cnt" id="saved"></span></div>
+</div>
+
+<script>
+const OK = "ok", WARN = "warn", BAD = "bad";
+const P = [
+{ id: "p1", name: "Phase 1: Core library operations", desc: "The base product for libraries and students.", items: [
+  ["Responsive site and role workspaces", "Public site plus separate areas for student, owner, staff and admin.", OK],
+  ["Login, roles and library separation", "Cookie sign-in, role checks and each library's data kept apart.", OK],
+  ["Memberships, seats and shifts", "Plans, seat allotment, shifts and renewals.", OK],
+  ["Attendance, payments and receipts", "Daily attendance, fee payments, receipts and expenses.", OK],
+  ["Focus timer, goals and XP", "Study sessions, goals, quests, achievements and an XP ledger.", OK],
+  ["Complaints and notifications", "Student complaints, owner resolution, in-app notifications and an audit log.", OK]]},
+{ id: "p2", name: "Phase 2: Study tools", desc: "Planning, practice and community for students.", items: [
+  ["Exam catalog and syllabus", "SSC, Banking, Railway, UPSC and NEET plus custom exams, with a subject, chapter, topic tree.", OK],
+  ["Study planner", "Daily plan with edits and automatic rescheduling of missed tasks.", WARN, "Not tried end to end in a browser: generating a plan."],
+  ["Quiz arena", "Timed quizzes scored on the server, with history and no repeat XP.", WARN, "Not tried end to end: running a match."],
+  ["Spaced revision", "Revision schedule and reminders.", OK],
+  ["Study garden", "Plants grow from verified study time.", OK],
+  ["Friends and challenges", "Friend requests, privacy controls and weekly challenges.", OK, "Has its own page at /app/friends."],
+  ["Achievement cards", "Private cards a student can share.", OK],
+  ["Focus rooms", "Study together with synchronized starts.", WARN, "Not tried end to end: joining a room."],
+  ["Events and feedback", "Library events, registration, attendance and announcements.", WARN, "Not tried end to end: registering for an event."]]},
+{ id: "p3", name: "Phase 3: Insight, rewards and discovery", desc: "Analytics, rewards, finding libraries and keeping them running.", items: [
+  ["Learning analytics", "Weak-topic priority, eight-week trends and a revision calendar.", OK],
+  ["Doubt solver", "Ask a question by text or image. Works without AI, with a clear disclaimer.", OK, "AI needs STUDYQUEST_AI_PROVIDER=ollama."],
+  ["Rewards marketplace", "Owners offer rewards that students buy with Study Coins. Safe against double spend.", OK],
+  ["Library discovery and waitlist", "Public search, visit requests and a seat waitlist with 24-hour offers.", OK],
+  ["Maintenance management", "Report and track facility issues; broken seats are taken out of service.", OK, "Not checked visually at 320, 768 and 1440 px."],
+  ["Community and success wall", "Opt-in, no real names, safeguards for under-18s, moderation queue.", OK, "Guardian consent is attested by staff, not automatic."],
+  ["Weekly insights", "A weekly summary from verified data only, never estimated.", OK],
+  ["Security and layout hardening", "Security headers, route audit, no overflow at 320 px.", OK]]},
+{ id: "p4", name: "Phase 4: Complete exam preparation", desc: "Question bank, mock tests and revision.", items: [
+  ["Syllabus with sourced dates", "Versioned syllabus; official dates need a source and a verified time.", OK],
+  ["Question bank and admin tools", "Draft, review, publish workflow, duplicate detection and bulk import.", OK, "The bank starts empty on purpose; content must be imported."],
+  ["Mock test engine", "Full, sectional and topic tests with negative marking, autosave, resume and server timers.", OK],
+  ["Results and analytics", "Score, accuracy, time per question and strength by topic.", OK],
+  ["Mistake notebook", "Wrong answers collected for retry.", OK],
+  ["Flashcards and revision", "Spaced reviews that sync with the planner.", OK],
+  ["Daily practice and gamification", "A daily set weighted to weak topics, with a daily XP cap.", OK],
+  ["Exam journey", "Progress, checkpoints, goals and countdown.", OK],
+  ["Optional AI help", "AI drafts land as labelled drafts needing human review.", OK],
+  ["Private notes", "Searchable notes with bookmarks.", OK]]},
+{ id: "p5", name: "Phase 5: SaaS business", desc: "Selling to libraries: plans, billing and growth tools.", items: [
+  ["Organizations and branches", "One owner can run many branches, each branch is a library.", OK],
+  ["Plans and entitlements", "Free, trials, grace period, limits and admin overrides.", OK],
+  ["Onboarding wizard", "Guided setup with email verification, seats, fees and CSV import.", OK],
+  ["Billing and webhooks", "Razorpay structure with signed, de-duplicated events and a local sandbox.", BAD, "No live money moved. Needs real Razorpay credentials and a webhook."],
+  ["Super-admin business panel", "Metrics, organizations, subscriptions and the plan editor.", OK],
+  ["Multi-branch operations", "Branch limits, comparison charts and student transfers with history.", OK],
+  ["Library CRM", "Enquiries, stages, follow-ups and a public enquiry form.", OK],
+  ["Referrals and promotions", "Abuse checks and rewards only after a real paid payment.", OK],
+  ["Reminders and support", "Background jobs for reminders, delivery records and support tickets.", BAD, "Email and SMS need a provider; cron must call /api/jobs/run."],
+  ["Business analytics", "MRR, ARR, churn, conversion and more with documented formulas.", OK],
+  ["Public pricing and demo booking", "Database-driven pricing page and demo requests.", OK]]},
+{ id: "p6", name: "Phase 6: Production readiness", desc: "Making it safe and reliable to run.", items: [
+  ["Security hardening", "Shared rate limits, account lockout, password reset, sign out everywhere, CSP.", OK],
+  ["Reliability and jobs", "Health checks, error alerts, job runner and worker.", OK],
+  ["Backups and restore drill", "Backup and restore tool; a restore drill passed.", OK, "Provider-level backups still need setting up."],
+  ["Speed", "Public first load cut from 466 KB to 192 KB.", WARN, "The landing page is still below the speed target."],
+  ["Installable app (PWA)", "Icons, offline page, safe caching. 32 of 32 checks pass.", OK],
+  ["SEO", "Robots, sitemap, library pages and real 404.", OK],
+  ["Accessibility and responsive", "Accessibility score 100 on 30+ pages; no overflow across 10 sizes.", OK],
+  ["Pilot tools", "Validated register import and a pilot guide.", OK],
+  ["Deployment kit", "Dockerfile, CI workflow and deployment, rollback and monitoring docs.", OK, "Hosted CI, staging and production are not set up yet."]]},
+{ id: "p7", name: "Latest: Library ID, join and punch in/out", desc: "The flow from a library registering to a student's daily visits.", items: [
+  ["Library ID", "Each library gets an ID like LIB-AB12CD to share with students.", OK],
+  ["Student joins with the ID", "Enter it while registering or on the Join page. Forgives spaces and case.", OK],
+  ["Owner verifies and allots a seat", "Approve and allot a seat in one step, approve only, or reject.", OK],
+  ["Punch in and out", "Students record each visit. It appears in their history and the library's record.", OK],
+  ["Live presence for owners", "Who is inside now, day log and manual punch-out.", OK],
+  ["Forgotten punch-outs", "Visits left open for 16 hours are closed automatically and counted as 0 minutes.", OK],
+  ["Optional QR punch-in", "Pro plan libraries can require scanning a desk QR.", OK],
+  ["Getting-started quest", "Four steps with a progress bar and XP on the Join and Punch pages.", WARN, "Added last; not yet seen on a rebuilt local server."]]},
+{ id: "launch", name: "Before real launch", desc: "Not features, but things still open. Tick them off as you finish them.", items: [
+  ["Live payment check", "Test and then live Razorpay with real credentials and a registered webhook.", BAD],
+  ["Email and SMS provider", "Needed for verification codes and reminders.", BAD],
+  ["Monitoring and backups at the provider", "Alerts and automatic backups on the hosting side.", BAD],
+  ["Legal review", "Terms, privacy, tax invoicing and consent rules need review.", BAD],
+  ["Staging and production setup", "Hosting, database and a hosted CI run.", BAD],
+  ["MFA and a security test", "Multi-factor sign-in and an outside penetration test.", BAD]]},
+];
+const KEY = "sq-checklist-v1";
+let ticks = {};
+try { ticks = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { ticks = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(ticks)); $("saved").textContent = "Saved in this browser."; } catch (e) { $("saved").textContent = "Ticks are not saved in this view."; } };
+const $ = (id) => document.getElementById(id);
+const label = { ok: "Built and tested", warn: "Built, check by hand", bad: "Needs outside access" };
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+const all = P.filter((p) => p.id !== "launch").flatMap((p) => p.items);
+const count = (s) => all.filter((i) => i[2] === s).length;
+[["Features built", all.length], ["Built and tested", count(OK)], ["Check by hand", count(WARN)], ["Need outside access", count(BAD) + P.find((p) => p.id === "launch").items.length]].forEach(([n, v]) => {
+  const d = el("div"); d.append(el("b", "", String(v)), el("span", "", n)); $("sum").appendChild(d);
+});
+P.forEach((p) => {
+  const a = el("a", "", p.name.split(":")[0]); a.href = "#" + p.id; $("index").appendChild(a);
+  const s = el("section"); s.id = p.id; s.append(el("h2", "", p.name), el("p", "pdesc", p.desc));
+  const bar = el("div", "bar"); const fill = el("i"); bar.appendChild(fill); const cnt = el("p", "cnt"); s.append(bar, cnt);
+  const ul = el("ul");
+  const update = () => { const done = p.items.filter((_, i) => ticks[p.id + i]).length; fill.style.width = (100 * done / p.items.length) + "%"; cnt.textContent = done + " of " + p.items.length + " checked by you"; };
+  p.items.forEach((it, i) => {
+    const li = el("li"); const cb = el("input"); cb.type = "checkbox"; cb.id = "c-" + p.id + i; cb.checked = !!ticks[p.id + i];
+    cb.onchange = () => { if (cb.checked) ticks[p.id + i] = 1; else delete ticks[p.id + i]; save(); update(); };
+    const lb = el("label"); lb.htmlFor = cb.id; lb.append(el("span", "t", it[0]), el("span", "d", it[1]));
+    if (it[3]) lb.appendChild(el("span", "n", "Note: " + it[3]));
+    li.append(cb, lb, el("span", "pill " + it[2], label[it[2]])); ul.appendChild(li);
+  });
+  s.appendChild(ul); $("phases").appendChild(s); update();
+});
+$("reset").onclick = () => { ticks = {}; save(); document.querySelectorAll("li input").forEach((c) => { c.checked = false; }); document.querySelectorAll(".bar i").forEach((f) => { f.style.width = "0"; }); document.querySelectorAll(".cnt").forEach((c) => { if (c.id !== "saved") c.textContent = c.textContent.replace(/^\d+/, "0"); }); };
+</script>

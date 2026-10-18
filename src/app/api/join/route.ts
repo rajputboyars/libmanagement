@@ -5,7 +5,7 @@ import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { Library, Notification, StaffMembership, StudentProfile, User } from "@/lib/models";
 import { JoinRequest } from "@/lib/ops-models";
 import { ensureLibraryCode } from "@/lib/join";
-import { normalizeLibraryCode } from "@/lib/punch";
+import { PUNCH_RADIUS_M, normalizeLibraryCode } from "@/lib/punch";
 import { PlanError, assertWritable, audit, ensureOrganizationForLibrary, requireFeature, requireStudentRoom } from "@/lib/saas-server";
 import { limitedShared } from "@/lib/security";
 import { createJoinRequest } from "@/lib/join-request";
@@ -40,11 +40,11 @@ export async function GET(request: NextRequest) {
   if (params.get("view") === "requests" || params.get("view") === "owner") {
     if (!(await team(user))) return err("Library team access required", 403);
     const libraryId = user.libraryId!;
-    const [libraryCode, library] = await Promise.all([ensureLibraryCode(libraryId), Library.findById(libraryId).select("punchPolicy name").lean<{ punchPolicy?: string; name: string }>()]);
+    const [libraryCode, library] = await Promise.all([ensureLibraryCode(libraryId), Library.findById(libraryId).select("punchPolicy name geofence").lean<{ punchPolicy?: string; name: string; geofence?: { lat?: number; lng?: number } }>()]);
     const status = params.get("status") === "all" ? undefined : "pending";
     const rows = await JoinRequest.find({ libraryId, ...(status ? { status } : {}) }).sort({ createdAt: -1 }).limit(100).lean<(Lean & { userId: unknown })[]>();
     const students = await User.find({ _id: { $in: rows.map((r) => r.userId) } }).select("name email libraryId").lean<(Lean & { name: string; email: string; libraryId?: unknown })[]>();
-    return NextResponse.json({ code: libraryCode, library: { name: library?.name, punchPolicy: library?.punchPolicy ?? "app" }, requests: rows.map((r) => ({ ...r, student: students.find((s) => String(s._id) === String(r.userId)) ? { name: students.find((s) => String(s._id) === String(r.userId))!.name, email: students.find((s) => String(s._id) === String(r.userId))!.email } : null })) });
+    return NextResponse.json({ code: libraryCode, library: { name: library?.name, punchPolicy: library?.punchPolicy ?? "app", location: typeof library?.geofence?.lat === "number" && typeof library.geofence.lng === "number" ? { lat: library.geofence.lat, lng: library.geofence.lng } : null, radiusM: PUNCH_RADIUS_M }, requests: rows.map((r) => ({ ...r, student: students.find((s) => String(s._id) === String(r.userId)) ? { name: students.find((s) => String(s._id) === String(r.userId))!.name, email: students.find((s) => String(s._id) === String(r.userId))!.email } : null })) });
   }
 
   if (user.role !== "student") return err("Student access required", 403);
@@ -117,6 +117,14 @@ export async function POST(request: NextRequest) {
       if (v.punchPolicy === "qr") await requireFeature(libraryId, "qr-attendance", "QR-verified attendance");
       await Library.updateOne({ _id: libraryId }, { punchPolicy: v.punchPolicy });
       return NextResponse.json({ ok: true });
+    }
+    if (body.action === "set-location") {
+      if (user.role !== "owner") throw new Error("Only the owner can set the library location");
+      const v = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).parse(body.data);
+      await Library.updateOne({ _id: libraryId }, { geofence: { lat: v.lat, lng: v.lng } });
+      const orgId = await ensureOrganizationForLibrary(libraryId);
+      await audit({ organizationId: orgId as never, actorId: user._id, actorRole: user.role, action: "library.set-location", targetType: "library", targetId: String(libraryId) });
+      return NextResponse.json({ ok: true, radiusM: PUNCH_RADIUS_M });
     }
     throw new Error("Unsupported action");
   } catch (error) {

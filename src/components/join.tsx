@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Clock3, LogIn, LogOut, ShieldCheck, Users } from "lucide-react";
+import { Building2, Clock3, LogIn, LogOut, MapPin, ShieldCheck, Users } from "lucide-react";
 import { getJson, post, type Json } from "./prep-api";
 
 const Skeleton = () => <div className="mt-skeleton" aria-busy="true" />;
@@ -16,6 +16,18 @@ function useTicker() {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   return now;
+}
+
+/** Current phone location. Rejects with a plain-language message the user can act on. */
+function getPosition(): Promise<{ lat: number; lng: number; accuracy: number }> {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return reject(new Error("This device cannot share its location. Use a phone or browser with location support."));
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+      (e) => reject(new Error(e.code === 1 ? "Location is blocked. Allow location for this site in your browser settings, then try again." : e.code === 3 ? "Could not get your location in time. Check GPS and try again." : "Could not read your location. Check GPS and try again.")),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  });
 }
 
 // ───────────────────────── Student: 4-step "Get started" quest (shown on Join and Punch pages) ─────────────────────────
@@ -105,7 +117,7 @@ export function StudentPunch({ notify }: { notify: (m: string) => void }) {
   if (!d.linked) return <Empty title="Join a library first" text="Enter your Library ID on the Join a library page. Punching in unlocks after the owner verifies you and allots a seat." />;
   const act = async (action: "in" | "out") => {
     setBusy(true);
-    try { const r = await post("/api/punch", action); notify(action === "in" ? `Punched in at ${time(r.at)}. Happy studying!` : `Punched out. You studied ${dur(r.minutes ?? 0)} this visit.`); await qc.invalidateQueries({ queryKey: ["punch"] }); }
+    try { const r = await post("/api/punch", action, d.geo ? await getPosition() : {}); notify(action === "in" ? `Punched in at ${time(r.at)}. Happy studying!` : `Punched out. You studied ${dur(r.minutes ?? 0)} this visit.`); await qc.invalidateQueries({ queryKey: ["punch"] }); }
     catch (e) { notify(e instanceof Error ? e.message : "Unable to record"); } finally { setBusy(false); }
   };
   return (
@@ -116,7 +128,8 @@ export function StudentPunch({ notify }: { notify: (m: string) => void }) {
         <div className="section-label"><span><Clock3 size={14} /> {d.inside ? "You are inside" : "You are outside"}</span><span className={`mt-pill ${d.inside ? "" : "p-high"}`}>{d.inside ? "punched in" : "not punched in"}</span></div>
         {d.inside && <p className="sq-price">{since(d.since, now)}<small> since {time(d.since)}</small></p>}
         {!d.membershipActive && <p className="cm-note danger" role="alert">Your membership is not active yet. The library verifies your registration and allots your seat before you can punch in.</p>}
-        {d.policy === "qr" && !d.inside && <p className="cm-note">This library verifies presence: scan the QR code at the desk to punch in. You can punch out here.</p>}
+        {d.geo && <p className="cm-note"><MapPin size={14} /> You can punch in and out only within {d.geo.radiusM} m of the library. Your phone will ask for location when you tap. It is checked once and never saved.</p>}
+        {d.policy === "qr" && !d.inside &&<p className="cm-note">This library verifies presence: scan the QR code at the desk to punch in. You can punch out here.</p>}
         <div className="queue-actions">
           {!d.inside && d.policy !== "qr" && <button className="button" style={{ minHeight: 56, fontSize: "1.1rem" }} disabled={busy || !d.membershipActive} onClick={() => act("in")}><LogIn size={18} /> Punch in</button>}
           {d.inside && <button className="button" style={{ minHeight: 56, fontSize: "1.1rem" }} disabled={busy} onClick={() => act("out")}><LogOut size={18} /> Punch out</button>}
@@ -162,6 +175,12 @@ export function OwnerJoinRequests({ notify }: { notify: (m: string) => void }) {
         <p className="sq-price" aria-label={`Library ID ${d.code}`}>{d.code}</p>
         <p className="pr-hint">Students enter this in the app under <em>Join a library</em>, or while registering.</p>
         <label className="mt-check"><input type="checkbox" checked={d.library.punchPolicy === "qr"} onChange={async (e) => { try { await post("/api/join", "set-policy", { punchPolicy: e.target.checked ? "qr" : "app" }); notify(e.target.checked ? "Students must now scan the desk QR to punch in." : "Students can punch in from the app."); await refresh(); } catch (err) { notify(err instanceof Error ? err.message : "Unable to change"); } }} />Require scanning the desk QR to punch in (proof of presence; Pro plan)</label>
+      </section>
+      <section className="weekly-card">
+        <div className="section-label"><span><MapPin size={14} /> Library location</span><span className={`mt-pill ${d.library.location ? "" : "p-high"}`}>{d.library.location ? `${d.library.radiusM} m limit on` : "not set"}</span></div>
+        <p>{d.library.location ? `Students can punch in and out only within ${d.library.radiusM} m of this point (${d.library.location.lat.toFixed(5)}, ${d.library.location.lng.toFixed(5)}). Outside it they see "out of geolocation".` : `Set your location so students can only punch in and out within ${d.library.radiusM} m of the library. Until you set it, anyone with an active membership can punch from anywhere.`}</p>
+        <p className="pr-hint">Stand inside your library, with GPS on, and tap the button. Do this on a phone for the best accuracy.</p>
+        <button className="button secondary" onClick={async () => { try { const p = await getPosition(); if (p.accuracy > 100) throw new Error("Your location is not accurate enough yet. Turn on GPS or move near a window, then try again."); await post("/api/join", "set-location", { lat: p.lat, lng: p.lng }); notify("Library location saved."); await refresh(); } catch (err) { notify(err instanceof Error ? err.message : "Unable to save location"); } }}><MapPin size={16} /> {d.library.location ? "Update to my current location" : "Use my current location"}</button>
       </section>
       <div className="mt-filter"><button className={!showAll ? "active" : ""} onClick={() => setShowAll(false)}>Waiting ({!showAll ? d.requests.length : "…"})</button><button className={showAll ? "active" : ""} onClick={() => setShowAll(true)}>All requests</button></div>
       <div className="mt-list">{(d.requests as Json[]).map((r) => (
