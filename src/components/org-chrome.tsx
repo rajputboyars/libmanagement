@@ -1,10 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Building2, Sparkles } from "lucide-react";
 import { getJson, post, type Json } from "./prep-api";
+import { rememberLibraryName } from "./brand-loader";
+
+/** Saves the active library's name so the next loading screen can show it. Renders nothing. */
+export function RememberLibraryName() {
+  const q = useQuery<Json>({ queryKey: ["org"], queryFn: () => getJson("/api/org"), staleTime: 60000, retry: false });
+  const d = q.data;
+  const name = d ? (d.branches as Json[]).find((b) => String(b._id) === String(d.activeBranchId))?.name ?? d.organization?.name : undefined;
+  useEffect(() => {
+    if (name) rememberLibraryName(String(name));
+  }, [name]);
+  return null;
+}
 
 /** Compact plan/trial status for the owner workspace header area. */
 export function PlanBanner() {
