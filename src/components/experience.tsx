@@ -64,7 +64,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { level, streak } from "@/lib/rules";
-import { BranchSwitcher, JoinBanner, LibraryIdChip, PlanBanner, RememberLibraryName } from "@/components/org-chrome";
+import { BranchSwitcher, JoinBanner, LibraryIdChip, PlanBanner, RememberLibraryName, RememberStudentLibrary } from "@/components/org-chrome";
 import { clearClientCaches } from "@/components/pwa";
 import { Phase2Experience, LearningIntelligence, DoubtSolver, RewardsMarketplace, LibraryDiscovery, Maintenance, ExamPrep, TestResult, TestRunner, PrepAdmin, OwnerBilling, OwnerBranches, OwnerCrm, OwnerSupport, Onboarding, SaasAdmin, PilotImport, AccountSecurity, ForgotPassword, ResetPassword, Community, CommunityModeration, DemoPage, SandboxCheckout, SaasPricing } from "@/components/lazy";
 type Row = Record<string, string | number | boolean>;
@@ -453,6 +453,7 @@ export function Experience({ path }: { path: string }) {
         <main className="main-content">
           {owner && !preview && <RememberLibraryName />}
           {owner && !preview && path !== "/owner/onboarding" && <PlanBanner />}
+          {!owner && !admin && !preview && String(d.user?.role) === "student" && <RememberStudentLibrary />}
           {!owner && !admin && !preview && String(d.user?.role) === "student" && path !== "/app/join" && <JoinBanner />}
           {preview && (
             <div className="preview-banner">

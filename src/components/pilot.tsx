@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fmtDate, getJson, inr, post, type Json } from "./prep-api";
@@ -60,7 +61,7 @@ export function PilotImport({ notify }: { notify: (m: string) => void }) {
         </section>)}
       <section className="weekly-card">
         <div className="section-label"><span>4 · Reconcile &amp; invite</span><button className="button secondary" onClick={() => health.refetch()}>Re-check</button></div>
-        {health.isLoading ? <div className="mt-skeleton" /> : h ? (
+        {health.isLoading ? <BrandLoader compact text="Loading…" /> : h ? (
           <>
             <div className="mt-stats"><div><small>Students</small><strong>{h.students}</strong></div><div><small>Memberships</small><strong>{h.memberships}</strong></div><div><small>Outstanding</small><strong>{inr(h.duePaise)}</strong></div><div><small>Seat overlaps</small><strong>{h.overlaps}</strong></div></div>
             {h.ok ? <p className="cm-note" role="status">All checks pass: every student has a membership, payments match, no seat overlaps.</p> : <ul className="cm-note danger">{(h.problems as string[]).map((p) => <li key={p}>{p}</li>)}</ul>}

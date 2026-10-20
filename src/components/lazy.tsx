@@ -1,12 +1,13 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import dynamic from "next/dynamic";
 
 /**
  * Route-level code splitting. These screens are only needed after sign-in or on specific routes, so they are loaded on
  * demand instead of shipping inside the first bundle of every public page.
  */
-const Skeleton = () => <div className="mt-skeleton" aria-busy="true" aria-label="Loading" />;
+const Skeleton = () => <BrandLoader compact text="Loading…" />;
 
 export const Phase2Experience = dynamic(() => import("./phase2").then((m) => m.Phase2Experience), { loading: Skeleton });
 export const LearningIntelligence = dynamic(() => import("./learning-intelligence").then((m) => m.LearningIntelligence), { loading: Skeleton });

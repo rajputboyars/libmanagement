@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -11,7 +12,7 @@ type Answers = Record<string, { selectedIndex: number | null; flagged: boolean }
 
 export function TestRunner({ id }: { id: string }) {
   const q = useQuery<Json>({ queryKey: ["prep-attempt", id], queryFn: () => getJson(`/api/prep?view=attempt&id=${id}`), refetchOnWindowFocus: false, staleTime: Infinity, retry: 1 });
-  if (q.isLoading) return <div className="pr-runner"><div className="mt-skeleton" aria-busy="true" /></div>;
+  if (q.isLoading) return <div className="pr-runner"><BrandLoader compact text="Loading…" /></div>;
   if (q.isError || !q.data) return <div className="pr-runner pr-center"><AlertTriangle /><h1>Test could not load</h1><p>{q.error instanceof Error ? q.error.message : "Check your connection."}</p><button className="button" onClick={() => q.refetch()}>Try again</button><Link href="/app/prep">Back to Exam prep</Link></div>;
   if (q.data.finished) return <Finished id={id} />;
   return <Runner data={q.data} id={id} />;
@@ -160,7 +161,7 @@ export function TestResult({ id }: { id: string }) {
   const [filter, setFilter] = useState<"all" | "incorrect" | "unattempted" | "flagged">("all");
   const [notice, setNotice] = useState("");
   const [ai, setAi] = useState<Record<string, string>>({});
-  if (q.isLoading) return <div className="pr-page"><div className="mt-skeleton" aria-busy="true" /></div>;
+  if (q.isLoading) return <div className="pr-page"><BrandLoader compact text="Loading…" /></div>;
   if (q.isError || !q.data) return <div className="pr-page pr-center"><AlertTriangle /><h1>Result unavailable</h1><p>{q.error instanceof Error ? q.error.message : "Try again."}</p><Link href="/app/prep">Back to Exam prep</Link></div>;
   const d = q.data, s = d.summary;
   const rows: Json[] = d.review.filter((r: Json) => filter === "all" || (filter === "flagged" ? r.flagged : r.status === filter));

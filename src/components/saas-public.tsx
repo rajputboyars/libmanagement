@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import Link from "next/link";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -34,7 +35,7 @@ export function SaasPricing() {
         <div><span className="eyebrow">Pricing</span><h1>Simple plans that grow with your library.</h1><p>Start with a free trial. Stay free as long as you like. Upgrade when you need fees, QR attendance or more branches.</p></div>
         <div className="mt-filter" role="group" aria-label="Billing interval">{(["monthly", "annual"] as const).map((i) => <button key={i} className={interval === i ? "active" : ""} aria-pressed={interval === i} onClick={() => setInterval(i)}>{i === "monthly" ? "Monthly" : "Annual"}</button>)}</div>
       </section>
-      {q.isLoading ? <div className="mt-skeleton" aria-busy="true" /> : q.isError || !q.data ? <div className="mt-empty"><h2>Pricing unavailable</h2><p>Please try again shortly.</p><button className="button" onClick={() => q.refetch()}>Retry</button></div> : (
+      {q.isLoading ? <BrandLoader compact text="Loading…" /> : q.isError || !q.data ? <div className="mt-empty"><h2>Pricing unavailable</h2><p>Please try again shortly.</p><button className="button" onClick={() => q.refetch()}>Retry</button></div> : (
         <>
           <div className="sq-plans">{(q.data.plans as Json[]).map((p) => {
             const price = interval === "annual" ? p.annualPaise : p.monthlyPaise;

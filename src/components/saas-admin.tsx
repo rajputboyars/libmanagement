@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -10,7 +11,7 @@ const TABS = [["overview", "Overview"], ["product", "Product"], ["orgs", "Organi
 type Tab = (typeof TABS)[number][0];
 const api = "/api/saas-admin";
 const label = (v: string) => v.replace(/[-_]/g, " ");
-const Skeleton = () => <div className="mt-skeleton" aria-busy="true" />;
+const Skeleton = () => <BrandLoader compact text="Loading…" />;
 const Empty = ({ title, text }: { title: string; text?: string }) => <div className="mt-empty"><h2>{title}</h2>{text && <p>{text}</p>}</div>;
 const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="mt-empty"><AlertTriangle /><h2>Could not load</h2><p>{error instanceof Error ? error.message : "Try again."}</p><button className="button" onClick={retry}>Try again</button></div>;
 const pctText = (v: number | null) => (v === null || v === undefined ? "—" : `${v}%`);

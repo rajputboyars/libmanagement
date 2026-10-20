@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import dynamic from "next/dynamic";
 import { useEffect } from "react";
 import { PublicPage } from "@/components/site";
@@ -7,7 +8,7 @@ import { Auth, DemoPage, ForgotPassword, LibraryDiscovery, ResetPassword, Sandbo
 import { useUI } from "@/lib/ui-store";
 
 // The signed-in workspace (dashboards, charts, forms) is a separate chunk that public pages never download.
-const Workspace = dynamic(() => import("@/components/experience").then((m) => m.Experience), { loading: () => <div className="mt-skeleton" aria-busy="true" aria-label="Loading your workspace" /> });
+const Workspace = dynamic(() => import("@/components/experience").then((m) => m.Experience), { loading: () => <main className="loading"><BrandLoader /></main> });
 
 const PUBLIC_ROUTES = new Set(["/", "/features", "/login", "/register", "/pricing", "/demo", "/discover", "/forgot-password", "/reset-password"]);
 export const isPublicRoute = (path: string) => PUBLIC_ROUTES.has(path) || path.startsWith("/billing/sandbox/");
