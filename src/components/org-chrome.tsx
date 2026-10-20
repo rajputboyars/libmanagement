@@ -70,3 +70,14 @@ export function JoinBanner() {
   const pending = (d.requests as Json[]).some((r) => r.status === "pending");
   return <div className="sq-banner" role="status"><Building2 size={16} /><span>{pending ? "Your library is verifying your registration." : "Using a study library? Enter its Library ID to join it."}</span><Link href="/app/join">{pending ? "View status" : "Join a library"}</Link></div>;
 }
+
+/** Student version: saves the joined library's name for the loader, or clears it when not linked. Renders nothing. */
+export function RememberStudentLibrary() {
+  const q = useQuery<Json>({ queryKey: ["join", "me"], queryFn: () => getJson("/api/join"), staleTime: 60000, retry: false });
+  const d = q.data;
+  const name = d ? ((d.linked as Json | null)?.name as string | undefined) ?? null : undefined;
+  useEffect(() => {
+    if (name !== undefined) rememberLibraryName(name);
+  }, [name]);
+  return null;
+}

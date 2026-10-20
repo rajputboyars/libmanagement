@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,7 +12,7 @@ const TABS = [["overview", "Overview"], ["tests", "Mock tests"], ["practice", "D
 type Tab = (typeof TABS)[number][0];
 
 const Empty = ({ title, text, action }: { title: string; text: string; action?: ReactNode }) => <div className="mt-empty"><h2>{title}</h2><p>{text}</p>{action}</div>;
-const Skeleton = () => <div className="mt-skeleton" aria-busy="true" />;
+const Skeleton = () => <BrandLoader compact text="Loading…" />;
 const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="mt-empty"><h2>Could not load</h2><p>{error instanceof Error ? error.message : "Check your connection."}</p><button className="button" onClick={retry}>Try again</button></div>;
 
 function useView(view: string, extra = "") {

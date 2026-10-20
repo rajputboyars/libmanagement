@@ -1,11 +1,12 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import { useEffect, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Clock3, LogIn, LogOut, MapPin, ShieldCheck, Users } from "lucide-react";
 import { getJson, post, type Json } from "./prep-api";
 
-const Skeleton = () => <div className="mt-skeleton" aria-busy="true" />;
+const Skeleton = () => <BrandLoader compact text="Loading…" />;
 const Empty = ({ title, text }: { title: string; text?: string }) => <div className="mt-empty"><h2>{title}</h2>{text && <p>{text}</p>}</div>;
 const time = (v: string | Date) => new Date(v).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 const dateText = (v: string) => new Date(`${v}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });

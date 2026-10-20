@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Ban, Flag, Heart, ShieldCheck, Users } from "lucide-react";
@@ -26,7 +27,7 @@ function useCommunity(notify: (m: string) => void) {
   };
   return act;
 }
-const Skeleton = () => <div className="mt-skeleton" aria-busy="true" />;
+const Skeleton = () => <BrandLoader compact text="Loading…" />;
 const Empty = ({ title, text }: { title: string; text: string }) => <div className="mt-empty"><h2>{title}</h2><p>{text}</p></div>;
 
 export function Community({ notify, preview }: { notify: (m: string) => void; preview: boolean }) {
