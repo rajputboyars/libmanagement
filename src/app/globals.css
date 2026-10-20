@@ -3904,4 +3904,56 @@ body {
   html {
     @apply font-sans;
   }
+}.brand-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  color: var(--text);
+}
+.brand-loader.compact {
+  padding: 80px 0;
+}
+.brand-loader-word {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: min(90vw, 760px);
+  text-align: center;
+  font-family: var(--serif);
+  font-size: clamp(34px, 7vw, 56px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.brand-loader.compact .brand-loader-word {
+  font-size: clamp(26px, 5vw, 38px);
+}
+.brand-loader-word span {
+  display: inline-block;
+  animation: brand-bounce 1.4s cubic-bezier(0.28, 0.84, 0.42, 1) infinite;
+  transform-origin: 50% 100%;
+}
+.brand-loader-word .brand-loader-dot {
+  color: var(--green);
+}
+.brand-loader p {
+  margin: 0;
+  color: var(--text-muted, var(--muted));
+  font-size: 14px;
+}
+@keyframes brand-bounce {
+  0%, 60%, 100% { transform: translateY(0) scale(1, 1); }
+  15% { transform: translateY(0) scale(1.08, 0.92); }
+  30% { transform: translateY(-0.45em) scale(0.96, 1.06); }
+  45% { transform: translateY(0) scale(1.04, 0.96); }
+}
+@keyframes brand-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-loader-word span {
+    animation: brand-fade 1.6s ease-in-out infinite;
+  }
 }

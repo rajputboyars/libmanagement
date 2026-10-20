@@ -8,6 +8,7 @@ import { useUI } from "@/lib/ui-store";
 import { PublicPage } from "@/components/site";
 import { Auth, StudentJoin, StudentPunch, OwnerJoinRequests, OwnerPresence } from "@/components/lazy";
 import { Empty, Garden } from "@/components/ui-bits";
+import { BrandLoader } from "@/components/brand-loader";
 import { motion } from "motion/react";
 import {
   AreaChart,
@@ -63,7 +64,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { level, streak } from "@/lib/rules";
-import { BranchSwitcher, JoinBanner, LibraryIdChip, PlanBanner } from "@/components/org-chrome";
+import { BranchSwitcher, JoinBanner, LibraryIdChip, PlanBanner, RememberLibraryName } from "@/components/org-chrome";
 import { clearClientCaches } from "@/components/pwa";
 import { Phase2Experience, LearningIntelligence, DoubtSolver, RewardsMarketplace, LibraryDiscovery, Maintenance, ExamPrep, TestResult, TestRunner, PrepAdmin, OwnerBilling, OwnerBranches, OwnerCrm, OwnerSupport, Onboarding, SaasAdmin, PilotImport, AccountSecurity, ForgotPassword, ResetPassword, Community, CommunityModeration, DemoPage, SandboxCheckout, SaasPricing } from "@/components/lazy";
 type Row = Record<string, string | number | boolean>;
@@ -450,6 +451,7 @@ export function Experience({ path }: { path: string }) {
           </div>
         </header>
         <main className="main-content">
+          {owner && !preview && <RememberLibraryName />}
           {owner && !preview && path !== "/owner/onboarding" && <PlanBanner />}
           {!owner && !admin && !preview && String(d.user?.role) === "student" && path !== "/app/join" && <JoinBanner />}
           {preview && (
@@ -473,7 +475,7 @@ export function Experience({ path }: { path: string }) {
               </Link>
             </div>
           ) : isLoading ? (
-            <div className="skeleton" />
+            <BrandLoader compact text="Loading your workspace…" />
           ) : joinPath ? (
             preview ? <div className="mt-empty"><h2>Sign in to use this page</h2><p>Preview mode saves nothing.</p></div> : path === "/app/join" ? <StudentJoin notify={setToast} /> : path === "/app/punch" ? <StudentPunch notify={setToast} /> : path === "/owner/join-requests" ? <OwnerJoinRequests notify={setToast} /> : <OwnerPresence notify={setToast} />
           ) : importPath ? (
