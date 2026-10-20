@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, Wrench } from "lucide-react";
@@ -43,7 +44,7 @@ export function Maintenance({ owner, notify }: { owner: boolean; notify: (messag
       return false;
     }
   }
-  if (isLoading) return <div className="mt-skeleton" aria-busy="true" />;
+  if (isLoading) return <BrandLoader compact text="Loading…" />;
   if (isError || !data) return <div className="mt-empty"><AlertTriangle /><h2>Maintenance could not load</h2><p>Check the connection and refresh.</p></div>;
   return (
     <>

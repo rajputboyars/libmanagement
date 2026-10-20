@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -9,7 +10,7 @@ import { AlertTriangle, Building2, Check, CheckCircle2, CreditCard, Download, Gi
 import { fmtDate, getJson, inr, post, type Json } from "./prep-api";
 
 const Empty = ({ title, text }: { title: string; text: string }) => <div className="mt-empty"><h2>{title}</h2><p>{text}</p></div>;
-const Skeleton = () => <div className="mt-skeleton" aria-busy="true" />;
+const Skeleton = () => <BrandLoader compact text="Loading…" />;
 const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="mt-empty"><AlertTriangle /><h2>Could not load</h2><p>{error instanceof Error ? error.message : "Check your connection."}</p><button className="button" onClick={retry}>Try again</button></div>;
 const label = (v: string) => v.replace(/[-_]/g, " ");
 

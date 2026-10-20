@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandLoader } from "@/components/brand-loader";
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getJson, fmtDate, post, type Json } from "./prep-api";
@@ -74,7 +75,7 @@ function Questions({ examKey, topics, act }: { examKey: string; topics: Json[]; 
           <label className="wide">Source notes<input name="snotes" maxLength={300} defaultValue={edit.source?.notes} /></label>
           <div className="queue-actions"><button className="button">Save</button><button type="button" className="button secondary" onClick={() => setEdit(null)}>Cancel</button></div>
         </form>)}
-      {q.isLoading ? <div className="mt-skeleton" /> : <div className="mt-list">{(q.data?.items ?? []).map((x: Json) => (
+      {q.isLoading ? <BrandLoader compact text="Loading…" /> : <div className="mt-list">{(q.data?.items ?? []).map((x: Json) => (
         <article className="mt-card" key={x._id}>
           <div className="mt-card-head"><div><h3>{x.prompt}</h3><p>{(x.options as string[]).map((o, i) => `${i === x.correctIndex ? "✓ " : ""}${o}`).join(" · ")}</p></div><div className="mt-badges"><span className="mt-pill">{x.status ?? "published"}</span>{x.aiGenerated && <span className="mt-pill p-high">AI draft</span>}<span className="mt-pill">{x.source?.license ?? "—"}</span></div></div>
           <p className="mt-desc">{x.explanation}</p><p className="mt-desc">Source: {x.source?.name || "not set"}{x.source?.year ? ` (${x.source.year})` : ""}</p>
