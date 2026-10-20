@@ -252,6 +252,14 @@ select {
   border-radius: 9px;
   padding: 11px 9px;
   margin: 0 2px 25px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.workspace-switch:hover,
+.workspace-switch:focus-visible {
+  border-color: var(--green, #438d75);
+  background: var(--surface);
 }
 .workspace-switch > svg {
   margin-left: auto;
@@ -386,6 +394,14 @@ select {
   color: #51674d;
   font-size: 13px;
   font-family: var(--serif);
+}
+a.avatar {
+  text-decoration: none;
+  cursor: pointer;
+}
+a.avatar:hover,
+a.avatar:focus-visible {
+  outline-color: var(--green, #438d75);
 }
 .avatar.small {
   width: 31px;
