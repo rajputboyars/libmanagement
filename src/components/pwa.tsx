@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { WifiOff } from "lucide-react";
+import { rememberLibraryName } from "@/components/brand-loader";
 
 /**
  * Drops everything the service worker cached and unregisters it. Called on sign-out and account deletion so a shared
  * device never keeps another person's pages. The worker only caches static assets, but this is defence in depth.
  */
 export async function clearClientCaches() {
+  rememberLibraryName(null);
   try {
     if ("caches" in window) await Promise.all((await caches.keys()).map((k) => caches.delete(k)));
     const reg = await navigator.serviceWorker?.getRegistration();
