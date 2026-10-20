@@ -241,6 +241,10 @@ export function Experience({ path }: { path: string }) {
     (!owner && !admin && d.user?.role === "student") ||
     (owner && ["owner", "staff"].includes(String(d.user?.role))) ||
     (admin && d.user?.role === "super-admin");
+  // Owners and staff stay inside /owner; /app links would bounce them back to the dashboard.
+  const profileHref = owner ? "/owner/settings" : admin ? "/super-admin" : "/app/profile";
+  const notificationsHref = owner ? "/owner/notifications" : "/app/notifications";
+  const unread = d.notifications.some((n) => !n.read);
   if (path === "/login" || path === "/register")
     return <Auth register={path === "/register"} />;
   if (path === "/discover") return <LibraryDiscovery />;
@@ -269,7 +273,7 @@ export function Experience({ path }: { path: string }) {
     );
   const title =
     nav.find((n) => n[0] === path)?.[1] ||
-    { "/app/profile": "My profile", "/app/notifications": "Notifications" }[
+    { "/app/profile": "My profile", "/app/notifications": "Notifications", "/owner/notifications": "Notifications" }[
       path
     ] ||
     "Overview";
@@ -301,7 +305,12 @@ export function Experience({ path }: { path: string }) {
         >
           <X />
         </button>
-        <div className="workspace-switch">
+        <Link
+          className="workspace-switch"
+          href={profileHref}
+          onClick={() => setMenu(false)}
+          aria-label={owner ? "Open library profile" : "Open my profile"}
+        >
           <span className="workspace-icon">{owner ? "L" : "S"}</span>
           <div>
             <strong>
@@ -318,7 +327,7 @@ export function Experience({ path }: { path: string }) {
             </small>
           </div>
           <ChevronRight size={15} />
-        </div>
+        </Link>
         {owner && !preview && <BranchSwitcher />}
         {owner && !preview && String(d.user?.role) === "owner" && <LibraryIdChip notify={setToast} />}
         <div className="nav-label">{owner ? "WORKSPACE" : "YOUR JOURNEY"}</div>
@@ -337,18 +346,31 @@ export function Experience({ path }: { path: string }) {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="grow-card">
-            <Leaf size={23} />
-            <strong>Small steps. Big things.</strong>
-            <p>Your next chapter starts with today’s focus.</p>
-            <Link href={owner ? "/app" : "/app/focus"}>
-              Find your focus <ArrowUpRight size={15} />
+          {owner ? (
+            <div className="grow-card">
+              <Leaf size={23} />
+              <strong>Fill every seat.</strong>
+              <p>Share your Library ID so students can join and punch in.</p>
+              <Link href="/owner/join-requests" onClick={() => setMenu(false)}>
+                Invite students <ArrowUpRight size={15} />
+              </Link>
+            </div>
+          ) : !admin && (
+            <div className="grow-card">
+              <Leaf size={23} />
+              <strong>Small steps. Big things.</strong>
+              <p>Your next chapter starts with today’s focus.</p>
+              <Link href="/app/focus" onClick={() => setMenu(false)}>
+                Find your focus <ArrowUpRight size={15} />
+              </Link>
+            </div>
+          )}
+          {!admin && (
+            <Link className="nav-item" href={profileHref} onClick={() => setMenu(false)}>
+              <Settings size={19} />
+              Settings
             </Link>
-          </div>
-          <Link className="nav-item" href="/app/profile">
-            <Settings size={19} />
-            Settings
-          </Link>
+          )}
           <Link className="nav-item" href="/features">
             <HelpCircle size={19} />
             Help & resources
@@ -408,17 +430,23 @@ export function Experience({ path }: { path: string }) {
             >
               {dark ? <Sun size={19} /> : <Moon size={19} />}
             </button>
+            {!admin && (
+              <Link
+                className="icon-btn bell"
+                aria-label={unread ? "Notifications (unread)" : "Notifications"}
+                href={notificationsHref}
+              >
+                <Bell size={20} />
+                {unread && <i />}
+              </Link>
+            )}
             <Link
-              className="icon-btn bell"
-              aria-label="Notifications"
-              href="/app/notifications"
+              className="avatar small"
+              href={profileHref}
+              aria-label={owner ? "Open library profile" : "Open my profile"}
             >
-              <Bell size={20} />
-              <i />
-            </Link>
-            <span className="avatar small">
               {preview ? "A" : String(d.user?.name || "S")[0]}
-            </span>
+            </Link>
           </div>
         </header>
         <main className="main-content">
@@ -1203,6 +1231,102 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
     </>
   );
 }
+// Group amounts (paise) by a label and return them largest first.
+function totalsBy(rows: Row[], key: string) {
+  const sums = new Map<string, number>();
+  for (const r of rows) {
+    const label = String(r[key] || "Other");
+    sums.set(label, (sums.get(label) || 0) + Number(r.amount || 0));
+  }
+  return [...sums].sort((a, b) => b[1] - a[1]);
+}
+function OwnerReports({ data: d }: { data: Data }) {
+  const revenue = d.summary?.revenue || 0,
+    expenses = d.summary?.expenses || 0,
+    due = d.summary?.due || 0;
+  const [now] = useState(() => new Date());
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const m = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+    return { key: `${m.getFullYear()}-${m.getMonth()}`, name: m.toLocaleDateString("en-IN", { month: "short" }), Revenue: 0, Expenses: 0 };
+  });
+  const bucket = (value: unknown) => {
+    const t = new Date(String(value));
+    return months.find((m) => m.key === `${t.getFullYear()}-${t.getMonth()}`);
+  };
+  for (const p of d.payments) { const m = bucket(p.createdAt); if (m) m.Revenue += Number(p.amount || 0) / 100; }
+  for (const e of d.expenses) { const m = bucket(e.date || e.createdAt); if (m) m.Expenses += Number(e.amount || 0) / 100; }
+  const byCategory = totalsBy(d.expenses, "category");
+  const byMethod = totalsBy(d.payments, "method");
+  const statusCounts = new Map<string, number>();
+  for (const m of d.memberships) statusCounts.set(String(m.status || "unknown"), (statusCounts.get(String(m.status || "unknown")) || 0) + 1);
+  const weekAgo = +now - 7 * 864e5;
+  const visits = d.attendance.filter((a) => +new Date(String(a.checkIn || a.day)) >= weekAgo).length;
+  const seatsTaken = new Set(
+    (d.assignments || [])
+      .filter((a) => +new Date(String(a.start)) <= +now && +new Date(String(a.end)) > +now)
+      .map((a) => String(a.seatId)),
+  ).size;
+  const seats = d.summary?.seats || d.seats.length;
+  const list = (rows: [string, number][], empty: string) =>
+    rows.length ? (
+      rows.map(([label, amount]) => (
+        <div className="list-row" key={label}>
+          <strong style={{ textTransform: "capitalize" }}>{label}</strong>
+          <span style={{ marginLeft: "auto" }}>{money(amount)}</span>
+        </div>
+      ))
+    ) : (
+      <p className="muted">{empty}</p>
+    );
+  return (
+    <>
+      <div className="stats-grid">
+        <Stat icon={Wallet} color="mint" label="Money in" value={money(revenue)} detail="All confirmed payments" />
+        <Stat icon={Receipt} color="amber" label="Money out" value={money(expenses)} detail="All recorded expenses" />
+        <Stat icon={ChartNoAxesCombined} color="violet" label="Net profit" value={money(revenue - expenses)} detail="Money in minus money out" />
+        <Stat icon={CreditCard} color="peach" label="Fees still due" value={money(due)} detail="Unpaid membership balance" />
+      </div>
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <h2>Last 6 months</h2>
+            <p>Money in (green) and money out (orange) each month, from your latest 100 payments and expenses.</p>
+          </div>
+          <ChartNoAxesCombined size={20} />
+        </div>
+        <div className="chart">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={months}>
+              <XAxis dataKey="name" axisLine={false} tickLine={false} />
+              <Tooltip formatter={(v) => money(Number(v) * 100)} />
+              <Bar dataKey="Revenue" fill="#438d75" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="Expenses" fill="#d9925b" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+      <div className="dashboard-grid">
+        <section className="card">
+          <h2>Where money goes</h2>
+          <p className="muted">Expenses by category.</p>
+          {list(byCategory, "No expenses recorded yet.")}
+        </section>
+        <section className="card">
+          <h2>How students pay</h2>
+          <p className="muted">Payments by method.</p>
+          {list(byMethod, "No payments recorded yet.")}
+        </section>
+      </div>
+      <div className="stats-grid">
+        <Stat icon={Armchair} color="mint" label="Seats in use now" value={`${seatsTaken} / ${seats}`} detail={seats ? `${Math.round((seatsTaken / seats) * 100)}% filled` : "Add seats to start"} />
+        <Stat icon={CheckCircle2} color="violet" label="Visits this week" value={String(visits)} detail="Check-ins in the last 7 days" />
+        {[...statusCounts].slice(0, 2).map(([status, count]) => (
+          <Stat key={status} icon={BookOpen} color="peach" label={`${status[0].toUpperCase()}${status.slice(1)} memberships`} value={String(count)} detail="From your latest 100" />
+        ))}
+      </div>
+    </>
+  );
+}
 function Stat({
   icon: Icon,
   color,
@@ -1371,7 +1495,9 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const [search, setSearch] = useState("");
   const [selectedSeat, setSelectedSeat] = useState("");
   const section = path.split("/")[2] || "overview";
-  const title = ownerNav.find((n) => n[0] === path)?.[1] || "Overview";
+  const title =
+    ownerNav.find((n) => n[0] === path)?.[1] ||
+    (section === "notifications" ? "Notifications" : "Overview");
   const total = d.summary?.revenue || 0,
     cost = d.summary?.expenses || 0,
     due = d.summary?.due || 0;
@@ -1646,7 +1772,11 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
               ? "Your community, your space, and everything that keeps it running."
               : section === "seats"
                 ? "A place for every student. A clear view of every seat."
-                : "Keep the little details in order. Make room for the big things."}
+                : section === "reports"
+                  ? "How your library is doing: money in, money out, and who is studying."
+                  : section === "notifications"
+                    ? "Updates for you and announcements you have shared with students."
+                    : "Keep the little details in order. Make room for the big things."}
           </p>
         </div>
         {fields[section] && (
@@ -1656,7 +1786,9 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
               ? "Record payment"
               : section === "attendance"
                 ? "Check in student"
-                : `Add ${section === "memberships" ? "membership" : section === "students" ? "student" : section === "seats" ? "seat" : section === "shifts" ? "shift" : section === "plans" ? "plan" : "expense"}`}
+                : section === "notifications"
+                  ? "Create announcement"
+                  : `Add ${section === "memberships" ? "membership" : section === "students" ? "student" : section === "seats" ? "seat" : section === "shifts" ? "shift" : section === "plans" ? "plan" : "expense"}`}
           </button>
         )}
         {section === "overview" && (
@@ -1698,7 +1830,29 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           </button>
         </div>
       )}
-      {section === "overview" || section === "reports" ? (
+      {section === "reports" ? (
+        <OwnerReports data={d} />
+      ) : section === "notifications" ? (
+        <section className="card">
+          {d.notifications.length ? (
+            d.notifications.map((n) => (
+              <div className="list-row" key={String(n._id)}>
+                <Bell />
+                <div>
+                  <strong>{n.title}</strong>
+                  <p>{n.message}</p>
+                </div>
+              </div>
+            ))
+          ) : (
+            <Empty
+              icon={Bell}
+              title="A quiet moment"
+              text="Support replies, billing notices and your announcements will appear here."
+            />
+          )}
+        </section>
+      ) : section === "overview" ? (
         <>
           <div className="stats-grid">
             <Stat
