@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowUpRight, ArrowRight, BookOpen, Armchair, Flame, Clock3, ChartNoAxesCombined, Wallet, Search, Check, X, Sun, Moon, ShieldCheck, Leaf, Building2, CheckCircle2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Empty, Garden } from "@/components/ui-bits";
+import { GuideTeaser, VideoGuide } from "@/components/video-guide";
 
 export function PublicPage({
   path,
@@ -66,6 +67,12 @@ export function PublicPage({
             href="/pricing"
           >
             Pricing
+          </Link>
+          <Link
+            className={path === "/guide" ? "selected" : ""}
+            href="/guide"
+          >
+            Video guide
           </Link>
           <Link href="/libraries">Find your space</Link>
         </nav>
@@ -184,6 +191,7 @@ export function PublicPage({
                 </Link>
               </div>
             </section>
+            <GuideTeaser />
             <section className="owner-callout">
               <div>
                 <span className="eyebrow">FOR THE PEOPLE BEHIND THE SPACE</span>
@@ -299,6 +307,18 @@ export function PublicPage({
               ))}
             </div>
           </section>
+        ) : path === "/guide" ? (
+          <section className="feature-section">
+            <div className="center-heading">
+              <span className="eyebrow">VIDEO GUIDE · हिंदी में</span>
+              <h1 lang="hi">हर स्क्रीन, आसान भाषा में</h1>
+              <p>
+                Short Hindi videos that explain every page of StudyQuest, for
+                students and for library owners.
+              </p>
+            </div>
+            <VideoGuide />
+          </section>
         ) : path === "/libraries" ? (
           <section className="feature-section">
             <div className="center-heading">
@@ -357,6 +377,7 @@ export function PublicPage({
         <div>
           <Link href="/features">Features</Link>
           <Link href="/pricing">Pricing</Link>
+          <Link href="/guide">Video guide</Link>
           <button className="text-link" onClick={() => setDemo(true)}>
             Request a demo
           </button>
