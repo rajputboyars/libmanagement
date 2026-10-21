@@ -10,7 +10,7 @@ import { useUI } from "@/lib/ui-store";
 // The signed-in workspace (dashboards, charts, forms) is a separate chunk that public pages never download.
 const Workspace = dynamic(() => import("@/components/experience").then((m) => m.Experience), { loading: () => <main className="loading"><BrandLoader /></main> });
 
-const PUBLIC_ROUTES = new Set(["/", "/features", "/login", "/register", "/pricing", "/demo", "/discover", "/forgot-password", "/reset-password"]);
+const PUBLIC_ROUTES = new Set(["/", "/features", "/guide", "/login", "/register", "/pricing", "/demo", "/discover", "/forgot-password", "/reset-password"]);
 export const isPublicRoute = (path: string) => PUBLIC_ROUTES.has(path) || path.startsWith("/billing/sandbox/");
 
 export function AppEntry({ path }: { path: string }) {

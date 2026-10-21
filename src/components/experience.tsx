@@ -372,7 +372,7 @@ export function Experience({ path }: { path: string }) {
               Settings
             </Link>
           )}
-          <Link className="nav-item" href="/features">
+          <Link className="nav-item" href={owner ? "/guide?for=owner" : admin ? "/features" : "/guide?for=student"}>
             <HelpCircle size={19} />
             Help & resources
           </Link>
