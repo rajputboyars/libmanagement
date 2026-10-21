@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AppEntry } from "@/components/app-entry";
+import { guideMeta } from "@/lib/guide-route";
 
 const PUBLIC: Record<string, { title: string; description: string }> = {
   "/": { title: "StudyQuest — A little focus. A bigger future.", description: "Manage your study library and give students a rewarding way to focus: seats, memberships, attendance, fees and study progress in one place." },
@@ -15,7 +16,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug?: st
   const { slug = [] } = await params;
   const path = "/" + slug.join("/");
   if (PRIVATE.some((p) => path === p || path.startsWith(p + "/"))) return { title: { absolute: "StudyQuest" }, robots: { index: false, follow: false } };
-  const meta = PUBLIC[path];
+  const meta = PUBLIC[path] ?? guideMeta(path);
   if (!meta) return { title: "Page not found", robots: { index: false } };
   return { title: path === "/" ? { absolute: meta.title } : meta.title, description: meta.description, alternates: { canonical: path }, openGraph: { title: meta.title, description: meta.description, url: path, type: "website" } };
 }

@@ -2800,8 +2800,13 @@ td {
     justify-content: space-around;
     padding: 10px 5px max(11px, env(safe-area-inset-bottom));
   }
-  .bottom-nav a {
+  .bottom-nav a,
+  .bottom-nav button {
     display: flex;
+    background: none;
+    border: 0;
+    font: inherit;
+    cursor: pointer;
     flex-direction: column;
     align-items: center;
     gap: 5px;
@@ -2809,7 +2814,8 @@ td {
     color: #56664c;
     min-width: 65px;
   }
-  .bottom-nav a.active {
+  .bottom-nav a.active,
+  .bottom-nav button.active {
     color: var(--green);
   }
   .toast {
@@ -3995,3 +4001,22 @@ body {
   .vg-now .button { width: 100%; justify-content: center; }
   .vg-teaser { padding: 48px 16px; }
 }
+
+/* Portal guide website */
+.guide-hi { font-family: "Nirmala UI", "Mangal", var(--font-sans, sans-serif); }
+.vg-all-heading { max-width: 1120px; margin: 8px auto 18px; font-size: 26px; }
+
+/* Public site hamburger menu (phones; the header nav is hidden below 768px) */
+.public-header > div > .public-menu-btn { display: none; }
+.public-drawer-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(15, 30, 24, 0.35); }
+.public-drawer { position: absolute; top: 0; right: 0; width: min(320px, 86vw); height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 84px 18px 24px; background: var(--surface); box-shadow: -20px 0 60px rgba(15, 30, 24, 0.2); animation: public-drawer-in 0.22s ease-out; }
+.public-drawer > a { padding: 13px 14px; border-radius: 12px; color: var(--text); font-size: 16px; font-weight: 600; text-decoration: none; }
+.public-drawer > a:hover, .public-drawer > a.selected { background: var(--soft); color: var(--green); }
+.public-drawer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.public-drawer-actions .button { flex: 1; justify-content: center; }
+@keyframes public-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@media (max-width: 767px) {
+  .public-header > div > .public-menu-btn { display: grid; position: relative; z-index: 61; }
+  .public-header .login-link { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .public-drawer { animation: none; } }

@@ -1,10 +1,12 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowUpRight, ArrowRight, BookOpen, Armchair, Flame, Clock3, ChartNoAxesCombined, Wallet, Search, Check, X, Sun, Moon, ShieldCheck, Leaf, Building2, CheckCircle2 } from "lucide-react";
+import { ArrowUpRight, ArrowRight, Menu, BookOpen, Armchair, Flame, Clock3, ChartNoAxesCombined, Wallet, Search, Check, X, Sun, Moon, ShieldCheck, Leaf, Building2, CheckCircle2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Empty, Garden } from "@/components/ui-bits";
 import { GuideTeaser, VideoGuide } from "@/components/video-guide";
+import { GuideDetail, GuideHubCards, GuidePortal } from "@/components/guide-site";
+import { guideRoute } from "@/lib/guide-route";
 
 export function PublicPage({
   path,
@@ -16,6 +18,16 @@ export function PublicPage({
   toggle: () => void;
 }) {
   const [demo, setDemo] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const guide = guideRoute(path);
+  const links: [string, string][] = [
+    ["/features", "Why StudyQuest"],
+    ["/pricing", "Pricing"],
+    ["/guide", "Guide"],
+    ["/guide/student", "Student guide"],
+    ["/guide/owner", "Owner guide"],
+    ["/libraries", "Find your space"],
+  ];
   const features = [
     {
       icon: Armchair,
@@ -69,10 +81,10 @@ export function PublicPage({
             Pricing
           </Link>
           <Link
-            className={path === "/guide" ? "selected" : ""}
+            className={path.startsWith("/guide") ? "selected" : ""}
             href="/guide"
           >
-            Video guide
+            Guide
           </Link>
           <Link href="/libraries">Find your space</Link>
         </nav>
@@ -90,8 +102,50 @@ export function PublicPage({
           <Link className="button" href="/register">
             Get started <ArrowUpRight size={16} />
           </Link>
+          <button
+            type="button"
+            className="icon-btn public-menu-btn"
+            onClick={() => setNavOpen((o) => !o)}
+            aria-label={navOpen ? "Close menu" : "Open menu"}
+            aria-expanded={navOpen}
+            aria-controls="public-drawer"
+          >
+            {navOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
         </div>
       </header>
+      {navOpen && (
+        <div className="public-drawer-backdrop" onClick={() => setNavOpen(false)}>
+          <nav
+            id="public-drawer"
+            className="public-drawer"
+            aria-label="Main menu"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {links.map(([href, label]) => (
+              <Link
+                key={href}
+                href={href}
+                className={path === href ? "selected" : ""}
+                onClick={() => setNavOpen(false)}
+              >
+                {label}
+              </Link>
+            ))}
+            <div className="public-drawer-actions">
+              <button className="icon-btn" onClick={toggle} aria-label="Toggle theme">
+                {dark ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+              <Link className="button secondary" href="/login" onClick={() => setNavOpen(false)}>
+                Log in
+              </Link>
+              <Link className="button" href="/register" onClick={() => setNavOpen(false)}>
+                Get started
+              </Link>
+            </div>
+          </nav>
+        </div>
+      )}
       <main>
         {path === "/" ? (
           <>
@@ -317,8 +371,16 @@ export function PublicPage({
                 students and for library owners.
               </p>
             </div>
+            <GuideHubCards />
+            <h2 className="vg-all-heading">All videos</h2>
             <VideoGuide />
           </section>
+        ) : guide ? (
+          guide.slug ? (
+            <GuideDetail role={guide.role} slug={guide.slug} />
+          ) : (
+            <GuidePortal role={guide.role} />
+          )
         ) : path === "/libraries" ? (
           <section className="feature-section">
             <div className="center-heading">
@@ -377,7 +439,9 @@ export function PublicPage({
         <div>
           <Link href="/features">Features</Link>
           <Link href="/pricing">Pricing</Link>
-          <Link href="/guide">Video guide</Link>
+          <Link href="/guide">Guide</Link>
+          <Link href="/guide/student">Student guide</Link>
+          <Link href="/guide/owner">Owner guide</Link>
           <button className="text-link" onClick={() => setDemo(true)}>
             Request a demo
           </button>

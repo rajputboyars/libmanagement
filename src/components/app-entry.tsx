@@ -11,7 +11,7 @@ import { useUI } from "@/lib/ui-store";
 const Workspace = dynamic(() => import("@/components/experience").then((m) => m.Experience), { loading: () => <main className="loading"><BrandLoader /></main> });
 
 const PUBLIC_ROUTES = new Set(["/", "/features", "/guide", "/login", "/register", "/pricing", "/demo", "/discover", "/forgot-password", "/reset-password"]);
-export const isPublicRoute = (path: string) => PUBLIC_ROUTES.has(path) || path.startsWith("/billing/sandbox/");
+export const isPublicRoute = (path: string) => PUBLIC_ROUTES.has(path) || path.startsWith("/guide/") || path.startsWith("/billing/sandbox/");
 
 export function AppEntry({ path }: { path: string }) {
   const { dark, toggle } = useUI();
