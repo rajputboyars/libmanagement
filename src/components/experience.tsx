@@ -2,7 +2,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUI } from "@/lib/ui-store";
 import { PublicPage } from "@/components/site";
@@ -89,6 +89,15 @@ type Data = {
   profile?: Row;
   summary?: Record<string, number>;
 };
+// True when StudyQuest runs as the installed app (home-screen icon) or was opened from its start_url.
+const subscribeDisplayMode = (onChange: () => void) => {
+  const mq = window.matchMedia("(display-mode: standalone)");
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+};
+const isInstalledApp = () =>
+  window.matchMedia("(display-mode: standalone)").matches ||
+  new URLSearchParams(window.location.search).get("source") === "pwa";
 const blank: Data = {
   students: [],
   seats: [],
@@ -195,19 +204,20 @@ export function Experience({ path }: { path: string }) {
   const owner = path.startsWith("/owner"),
     admin = path.startsWith("/super-admin"),
     app = path.startsWith("/app") || owner || admin;
+  const installed = useSyncExternalStore(subscribeDisplayMode, isInstalledApp, () => false);
+  const role = d.user?.role as string | undefined;
+  const home = role === "super-admin" ? "/super-admin" : role === "owner" || role === "staff" ? "/owner" : role === "student" ? "/app" : null;
+  const area = admin ? "/super-admin" : owner ? "/owner" : path.startsWith("/app") ? "/app" : null;
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
   }, [dark]);
   useEffect(() => {
     if (isLoading) return;
-    const role = d.user?.role as string | undefined;
-    const home = role === "super-admin" ? "/super-admin" : role === "owner" || role === "staff" ? "/owner" : role === "student" ? "/app" : null;
-    const area = path.startsWith("/super-admin") ? "/super-admin" : path.startsWith("/owner") ? "/owner" : path.startsWith("/app") ? "/app" : null;
     // A signed-in person who lands in the wrong area (for example an owner opening the installed app at /app) goes to their own workspace.
     if (home && area && area !== home) router.replace(home);
-    // The installed app (start_url …?source=pwa) opens the sign-in page when nobody is signed in, not the sample preview.
-    else if (!home && area === "/app" && new URLSearchParams(window.location.search).get("source") === "pwa") router.replace("/login");
-  }, [isLoading, d.user?.role, path, router]);
+    // The installed app opens the sign-in page when nobody is signed in, never the sample preview.
+    else if (!home && area && installed) router.replace("/login");
+  }, [isLoading, home, area, installed, router]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 5000);
@@ -257,6 +267,14 @@ export function Experience({ path }: { path: string }) {
   if (path.startsWith("/app/prep/test/")) return <TestRunner id={path.split("/")[4] ?? ""} />;
   if (path.startsWith("/app/prep/result/")) return <TestResult id={path.split("/")[4] ?? ""} />;
   if (!app) return <PublicPage path={path} dark={dark} toggle={toggle} />;
+  // Show only the loader while the session is checked or a redirect is on its way,
+  // so the installed app never flashes the sample "preview" workspace first.
+  if (app && !isError && (isLoading || (home && area && area !== home) || (!home && installed)))
+    return (
+      <main className="loading">
+        <BrandLoader />
+      </main>
+    );
   if (isError)
     return (
       <main className="loading">
@@ -570,6 +588,16 @@ export function Experience({ path }: { path: string }) {
             <span>{label}</span>
           </Link>
         ))}
+        <button
+          type="button"
+          className={menu ? "active" : ""}
+          onClick={() => setMenu(true)}
+          aria-label="Open full menu"
+          aria-expanded={menu}
+        >
+          <Menu size={21} />
+          <span>More</span>
+        </button>
       </nav>
       {toast && (
         <div role="status" className="toast">
