@@ -355,6 +355,20 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, record: rec });
       }
       case "note-bookmark": { const v = z.object({ id: objectId, bookmarked: z.boolean() }).parse(body.data); const r = await StudentNote.findOneAndUpdate({ _id: v.id, userId: user._id }, { bookmarked: v.bookmarked }, { new: true }); if (!r) throw new Error("Note not found"); return NextResponse.json({ ok: true }); }
+      case "note-share": {
+        const v = z.object({ id: objectId, shared: z.boolean() }).parse(body.data);
+        if (v.shared && !user.libraryId) throw new Error("Join a library to share notes with it");
+        const r = await StudentNote.findOneAndUpdate(
+          { _id: v.id, userId: user._id },
+          v.shared
+            ? { $set: { shared: true, sharedAt: new Date(), libraryId: user.libraryId, authorName: user.name.split(" ")[0] } }
+            : { $set: { shared: false } },
+          { new: true },
+        );
+        if (!r) throw new Error("Note not found");
+        if (v.shared && r.moderation === "hidden") throw new Error("Your library hid this note, so classmates can't see it.");
+        return NextResponse.json({ ok: true, record: r });
+      }
       case "note-delete": { const v = z.object({ id: objectId }).parse(body.data); await StudentNote.deleteOne({ _id: v.id, userId: user._id }); return NextResponse.json({ ok: true }); }
       case "goal-save": { const v = z.object({ title: z.string().trim().min(2).max(120), targetDate: z.iso.datetime().optional() }).parse(body.data); if (await ExamGoal.countDocuments({ userId: user._id, done: false }) >= 30) throw new Error("Finish some goals before adding more"); return NextResponse.json({ ok: true, record: await ExamGoal.create({ userId: user._id, title: v.title, targetDate: v.targetDate ? new Date(v.targetDate) : undefined }) }); }
       case "goal-toggle": { const v = z.object({ id: objectId, done: z.boolean() }).parse(body.data); const r = await ExamGoal.findOneAndUpdate({ _id: v.id, userId: user._id }, { done: v.done, doneAt: v.done ? now : undefined }, { new: true }); if (!r) throw new Error("Goal not found"); return NextResponse.json({ ok: true }); }

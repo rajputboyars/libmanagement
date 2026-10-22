@@ -7,6 +7,7 @@ import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { StudentWeeklyReport } from "@/components/weekly-report";
 import { PushToggle } from "@/components/push-toggle";
 import { Leaderboard } from "@/components/leaderboard";
+import { LibraryNotes, OwnerSharedNotes } from "@/components/shared-notes";
 import { countdownText, daysUntil } from "@/lib/exam-countdown";
 import { STUDENT_FEATURES, lockedMessage, studentFeatureForPath, type StudentAccess } from "@/lib/student-access";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -216,6 +217,7 @@ const studentNav: [string, string, LucideIcon][] = [
   ["/app/progress", "My progress", ChartNoAxesCombined],
   ["/app/report", "Weekly report", ChartNoAxesCombined],
   ["/app/leaderboard", "Leaderboard", Trophy],
+  ["/app/library-notes", "Library notes", BookOpen],
   ["/app/achievements", "Achievements", Trophy],
   ["/app/membership", "My library", BookOpen],
   ["/app/security", "Account & privacy", ShieldCheck],
@@ -426,6 +428,7 @@ export function Experience({ path }: { path: string }) {
   const prepPath = path === "/app/prep";
   const reportPath = path === "/app/report";
   const leaderboardPath = path === "/app/leaderboard";
+  const libraryNotesPath = path === "/app/library-notes";
   // Premium student features the platform owner has locked for students who are not paid up.
   const lockedList = !preview && !owner && !admin ? (d.studentAccess?.locked ?? []) : [];
   const lockedPaths = new Set<string>(lockedList.flatMap((f) => [...STUDENT_FEATURES[f].paths]));
@@ -745,6 +748,15 @@ export function Experience({ path }: { path: string }) {
             ) : (
               <Onboarding notify={setToast} />
             )
+          ) : libraryNotesPath ? (
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to read your library&apos;s notes</h2>
+                <p>Preview mode has no real library.</p>
+              </div>
+            ) : (
+              <LibraryNotes />
+            )
           ) : leaderboardPath ? (
             preview ? (
               <div className="mt-empty">
@@ -769,7 +781,10 @@ export function Experience({ path }: { path: string }) {
             <PrepAdmin notify={setToast} />
           ) : communityPath ? (
             path === "/owner/moderation" ? (
-              <CommunityModeration notify={setToast} />
+              <>
+                <CommunityModeration notify={setToast} />
+                <OwnerSharedNotes notify={setToast} />
+              </>
             ) : (
               <Community preview={preview} notify={setToast} />
             )

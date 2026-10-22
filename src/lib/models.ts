@@ -806,8 +806,15 @@ export const StudentNote = model(
     topicId: id,
     tags: [{ type: String, trim: true, lowercase: true, maxlength: 30 }],
     bookmarked: { type: Boolean, default: false },
+    // Shared with the student's library (read-only for classmates); the library team can hide it.
+    shared: { type: Boolean, default: false },
+    sharedAt: Date,
+    libraryId: id,
+    authorName: { type: String, trim: true, maxlength: 40, default: "" },
+    moderation: { type: String, enum: ["active", "hidden"], default: "active" },
+    hiddenReason: { type: String, trim: true, maxlength: 200, default: "" },
   },
-  [[{ userId: 1, updatedAt: -1 }, {}], [{ userId: 1, bookmarked: 1 }, {}]],
+  [[{ userId: 1, updatedAt: -1 }, {}], [{ userId: 1, bookmarked: 1 }, {}], [{ libraryId: 1, shared: 1, sharedAt: -1 }, {}]],
 );
 export const ExamGoal = model(
   "ExamGoal",
