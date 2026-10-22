@@ -25,6 +25,9 @@ export const User = model("User", {
   sessionVersion: { type: Number, default: 0 },
   invited: { type: Boolean, default: false },
   deletedAt: Date,
+  // Set by the platform owner; a suspended account cannot sign in and its sessions end.
+  suspendedAt: Date,
+  suspendedReason: { type: String, trim: true, maxlength: 200 },
 });
 export const Library = model("Library", {
   name: { type: String, required: true },

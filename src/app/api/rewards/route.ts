@@ -1,3 +1,4 @@
+import { studentFeatureBlocked } from "@/lib/student-access-server";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -12,6 +13,7 @@ async function balance(userId: unknown, session?: mongoose.ClientSession) {
 
 export async function GET(request: NextRequest) {
   const user = await currentUser();
+  { const blocked = await studentFeatureBlocked(user, "rewards"); if (blocked) return blocked; }
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (!user.libraryId) return NextResponse.json({ rewards: [], redemptions: [], balance: 0, transactions: [] });
   const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
@@ -28,6 +30,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!validOrigin(request)) return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
   const user = await currentUser();
+  { const blocked = await studentFeatureBlocked(user, "rewards"); if (blocked) return blocked; }
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (!user.libraryId) return NextResponse.json({ error: "Join a library first" }, { status: 400 });
   if (limited(`rewards:${user._id}`, 30)) return NextResponse.json({ error: "Please slow down" }, { status: 429 });

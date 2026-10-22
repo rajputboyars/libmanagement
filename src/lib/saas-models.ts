@@ -316,6 +316,8 @@ export const PlatformSettings = model("PlatformSettings", {
   referralMonthlyCap: { type: Number, default: 5, min: 0 },
   invoicePrefix: { type: String, default: "SQ", maxlength: 8 },
   invoiceSeq: { type: Number, default: 0 },
+  // Student features that need an active, fully paid library membership (see student-access.ts).
+  premiumStudentFeatures: { type: [String], default: [] },
 });
 export const VerificationCode = model(
   "VerificationCode",

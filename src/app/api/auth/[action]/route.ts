@@ -121,6 +121,8 @@ export async function POST(
         return NextResponse.json({ error: "Email or password is incorrect" }, { status: 401 });
       }
       await clearLimit(acct);
+      // Only after a correct password, so this does not reveal which emails exist.
+      if (user.suspendedAt) return NextResponse.json({ error: "This account is suspended. Contact StudyQuest support." }, { status: 403 });
     } else return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!user) throw new Error("Unable to create account");
     const response = NextResponse.json({ role: user.role, ...(joinResultOut ? { join: joinResultOut } : {}) });
