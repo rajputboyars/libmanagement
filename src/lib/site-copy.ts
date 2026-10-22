@@ -81,6 +81,26 @@ export const copy = {
       ],
     ] as [string, Pair, Pair][],
   },
+  videos: {
+    eyebrow: p("Video guide · Hindi audio", "Video guide · Hindi audio"),
+    title: p("See how it works", "Dekhiye kaise kaam karta hai"),
+    lede: p(
+      "Short videos for every screen, for students and for library owners.",
+      "Har screen ke chhote videos, students aur library owners ke liye.",
+    ),
+    student: p("For students", "Students ke liye"),
+    studentText: p(
+      "Focus timer, XP, streaks and attendance.",
+      "Padhai ka timer, XP, streak aur attendance.",
+    ),
+    owner: p("For library owners", "Library owners ke liye"),
+    ownerText: p(
+      "Seats, fees, attendance and reports in one place.",
+      "Seats, fees, attendance aur reports, ek jagah.",
+    ),
+    all: p("All videos", "Saare videos"),
+    watch: p("Watch", "Dekhein"),
+  },
   seat: {
     title: p("Seat map", "Seat map"),
     sub: p(
@@ -199,15 +219,20 @@ export const copy = {
 };
 
 /** Feature groups: [group name, [feature name, benefit][]] with English and Hinglish. */
-export type FeatureGroup = { name: Pair; items: { name: Pair; text: Pair }[] };
+export type FeatureGroup = {
+  name: Pair;
+  items: { name: Pair; text: Pair; guide: string }[];
+};
+// The 5th value is the guide slug: /guide/<owner|student>/<slug> has that screen's video.
 const g = (
   name: Pair,
-  items: [string, string, string, string][],
+  items: [string, string, string, string, string][],
 ): FeatureGroup => ({
   name,
-  items: items.map(([ne, te, nh, th]) => ({
+  items: items.map(([ne, te, nh, th, guide]) => ({
     name: p(ne, nh),
     text: p(te, th),
+    guide,
   })),
 });
 
@@ -218,36 +243,42 @@ export const ownerFeatures: FeatureGroup[] = [
       "Get your library online in 8 saved steps.",
       "Setup guide",
       "8 steps mein library online, har step save.",
+      "onboarding",
     ],
     [
       "Shifts",
       "Morning and evening slots, so one seat sells twice a day.",
       "Shifts",
       "Subah aur shaam ke slot; ek seat din mein do baar.",
+      "shifts",
     ],
     [
       "Seat map",
       "See free and booked seats at a glance.",
       "Seat map",
       "Kaunsi seat khaali, kaunsi bhari, ek nazar mein.",
+      "seats",
     ],
     [
       "Fee plans",
       "Plans like Monthly ₹1,200 for 30 days.",
       "Fee plans",
       "Monthly ₹1,200 jaise plans, 30 din ke liye.",
+      "plans",
     ],
     [
       "Branches",
       "Several libraries in one account, each with its own books.",
       "Branches",
       "Kai library ek account se, har branch ka alag hisaab.",
+      "branches",
     ],
     [
       "Settings and staff",
       "Limited staff access and a record of every change.",
       "Settings aur staff",
       "Staff ko seemit access, har badlaav ka record.",
+      "settings",
     ],
   ]),
   g(p("Students and admissions", "Students aur admissions"), [
@@ -256,42 +287,49 @@ export const ownerFeatures: FeatureGroup[] = [
       "Share your Library ID; students join, you approve.",
       "Join requests",
       "Library ID share karo, student khud jude, aap approve karo.",
+      "join-requests",
     ],
     [
       "Students",
       "Every student in one searchable list.",
       "Students",
       "Saare students ek list mein, khoj ke saath.",
+      "students",
     ],
     [
       "Memberships",
       "Renew, pause or cancel; a paused member keeps the seat.",
       "Memberships",
       "Renew, pause, cancel; pause par seat reserve.",
+      "memberships",
     ],
     [
       "Public listing",
       "A public page where new students find you.",
       "Public listing",
       "Online page jahan naye students aapko dhoondhein.",
+      "discovery",
     ],
     [
       "Waitlist",
       "Keep future students even when you are full.",
       "Waitlist",
       "Library bhari ho tab bhi student line mein rahe.",
+      "waitlist",
     ],
     [
       "Admissions CRM",
       "Follow up every enquiry and win more admissions.",
       "Admissions CRM",
       "Har enquiry ka follow-up, zyada admissions.",
+      "crm",
     ],
     [
       "Register import",
       "Bring in your paper register from a CSV.",
       "Register import",
       "Purana register CSV se, galti pehle dikhegi.",
+      "import",
     ],
   ]),
   g(p("Daily operations", "Roz ka kaam"), [
@@ -300,36 +338,42 @@ export const ownerFeatures: FeatureGroup[] = [
       "Revenue, students, seats and dues on one screen.",
       "Dashboard",
       "Kamaai, students, seats aur dues ek screen par.",
+      "overview",
     ],
     [
       "Attendance",
       "A desk QR that changes every 10 minutes.",
       "Attendance",
       "Har 10 minute badalne wala desk QR.",
+      "attendance",
     ],
     [
       "Live presence",
       "See who is inside right now, from anywhere.",
       "Live presence",
       "Ghar baithe dekho abhi kaun andar hai.",
+      "presence",
     ],
     [
       "Complaints",
       "Every concern in writing, with its status.",
       "Complaints",
       "Har shikayat likhit mein, status ke saath.",
+      "complaints",
     ],
     [
       "Maintenance",
       "Broken seats stay out of booking until fixed.",
       "Maintenance",
       "Kharaab seat repair tak booking se bahar.",
+      "maintenance",
     ],
     [
       "Announcements",
       "Reach every student at once.",
       "Announcements",
       "Sabhi students ko ek saath soochna.",
+      "notifications",
     ],
   ]),
   g(p("Money", "Paisa"), [
@@ -338,24 +382,28 @@ export const ownerFeatures: FeatureGroup[] = [
       "Record cash or UPI and send a digital receipt.",
       "Payments",
       "Cash ya UPI darj karo, digital receipt turant.",
+      "payments",
     ],
     [
       "Expenses",
       "Rent, electricity and salaries in one place.",
       "Expenses",
       "Kiraya, bijli, salary ek jagah.",
+      "expenses",
     ],
     [
       "Reports",
       "A 6-month chart of profit and seat use.",
       "Reports",
       "6 mahine ka chart, profit aur seat use.",
+      "reports",
     ],
     [
       "Billing",
       "Start free; your data is never deleted.",
       "Billing",
       "Free se shuru, data kabhi delete nahi.",
+      "billing",
     ],
   ]),
   g(p("Engagement and safety", "Engagement aur safety"), [
@@ -364,24 +412,28 @@ export const ownerFeatures: FeatureGroup[] = [
       "Reward regular students within a budget you set.",
       "Rewards",
       "Study Coins se inaam, budget aapke haath mein.",
+      "rewards",
     ],
     [
       "Events",
       "Mock-test days and seminars in students' apps.",
       "Events",
       "Mock test day aur seminar students ke app mein.",
+      "events",
     ],
     [
       "Feedback",
       "Private feedback from students.",
       "Feedback",
       "Students ki private raay.",
+      "feedback",
     ],
     [
       "Community safety",
       "Review reports and record guardian consent.",
       "Community safety",
       "Reports ka faisla, guardian ki sehmati.",
+      "moderation",
     ],
   ]),
 ];
@@ -393,42 +445,49 @@ export const studentFeatures: FeatureGroup[] = [
       "Enter the Library ID; the owner approves you.",
       "Library join",
       "Library ID daalo, owner approve karega.",
+      "join",
     ],
     [
       "My library",
       "Seat number, fees due and every receipt.",
       "My library",
       "Seat number, fees baaki aur har receipt.",
+      "membership",
     ],
     [
       "Punch in / out",
       "One tap, only from within 100 m.",
       "Punch in / out",
       "Ek tap, 100 m ke andar se hi.",
+      "punch",
     ],
     [
       "Notifications",
       "Every library update without group chats.",
       "Notifications",
       "Library ki har soochna, bina group ke.",
+      "notifications",
     ],
     [
       "Report an issue",
       "Report a fan, light or seat problem.",
       "Report an issue",
       "Pankha, light, seat ki shikayat.",
+      "maintenance",
     ],
     [
       "Events and feedback",
       "Library events and a private way to share ideas.",
       "Events aur feedback",
       "Library events aur apni raay.",
+      "events",
     ],
     [
       "Library requests",
       "Track visit and waitlist requests.",
       "Library requests",
       "Visit aur waitlist ka status.",
+      "library-requests",
     ],
   ]),
   g(p("Daily study", "Roz ki padhai"), [
@@ -437,36 +496,42 @@ export const studentFeatures: FeatureGroup[] = [
       "A 25-minute timer; each session gives +10 XP.",
       "Focus room",
       "25 minute timer, har session +10 XP.",
+      "focus",
     ],
     [
       "Quests",
       "Small goals, up to 100 XP a day.",
       "Quests",
       "Chhote target, roz zyada se zyada 100 XP.",
+      "quests",
     ],
     [
       "Progress",
       "Hours studied each day, on a chart.",
       "Progress",
       "Har din kitne ghante, chart mein.",
+      "progress",
     ],
     [
       "Achievements",
       "Badges and levels for steady work.",
       "Achievements",
       "Badges aur level, lambi mehnat ka inaam.",
+      "achievements",
     ],
     [
       "Study garden",
       "A plant that grows when you study regularly.",
       "Study garden",
       "Niyamit padhai se badhta paudha.",
+      "garden",
     ],
     [
       "Profile and rest days",
       "Two rest days a week keep your streak safe.",
       "Profile aur rest day",
       "Hafte mein 2 rest day, streak safe.",
+      "profile",
     ],
   ]),
   g(p("Exam preparation", "Exam ki taiyari"), [
@@ -475,42 +540,49 @@ export const studentFeatures: FeatureGroup[] = [
       "Your syllabus as checkpoints.",
       "Exam roadmap",
       "Syllabus checkpoints mein.",
+      "roadmap",
     ],
     [
       "Mock tests",
       "Timed tests scored on the server.",
       "Mock tests",
       "Timer wale test, server par score.",
+      "prep",
     ],
     [
       "Quiz arena",
       "Quick practice with no penalty for mistakes.",
       "Quiz arena",
       "Jaldi practice, galti par saza nahi.",
+      "quiz",
     ],
     [
       "Smart revision",
       "Reminds you just before you forget.",
       "Smart revision",
       "Bhoolne se pehle yaad dilata hai.",
+      "revisions",
     ],
     [
       "Learning insights",
       "Weak topics, from your real results.",
       "Learning insights",
       "Kamzor topics, asli results se.",
+      "intelligence",
     ],
     [
       "Study planner",
       "A timetable that fits your real week.",
       "Study planner",
       "Asli hafte ke hisaab se timetable.",
+      "planner",
     ],
     [
       "Doubt solver",
       "Ask by text or photo and get hints.",
       "Doubt solver",
       "Text ya photo se sawaal, hints ke saath.",
+      "doubts",
     ],
   ]),
   g(p("Friends and rewards", "Saath aur inaam"), [
@@ -519,30 +591,35 @@ export const studentFeatures: FeatureGroup[] = [
       "Spend Study Coins on library rewards.",
       "Rewards",
       "Study Coins se library ke inaam.",
+      "rewards",
     ],
     [
       "Friends",
       "Challenges with friends you choose.",
       "Friends",
       "Chune hue doston ke saath challenges.",
+      "friends",
     ],
     [
       "Focus rooms",
       "Study together, with no chat.",
       "Focus rooms",
       "Saath padho, bina chat ke.",
+      "rooms",
     ],
     [
       "Community",
       "Groups under an alias; your real name stays private.",
       "Community",
       "Upnaam se groups, asli naam kabhi nahi.",
+      "community",
     ],
     [
       "Share",
       "A milestone card without private details.",
       "Share",
       "Uplabdhi card, private jaankari ke bina.",
+      "share",
     ],
   ]),
 ];

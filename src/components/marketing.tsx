@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check, PlayCircle } from "lucide-react";
+import { ownerGuide, studentGuide, type GuideVideo } from "@/lib/guide-videos";
 import { buttonVariants } from "@/components/ui/button";
 import { useUI } from "@/lib/ui-store";
 import {
@@ -165,6 +166,70 @@ function Wins({ list }: { list: typeof copy.ownerWins }) {
   );
 }
 
+/** The two Overview videos (student and owner) with links into the full guide. */
+function HomeVideos() {
+  const lang = useLang();
+  const v = copy.videos;
+  const items = [
+    {
+      role: "student",
+      label: v.student,
+      text: v.studentText,
+      video: studentGuide[0],
+      count: studentGuide.length,
+    },
+    {
+      role: "owner",
+      label: v.owner,
+      text: v.ownerText,
+      video: ownerGuide[0],
+      count: ownerGuide.length,
+    },
+  ];
+  return (
+    <div className="mt-14">
+      <div className="mb-7 grid max-w-[60ch] gap-2">
+        <span className={eyebrow}>{say(lang, v.eyebrow)}</span>
+        <h2
+          className={`${serif} m-0 text-[clamp(28px,4vw,42px)] !leading-tight`}
+        >
+          {say(lang, v.title)}
+        </h2>
+        <p className={`m-0 ${muted}`}>{say(lang, v.lede)}</p>
+      </div>
+      <div className="grid gap-[18px] md:grid-cols-2">
+        {items.map((it) => (
+          <article
+            key={it.role}
+            className="grid min-w-0 gap-3.5 rounded-[20px] border border-[var(--line)] bg-[var(--surface)] p-3.5"
+          >
+            <video
+              src={it.video.src}
+              poster={it.video.poster}
+              controls
+              playsInline
+              preload="none"
+              className="block aspect-video w-full max-w-full rounded-2xl bg-[#123b2e]"
+            />
+            <div className="grid gap-1 px-1.5 pb-1.5">
+              <h3 className={`${serif} m-0 text-[22px]`}>
+                {say(lang, it.label)}
+              </h3>
+              <p className={`m-0 text-sm ${muted}`}>{say(lang, it.text)}</p>
+              <Link
+                href={`/guide/${it.role}`}
+                className="mt-1 inline-flex items-center gap-1.5 font-semibold !text-[var(--green)] no-underline"
+              >
+                {say(lang, v.all)} ({it.count}) <ArrowRight size={16} />
+              </Link>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function MarketingHome() {
   const lang = useLang();
   const h = copy.home;
@@ -258,6 +323,7 @@ export function MarketingHome() {
             </Link>
           ))}
         </div>
+        <HomeVideos />
         <MarketingCta />
       </div>
     </section>
@@ -323,8 +389,18 @@ function MarketingCta() {
   );
 }
 
-function FeatureList({ groups }: { groups: FeatureGroup[] }) {
+const clock = (s: number) =>
+  `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+function FeatureList({
+  groups,
+  role,
+}: {
+  groups: FeatureGroup[];
+  role: "owner" | "student";
+}) {
   const lang = useLang();
+  const videos: GuideVideo[] = role === "owner" ? ownerGuide : studentGuide;
   return (
     <div className="grid min-w-0 gap-8">
       {groups.map((grp) => (
@@ -348,6 +424,19 @@ function FeatureList({ groups }: { groups: FeatureGroup[] }) {
                 >
                   {say(lang, f.text)}
                 </span>
+                <Link
+                  href={`/guide/${role}/${f.guide}`}
+                  className="mt-1.5 inline-flex items-center gap-1.5 text-[13px] font-semibold !text-[var(--green)] no-underline hover:underline"
+                >
+                  <PlayCircle size={15} aria-hidden="true" />
+                  {say(lang, copy.videos.watch)}
+                  <span className={`font-normal ${muted}`}>
+                    ·{" "}
+                    {clock(
+                      videos.find((v) => v.slug === f.guide)?.seconds ?? 0,
+                    )}
+                  </span>
+                </Link>
               </div>
             ))}
           </div>
@@ -379,6 +468,7 @@ function FeaturePage({ who }: { who: "owners" | "students" }) {
           </aside>
           <FeatureList
             groups={who === "owners" ? ownerFeatures : studentFeatures}
+            role={who === "owners" ? "owner" : "student"}
           />
         </div>
         <MarketingCta />
