@@ -5,9 +5,11 @@ export function model(
   name: string,
   fields: SchemaDefinition,
   indexes: [Record<string, 1 | -1>, Record<string, unknown>][] = [],
+  setup?: (schema: Schema) => void,
 ) {
   const schema = new Schema(fields, { timestamps: true, strict: "throw" });
   for (const [keys, options] of indexes) schema.index(keys, options);
+  setup?.(schema);
   return mongoose.models[name] || mongoose.model(name, schema);
 }
 export const User = model("User", {
@@ -50,6 +52,9 @@ export const Library = model("Library", {
   city: { type: String, default: "", trim: true, maxlength: 80, index: true },
   publicDescription: { type: String, default: "", trim: true, maxlength: 700 },
   facilities: [{ type: String, enum: ["wifi", "air-conditioning", "power-backup", "lockers", "drinking-water", "quiet-zone", "accessible-entry"] }],
+  // Weekly opening hours (minutes from midnight, India time) and dated holidays, shown to students.
+  hours: [{ _id: false, day: { type: Number, min: 0, max: 6 }, open: { type: Number, min: 0, max: 1440 }, close: { type: Number, min: 0, max: 1440 }, closed: { type: Boolean, default: false } }],
+  holidays: [{ _id: false, date: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ }, note: { type: String, trim: true, maxlength: 80 } }],
 });
 export const StudentProfile = model("StudentProfile", {
   userId: { type: id, unique: true, required: true },
@@ -132,6 +137,8 @@ export const StudySession = model(
     startedAt: Date,
     lastResumedAt: Date,
     activeSeconds: { type: Number, default: 0 },
+    // Chosen length in minutes (25, 45 or 60); older sessions have none and count as 25.
+    targetMinutes: { type: Number, enum: [25, 45, 60], default: 25 },
     state: {
       type: String,
       enum: ["running", "paused", "complete"],
@@ -162,13 +169,36 @@ export const XPTransaction = model(
     [{ userId: 1, day: 1 }, {}],
   ],
 );
-export const Notification = model("Notification", {
-  libraryId: id,
-  userId: id,
-  title: String,
-  message: String,
-  read: { type: Boolean, default: false },
-});
+export const Notification = model(
+  "Notification",
+  {
+    libraryId: id,
+    userId: id,
+    title: String,
+    message: String,
+    read: { type: Boolean, default: false },
+  },
+  [],
+  (schema) => {
+    // Every new notification is also sent to the recipient's phone (web push), without slowing the request.
+    schema.pre("save", function () {
+      this.$locals.wasNew = this.isNew;
+    });
+    schema.post("save", function (doc) {
+      if (!doc.$locals.wasNew) return;
+      void import("./push")
+        .then((m) =>
+          m.pushForNotification({
+            userId: doc.get("userId"),
+            libraryId: doc.get("libraryId"),
+            title: String(doc.get("title") ?? ""),
+            message: String(doc.get("message") ?? ""),
+          }),
+        )
+        .catch(() => {});
+    });
+  },
+);
 export const Expense = model("Expense", {
   ...tenant,
   title: String,
@@ -789,4 +819,48 @@ export const ExamDate = model(
     enteredBy: { type: id, required: true },
   },
   [[{ examKey: 1, date: 1 }, {}]],
+);
+/** A student's request to move to another seat and/or shift; the owner approves or rejects it. */
+export const SeatChangeRequest = model(
+  "SeatChangeRequest",
+  {
+    ...tenant,
+    userId: { type: id, required: true },
+    assignmentId: { type: id, required: true },
+    fromSeatId: id,
+    fromShiftStart: Number,
+    fromShiftEnd: Number,
+    toSeatId: id,
+    toShiftId: id,
+    note: { type: String, trim: true, maxlength: 300, default: "" },
+    status: { type: String, enum: ["pending", "approved", "rejected", "cancelled"], default: "pending", index: true },
+    decidedBy: id,
+    decidedAt: Date,
+    decisionNote: { type: String, trim: true, maxlength: 300, default: "" },
+  },
+  [
+    [{ userId: 1 }, { unique: true, partialFilterExpression: { status: "pending" } }],
+    [{ libraryId: 1, status: 1, createdAt: -1 }, {}],
+  ],
+);
+/** Private snapshot of a student's weekly report, opened by parents through /r/<token>. Deleted after expiresAt. */
+export const ReportShare = model(
+  "ReportShare",
+  {
+    token: { type: String, required: true, unique: true },
+    userId: { type: id, required: true, index: true },
+    report: { type: Schema.Types.Mixed, required: true },
+    expiresAt: { type: Date, required: true },
+  },
+  [[{ expiresAt: 1 }, { expireAfterSeconds: 0 }]],
+);
+/** A phone/browser registered for web push notifications. One endpoint belongs to one browser. */
+export const PushSubscription = model(
+  "PushSubscription",
+  {
+    userId: { type: id, required: true, index: true },
+    endpoint: { type: String, required: true, unique: true },
+    keys: { _id: false, p256dh: { type: String, required: true }, auth: { type: String, required: true } },
+    userAgent: { type: String, default: "" },
+  },
 );

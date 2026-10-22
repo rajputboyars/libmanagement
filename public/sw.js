@@ -3,7 +3,7 @@
  * It never caches /api responses or HTML documents, so no personal, financial or authenticated data is stored on the device.
  * Bump VERSION to invalidate old caches.
  */
-const VERSION = "v2";
+const VERSION = "v3";
 const MAX_RUNTIME_ENTRIES = 120; // oldest runtime entries are evicted so old build chunks cannot pile up
 const STATIC = `sq-static-${VERSION}`;
 const PRECACHE = ["/offline.html", "/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png"];
@@ -13,6 +13,23 @@ self.addEventListener("install", (event) => {
 });
 self.addEventListener("activate", (event) => {
   event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== STATIC).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+});
+// Phone notifications (web push): show the message, and open the right page when it is tapped.
+self.addEventListener("push", (event) => {
+  let data = { title: "StudyQuest", body: "", url: "/" };
+  try { data = { ...data, ...event.data.json() }; } catch { /* plain or empty payload */ }
+  event.waitUntil(self.registration.showNotification(data.title, { body: data.body, icon: "/icons/icon-192.png", badge: "/icons/icon-192.png", data: { url: data.url } }));
+});
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || "/", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => c.url.startsWith(self.location.origin));
+      if (open) { open.navigate(url); return open.focus(); }
+      return self.clients.openWindow(url);
+    }),
+  );
 });
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "clear-caches") event.waitUntil(caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))));

@@ -39,7 +39,7 @@ const nextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
-      ...["/app/:path*", "/owner/:path*", "/super-admin/:path*", "/api/:path*", "/billing/:path*", "/login", "/register", "/reset-password", "/forgot-password", "/onboarding"].map((source) => ({ source, headers: [noindex] })),
+      ...["/app/:path*", "/owner/:path*", "/super-admin/:path*", "/api/:path*", "/billing/:path*", "/login", "/register", "/reset-password", "/forgot-password", "/onboarding", "/r/:path*"].map((source) => ({ source, headers: [noindex] })),
       { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }, { key: "Service-Worker-Allowed", value: "/" }] },
       { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "no-store" }] },
     ];

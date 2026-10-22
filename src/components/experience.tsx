@@ -3,10 +3,19 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
+import { StudentWeeklyReport } from "@/components/weekly-report";
+import { PushToggle } from "@/components/push-toggle";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUI } from "@/lib/ui-store";
 import { PublicPage } from "@/components/site";
-import { Auth, StudentJoin, StudentPunch, OwnerJoinRequests, OwnerPresence } from "@/components/lazy";
+import {
+  Auth,
+  StudentJoin,
+  StudentPunch,
+  OwnerJoinRequests,
+  OwnerPresence,
+} from "@/components/lazy";
 import { Empty, Garden } from "@/components/ui-bits";
 import { BrandLoader } from "@/components/brand-loader";
 import { motion } from "motion/react";
@@ -63,10 +72,59 @@ import {
   ListChecks,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { level, streak } from "@/lib/rules";
-import { BranchSwitcher, JoinBanner, LibraryIdChip, PlanBanner, RememberLibraryName, RememberStudentLibrary } from "@/components/org-chrome";
+import {
+  FOCUS_LENGTHS,
+  breakMinutes,
+  focusLength,
+  focusXP,
+  level,
+  streak,
+} from "@/lib/rules";
+import {
+  DAY_NAMES,
+  DEFAULT_HOURS,
+  clockLabel,
+  todayStatus,
+  upcomingHolidays,
+  type DayHours,
+  type Holiday,
+} from "@/lib/library-hours";
+import {
+  BranchSwitcher,
+  JoinBanner,
+  LibraryIdChip,
+  PlanBanner,
+  RememberLibraryName,
+  RememberStudentLibrary,
+} from "@/components/org-chrome";
 import { clearClientCaches } from "@/components/pwa";
-import { Phase2Experience, LearningIntelligence, DoubtSolver, RewardsMarketplace, LibraryDiscovery, Maintenance, ExamPrep, TestResult, TestRunner, PrepAdmin, OwnerBilling, OwnerBranches, OwnerCrm, OwnerSupport, Onboarding, SaasAdmin, PilotImport, AccountSecurity, ForgotPassword, ResetPassword, Community, CommunityModeration, DemoPage, SandboxCheckout, SaasPricing } from "@/components/lazy";
+import {
+  Phase2Experience,
+  LearningIntelligence,
+  DoubtSolver,
+  RewardsMarketplace,
+  LibraryDiscovery,
+  Maintenance,
+  ExamPrep,
+  TestResult,
+  TestRunner,
+  PrepAdmin,
+  OwnerBilling,
+  OwnerBranches,
+  OwnerCrm,
+  OwnerSupport,
+  Onboarding,
+  SaasAdmin,
+  PilotImport,
+  AccountSecurity,
+  ForgotPassword,
+  ResetPassword,
+  Community,
+  CommunityModeration,
+  DemoPage,
+  SandboxCheckout,
+  SaasPricing,
+} from "@/components/lazy";
 type Row = Record<string, string | number | boolean>;
 type Data = {
   user?: Row;
@@ -88,6 +146,7 @@ type Data = {
   focus?: Row;
   profile?: Row;
   summary?: Record<string, number>;
+  library?: { name?: string; hours?: DayHours[]; holidays?: Holiday[] } | null;
 };
 // True when StudyQuest runs as the installed app (home-screen icon) or was opened from its start_url.
 const subscribeDisplayMode = (onChange: () => void) => {
@@ -150,6 +209,7 @@ const studentNav: [string, string, LucideIcon][] = [
   ["/app/focus", "Focus room", Clock3],
   ["/app/quests", "My quests", Flag],
   ["/app/progress", "My progress", ChartNoAxesCombined],
+  ["/app/report", "Weekly report", ChartNoAxesCombined],
   ["/app/achievements", "Achievements", Trophy],
   ["/app/membership", "My library", BookOpen],
   ["/app/security", "Account & privacy", ShieldCheck],
@@ -204,10 +264,27 @@ export function Experience({ path }: { path: string }) {
   const owner = path.startsWith("/owner"),
     admin = path.startsWith("/super-admin"),
     app = path.startsWith("/app") || owner || admin;
-  const installed = useSyncExternalStore(subscribeDisplayMode, isInstalledApp, () => false);
+  const installed = useSyncExternalStore(
+    subscribeDisplayMode,
+    isInstalledApp,
+    () => false,
+  );
   const role = d.user?.role as string | undefined;
-  const home = role === "super-admin" ? "/super-admin" : role === "owner" || role === "staff" ? "/owner" : role === "student" ? "/app" : null;
-  const area = admin ? "/super-admin" : owner ? "/owner" : path.startsWith("/app") ? "/app" : null;
+  const home =
+    role === "super-admin"
+      ? "/super-admin"
+      : role === "owner" || role === "staff"
+        ? "/owner"
+        : role === "student"
+          ? "/app"
+          : null;
+  const area = admin
+    ? "/super-admin"
+    : owner
+      ? "/owner"
+      : path.startsWith("/app")
+        ? "/app"
+        : null;
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
   }, [dark]);
@@ -253,8 +330,14 @@ export function Experience({ path }: { path: string }) {
     (owner && ["owner", "staff"].includes(String(d.user?.role))) ||
     (admin && d.user?.role === "super-admin");
   // Owners and staff stay inside /owner; /app links would bounce them back to the dashboard.
-  const profileHref = owner ? "/owner/settings" : admin ? "/super-admin" : "/app/profile";
-  const notificationsHref = owner ? "/owner/notifications" : "/app/notifications";
+  const profileHref = owner
+    ? "/owner/settings"
+    : admin
+      ? "/super-admin"
+      : "/app/profile";
+  const notificationsHref = owner
+    ? "/owner/notifications"
+    : "/app/notifications";
   const unread = d.notifications.some((n) => !n.read);
   if (path === "/login" || path === "/register")
     return <Auth register={path === "/register"} />;
@@ -263,13 +346,20 @@ export function Experience({ path }: { path: string }) {
   if (path === "/forgot-password") return <ForgotPassword />;
   if (path === "/reset-password") return <ResetPassword />;
   if (path === "/demo") return <DemoPage />;
-  if (path.startsWith("/billing/sandbox/")) return <SandboxCheckout id={path.split("/")[3] ?? ""} />;
-  if (path.startsWith("/app/prep/test/")) return <TestRunner id={path.split("/")[4] ?? ""} />;
-  if (path.startsWith("/app/prep/result/")) return <TestResult id={path.split("/")[4] ?? ""} />;
+  if (path.startsWith("/billing/sandbox/"))
+    return <SandboxCheckout id={path.split("/")[3] ?? ""} />;
+  if (path.startsWith("/app/prep/test/"))
+    return <TestRunner id={path.split("/")[4] ?? ""} />;
+  if (path.startsWith("/app/prep/result/"))
+    return <TestResult id={path.split("/")[4] ?? ""} />;
   if (!app) return <PublicPage path={path} />;
   // Show only the loader while the session is checked or a redirect is on its way,
   // so the installed app never flashes the sample "preview" workspace first.
-  if (app && !isError && (isLoading || (home && area && area !== home) || (!home && installed)))
+  if (
+    app &&
+    !isError &&
+    (isLoading || (home && area && area !== home) || (!home && installed))
+  )
     return (
       <main className="loading">
         <BrandLoader />
@@ -292,24 +382,56 @@ export function Experience({ path }: { path: string }) {
     );
   const title =
     nav.find((n) => n[0] === path)?.[1] ||
-    { "/app/profile": "My profile", "/app/notifications": "Notifications", "/owner/notifications": "Notifications" }[
-      path
-    ] ||
+    {
+      "/app/profile": "My profile",
+      "/app/notifications": "Notifications",
+      "/owner/notifications": "Notifications",
+    }[path] ||
     "Overview";
   const learningPath = ["/app/intelligence", "/app/revisions"].includes(path);
   const doubtPath = path === "/app/doubts";
   const rewardsPath = path === "/app/rewards" || path === "/owner/rewards";
-  const discoveryPath = ["/owner/discovery", "/owner/waitlist", "/app/library-requests"].includes(path);
-  const saasOwnerPath = ["/owner/billing", "/owner/branches", "/owner/crm", "/owner/support", "/owner/onboarding"].includes(path);
-  const joinPath = ["/app/join", "/app/punch", "/owner/join-requests", "/owner/presence"].includes(path);
+  const discoveryPath = [
+    "/owner/discovery",
+    "/owner/waitlist",
+    "/app/library-requests",
+  ].includes(path);
+  const saasOwnerPath = [
+    "/owner/billing",
+    "/owner/branches",
+    "/owner/crm",
+    "/owner/support",
+    "/owner/onboarding",
+  ].includes(path);
+  const joinPath = [
+    "/app/join",
+    "/app/punch",
+    "/owner/join-requests",
+    "/owner/presence",
+  ].includes(path);
   const importPath = path === "/owner/import";
   const securityPath = path === "/app/security" || path === "/owner/security";
   const saasAdminPath = path === "/super-admin/business";
   const prepPath = path === "/app/prep";
+  const reportPath = path === "/app/report";
   const prepAdminPath = path === "/super-admin/question-bank";
-  const communityPath = path === "/app/community" || path === "/owner/moderation";
-  const maintenancePath = path === "/app/maintenance" || path === "/owner/maintenance";
-  const phase2Path = ["/app/roadmap", "/app/planner", "/app/quiz", "/app/friends", "/app/garden", "/app/rooms", "/app/events", "/app/share", "/owner/feedback", "/owner/events", "/super-admin/syllabus"].includes(path);
+  const communityPath =
+    path === "/app/community" || path === "/owner/moderation";
+  const maintenancePath =
+    path === "/app/maintenance" || path === "/owner/maintenance";
+  const phase2Path = [
+    "/app/roadmap",
+    "/app/planner",
+    "/app/quiz",
+    "/app/friends",
+    "/app/garden",
+    "/app/rooms",
+    "/app/events",
+    "/app/share",
+    "/owner/feedback",
+    "/owner/events",
+    "/super-admin/syllabus",
+  ].includes(path);
   return (
     <div className="workspace">
       <aside className={`sidebar ${menu ? "open" : ""}`}>
@@ -348,7 +470,9 @@ export function Experience({ path }: { path: string }) {
           <ChevronRight size={15} />
         </Link>
         {owner && !preview && <BranchSwitcher />}
-        {owner && !preview && String(d.user?.role) === "owner" && <LibraryIdChip notify={setToast} />}
+        {owner && !preview && String(d.user?.role) === "owner" && (
+          <LibraryIdChip notify={setToast} />
+        )}
         <div className="nav-label">{owner ? "WORKSPACE" : "YOUR JOURNEY"}</div>
         <nav>
           {nav.map(([href, label, Icon]) => (
@@ -374,23 +498,38 @@ export function Experience({ path }: { path: string }) {
                 Invite students <ArrowUpRight size={15} />
               </Link>
             </div>
-          ) : !admin && (
-            <div className="grow-card">
-              <Leaf size={23} />
-              <strong>Small steps. Big things.</strong>
-              <p>Your next chapter starts with today’s focus.</p>
-              <Link href="/app/focus" onClick={() => setMenu(false)}>
-                Find your focus <ArrowUpRight size={15} />
-              </Link>
-            </div>
+          ) : (
+            !admin && (
+              <div className="grow-card">
+                <Leaf size={23} />
+                <strong>Small steps. Big things.</strong>
+                <p>Your next chapter starts with today’s focus.</p>
+                <Link href="/app/focus" onClick={() => setMenu(false)}>
+                  Find your focus <ArrowUpRight size={15} />
+                </Link>
+              </div>
+            )
           )}
           {!admin && (
-            <Link className="nav-item" href={profileHref} onClick={() => setMenu(false)}>
+            <Link
+              className="nav-item"
+              href={profileHref}
+              onClick={() => setMenu(false)}
+            >
               <Settings size={19} />
               Settings
             </Link>
           )}
-          <Link className="nav-item" href={owner ? "/guide?for=owner" : admin ? "/features" : "/guide?for=student"}>
+          <Link
+            className="nav-item"
+            href={
+              owner
+                ? "/guide?for=owner"
+                : admin
+                  ? "/features"
+                  : "/guide?for=student"
+            }
+          >
             <HelpCircle size={19} />
             Help & resources
           </Link>
@@ -471,8 +610,15 @@ export function Experience({ path }: { path: string }) {
         <main className="main-content">
           {owner && !preview && <RememberLibraryName />}
           {owner && !preview && path !== "/owner/onboarding" && <PlanBanner />}
-          {!owner && !admin && !preview && String(d.user?.role) === "student" && <RememberStudentLibrary />}
-          {!owner && !admin && !preview && String(d.user?.role) === "student" && path !== "/app/join" && <JoinBanner />}
+          {!owner &&
+            !admin &&
+            !preview &&
+            String(d.user?.role) === "student" && <RememberStudentLibrary />}
+          {!owner &&
+            !admin &&
+            !preview &&
+            String(d.user?.role) === "student" &&
+            path !== "/app/join" && <JoinBanner />}
           {preview && (
             <div className="preview-banner">
               <Sparkles size={14} />
@@ -496,36 +642,105 @@ export function Experience({ path }: { path: string }) {
           ) : isLoading ? (
             <BrandLoader compact text="Loading your workspace…" />
           ) : joinPath ? (
-            preview ? <div className="mt-empty"><h2>Sign in to use this page</h2><p>Preview mode saves nothing.</p></div> : path === "/app/join" ? <StudentJoin notify={setToast} /> : path === "/app/punch" ? <StudentPunch notify={setToast} /> : path === "/owner/join-requests" ? <OwnerJoinRequests notify={setToast} /> : <OwnerPresence notify={setToast} />
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to use this page</h2>
+                <p>Preview mode saves nothing.</p>
+              </div>
+            ) : path === "/app/join" ? (
+              <StudentJoin notify={setToast} />
+            ) : path === "/app/punch" ? (
+              <StudentPunch notify={setToast} />
+            ) : path === "/owner/join-requests" ? (
+              <>
+                <OwnerSeatChanges notify={setToast} />
+                <OwnerJoinRequests notify={setToast} />
+              </>
+            ) : (
+              <OwnerPresence notify={setToast} />
+            )
           ) : importPath ? (
-            preview ? <div className="mt-empty"><h2>Sign in to import</h2></div> : <PilotImport notify={setToast} />
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to import</h2>
+              </div>
+            ) : (
+              <PilotImport notify={setToast} />
+            )
           ) : securityPath ? (
-            preview ? <div className="mt-empty"><h2>Sign in to manage your account</h2></div> : <AccountSecurity role={String(d.user?.role)} notify={setToast} />
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to manage your account</h2>
+              </div>
+            ) : (
+              <AccountSecurity role={String(d.user?.role)} notify={setToast} />
+            )
           ) : saasAdminPath ? (
             <SaasAdmin notify={setToast} />
           ) : saasOwnerPath ? (
             preview ? (
-              <div className="mt-empty"><h2>Sign in to use this page</h2><p>Preview mode saves nothing.</p></div>
-            ) : path === "/owner/billing" ? <OwnerBilling notify={setToast} /> : path === "/owner/branches" ? <OwnerBranches notify={setToast} /> : path === "/owner/crm" ? <OwnerCrm notify={setToast} /> : path === "/owner/support" ? <OwnerSupport notify={setToast} /> : <Onboarding notify={setToast} />
+              <div className="mt-empty">
+                <h2>Sign in to use this page</h2>
+                <p>Preview mode saves nothing.</p>
+              </div>
+            ) : path === "/owner/billing" ? (
+              <OwnerBilling notify={setToast} />
+            ) : path === "/owner/branches" ? (
+              <OwnerBranches notify={setToast} />
+            ) : path === "/owner/crm" ? (
+              <OwnerCrm notify={setToast} />
+            ) : path === "/owner/support" ? (
+              <OwnerSupport notify={setToast} />
+            ) : (
+              <Onboarding notify={setToast} />
+            )
+          ) : reportPath ? (
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to see your weekly report</h2>
+                <p>Preview mode has no real study data.</p>
+              </div>
+            ) : (
+              <StudentWeeklyReport notify={setToast} />
+            )
           ) : prepPath ? (
             <ExamPrep preview={preview} notify={setToast} />
           ) : prepAdminPath ? (
             <PrepAdmin notify={setToast} />
           ) : communityPath ? (
-            path === "/owner/moderation" ? <CommunityModeration notify={setToast} /> : <Community preview={preview} notify={setToast} />
+            path === "/owner/moderation" ? (
+              <CommunityModeration notify={setToast} />
+            ) : (
+              <Community preview={preview} notify={setToast} />
+            )
           ) : maintenancePath ? (
             preview ? (
               <div className="mt-empty">
                 <h2>Sign in to use maintenance</h2>
-                <p>Preview mode saves nothing, so issue reporting is disabled.</p>
+                <p>
+                  Preview mode saves nothing, so issue reporting is disabled.
+                </p>
               </div>
             ) : (
               <Maintenance owner={owner} notify={setToast} />
             )
           ) : discoveryPath ? (
-            <LibraryDiscovery mode={path === "/app/library-requests" ? "mine" : path === "/owner/waitlist" ? "waitlist" : "owner"} notify={setToast} />
+            <LibraryDiscovery
+              mode={
+                path === "/app/library-requests"
+                  ? "mine"
+                  : path === "/owner/waitlist"
+                    ? "waitlist"
+                    : "owner"
+              }
+              notify={setToast}
+            />
           ) : rewardsPath ? (
-            <RewardsMarketplace owner={owner} preview={preview} notify={setToast} />
+            <RewardsMarketplace
+              owner={owner}
+              preview={preview}
+              notify={setToast}
+            />
           ) : doubtPath ? (
             <DoubtSolver preview={preview} notify={setToast} />
           ) : learningPath ? (
@@ -845,6 +1060,7 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
             Take a rest day
           </button>
         </section>
+        {!preview && <PushToggle notify={notify} />}
       </>
     );
   if (path === "/app/focus")
@@ -936,6 +1152,10 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
             />
           )}
         </section>
+        {!preview && <LibraryTimings library={d.library} />}
+        {!preview && d.user?.libraryId && d.memberships.length > 0 && (
+          <StudentSeatChange seats={d.seats} shifts={d.shifts} notify={notify} />
+        )}
         {d.user?.libraryId && (
           <section className="card" style={{ marginTop: 20 }}>
             <div className="section-heading">
@@ -982,6 +1202,7 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
   return (
     <>
       {greeting}
+      {path === "/app" && !preview && <LibraryToday library={d.library} />}
       {path === "/app" && (
         <>
           <section className="journey-hero">
@@ -1278,23 +1499,43 @@ function OwnerReports({ data: d }: { data: Data }) {
   const [now] = useState(() => new Date());
   const months = Array.from({ length: 6 }, (_, i) => {
     const m = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
-    return { key: `${m.getFullYear()}-${m.getMonth()}`, name: m.toLocaleDateString("en-IN", { month: "short" }), Revenue: 0, Expenses: 0 };
+    return {
+      key: `${m.getFullYear()}-${m.getMonth()}`,
+      name: m.toLocaleDateString("en-IN", { month: "short" }),
+      Revenue: 0,
+      Expenses: 0,
+    };
   });
   const bucket = (value: unknown) => {
     const t = new Date(String(value));
     return months.find((m) => m.key === `${t.getFullYear()}-${t.getMonth()}`);
   };
-  for (const p of d.payments) { const m = bucket(p.createdAt); if (m) m.Revenue += Number(p.amount || 0) / 100; }
-  for (const e of d.expenses) { const m = bucket(e.date || e.createdAt); if (m) m.Expenses += Number(e.amount || 0) / 100; }
+  for (const p of d.payments) {
+    const m = bucket(p.createdAt);
+    if (m) m.Revenue += Number(p.amount || 0) / 100;
+  }
+  for (const e of d.expenses) {
+    const m = bucket(e.date || e.createdAt);
+    if (m) m.Expenses += Number(e.amount || 0) / 100;
+  }
   const byCategory = totalsBy(d.expenses, "category");
   const byMethod = totalsBy(d.payments, "method");
   const statusCounts = new Map<string, number>();
-  for (const m of d.memberships) statusCounts.set(String(m.status || "unknown"), (statusCounts.get(String(m.status || "unknown")) || 0) + 1);
+  for (const m of d.memberships)
+    statusCounts.set(
+      String(m.status || "unknown"),
+      (statusCounts.get(String(m.status || "unknown")) || 0) + 1,
+    );
   const weekAgo = +now - 7 * 864e5;
-  const visits = d.attendance.filter((a) => +new Date(String(a.checkIn || a.day)) >= weekAgo).length;
+  const visits = d.attendance.filter(
+    (a) => +new Date(String(a.checkIn || a.day)) >= weekAgo,
+  ).length;
   const seatsTaken = new Set(
     (d.assignments || [])
-      .filter((a) => +new Date(String(a.start)) <= +now && +new Date(String(a.end)) > +now)
+      .filter(
+        (a) =>
+          +new Date(String(a.start)) <= +now && +new Date(String(a.end)) > +now,
+      )
       .map((a) => String(a.seatId)),
   ).size;
   const seats = d.summary?.seats || d.seats.length;
@@ -1312,16 +1553,43 @@ function OwnerReports({ data: d }: { data: Data }) {
   return (
     <>
       <div className="stats-grid">
-        <Stat icon={Wallet} color="mint" label="Money in" value={money(revenue)} detail="All confirmed payments" />
-        <Stat icon={Receipt} color="amber" label="Money out" value={money(expenses)} detail="All recorded expenses" />
-        <Stat icon={ChartNoAxesCombined} color="violet" label="Net profit" value={money(revenue - expenses)} detail="Money in minus money out" />
-        <Stat icon={CreditCard} color="peach" label="Fees still due" value={money(due)} detail="Unpaid membership balance" />
+        <Stat
+          icon={Wallet}
+          color="mint"
+          label="Money in"
+          value={money(revenue)}
+          detail="All confirmed payments"
+        />
+        <Stat
+          icon={Receipt}
+          color="amber"
+          label="Money out"
+          value={money(expenses)}
+          detail="All recorded expenses"
+        />
+        <Stat
+          icon={ChartNoAxesCombined}
+          color="violet"
+          label="Net profit"
+          value={money(revenue - expenses)}
+          detail="Money in minus money out"
+        />
+        <Stat
+          icon={CreditCard}
+          color="peach"
+          label="Fees still due"
+          value={money(due)}
+          detail="Unpaid membership balance"
+        />
       </div>
       <section className="card">
         <div className="section-heading">
           <div>
             <h2>Last 6 months</h2>
-            <p>Money in (green) and money out (orange) each month, from your latest 100 payments and expenses.</p>
+            <p>
+              Money in (green) and money out (orange) each month, from your
+              latest 100 payments and expenses.
+            </p>
           </div>
           <ChartNoAxesCombined size={20} />
         </div>
@@ -1349,10 +1617,33 @@ function OwnerReports({ data: d }: { data: Data }) {
         </section>
       </div>
       <div className="stats-grid">
-        <Stat icon={Armchair} color="mint" label="Seats in use now" value={`${seatsTaken} / ${seats}`} detail={seats ? `${Math.round((seatsTaken / seats) * 100)}% filled` : "Add seats to start"} />
-        <Stat icon={CheckCircle2} color="violet" label="Visits this week" value={String(visits)} detail="Check-ins in the last 7 days" />
+        <Stat
+          icon={Armchair}
+          color="mint"
+          label="Seats in use now"
+          value={`${seatsTaken} / ${seats}`}
+          detail={
+            seats
+              ? `${Math.round((seatsTaken / seats) * 100)}% filled`
+              : "Add seats to start"
+          }
+        />
+        <Stat
+          icon={CheckCircle2}
+          color="violet"
+          label="Visits this week"
+          value={String(visits)}
+          detail="Check-ins in the last 7 days"
+        />
         {[...statusCounts].slice(0, 2).map(([status, count]) => (
-          <Stat key={status} icon={BookOpen} color="peach" label={`${status[0].toUpperCase()}${status.slice(1)} memberships`} value={String(count)} detail="From your latest 100" />
+          <Stat
+            key={status}
+            icon={BookOpen}
+            color="peach"
+            label={`${status[0].toUpperCase()}${status.slice(1)} memberships`}
+            value={String(count)}
+            detail="From your latest 100"
+          />
         ))}
       </div>
     </>
@@ -1395,14 +1686,230 @@ function Stat({
     </section>
   );
 }
+const toTime = (m: number) =>
+  `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const fromTime = (v: string) => {
+  const [h, m] = v.split(":").map(Number);
+  return h * 60 + m;
+};
+const prettyDate = (d: string) =>
+  new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+
+/** One line for students: open now / closed today / holiday, from the library's timings. */
+function LibraryToday({ library }: { library?: Data["library"] }) {
+  const [now] = useState(() => new Date());
+  if (!library?.hours?.length && !library?.holidays?.length) return null;
+  const t = todayStatus(library.hours, library.holidays, now);
+  if (t.kind === "unknown") return null;
+  const text =
+    t.kind === "holiday"
+      ? `${library.name ?? "Your library"} is closed today: ${t.note}.`
+      : t.kind === "closed"
+        ? `${library.name ?? "Your library"} is closed today.`
+        : `${t.openNow ? "Open now" : "Closed now"} · today ${clockLabel(t.open)} – ${clockLabel(t.close)}`;
+  return (
+    <div
+      className={`library-today ${t.kind === "open" && t.openNow ? "open" : "closed"}`}
+      role="status"
+    >
+      <Clock3 size={16} aria-hidden="true" />
+      <span>{text}</span>
+    </div>
+  );
+}
+
+/** Students: the full week and the next holidays. */
+function LibraryTimings({ library }: { library?: Data["library"] }) {
+  const [now] = useState(() => new Date());
+  if (!library?.hours?.length) return null;
+  const holidays = upcomingHolidays(library.holidays, now);
+  return (
+    <section className="card" style={{ marginTop: 20 }}>
+      <h2>Library timings</h2>
+      <div className="hours-list">
+        {[1, 2, 3, 4, 5, 6, 0].map((day) => {
+          const h = library.hours?.find((x) => x.day === day);
+          return (
+            <div key={day} className="hours-row">
+              <span>{DAY_NAMES[day]}</span>
+              <strong>
+                {!h || h.closed
+                  ? "Closed"
+                  : `${clockLabel(h.open)} – ${clockLabel(h.close)}`}
+              </strong>
+            </div>
+          );
+        })}
+      </div>
+      <h3 className="hours-sub">Upcoming holidays</h3>
+      {holidays.length ? (
+        holidays.map((h) => (
+          <div key={h.date} className="hours-row">
+            <span>{prettyDate(h.date)}</span>
+            <strong>{h.note}</strong>
+          </div>
+        ))
+      ) : (
+        <p className="muted">No holidays announced.</p>
+      )}
+    </section>
+  );
+}
+
+/** Owners: edit weekly timings and holidays. */
+function LibraryHoursEditor({
+  library,
+  mutate,
+  notify,
+}: {
+  library?: Data["library"];
+  mutate: Props["mutate"];
+  notify: Props["notify"];
+}) {
+  const [hours, setHours] = useState<DayHours[]>(() =>
+    DEFAULT_HOURS.map((d) => library?.hours?.find((h) => h.day === d.day) ?? d),
+  );
+  const [busy, setBusy] = useState(false);
+  const run = async (action: string, value: unknown, done: string) => {
+    setBusy(true);
+    try {
+      await mutate(action, value);
+      notify(done);
+      return true;
+    } catch (e) {
+      notify((e as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const set = (day: number, patch: Partial<DayHours>) =>
+    setHours((list) =>
+      list.map((h) => (h.day === day ? { ...h, ...patch } : h)),
+    );
+  return (
+    <section className="card" style={{ marginTop: 20 }}>
+      <h2>Library timings & holidays</h2>
+      <p className="muted">
+        Students see “open now” or “closed today” in their app, so nobody comes
+        to a closed library.
+      </p>
+      <div className="hours-edit">
+        {[1, 2, 3, 4, 5, 6, 0].map((day) => {
+          const h = hours.find((x) => x.day === day)!;
+          return (
+            <div key={day} className="hours-edit-row">
+              <span>{DAY_NAMES[day]}</span>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={h.closed}
+                  onChange={(e) => set(day, { closed: e.target.checked })}
+                />{" "}
+                Closed
+              </label>
+              <input
+                type="time"
+                aria-label={`${DAY_NAMES[day]} opens`}
+                value={toTime(h.open)}
+                disabled={h.closed}
+                onChange={(e) =>
+                  e.target.value && set(day, { open: fromTime(e.target.value) })
+                }
+              />
+              <input
+                type="time"
+                aria-label={`${DAY_NAMES[day]} closes`}
+                value={toTime(h.close)}
+                disabled={h.closed}
+                onChange={(e) =>
+                  e.target.value &&
+                  set(day, { close: fromTime(e.target.value) })
+                }
+              />
+            </div>
+          );
+        })}
+      </div>
+      <button
+        className="button"
+        disabled={busy}
+        onClick={() =>
+          run("library-hours", { hours }, "Library timings saved.")
+        }
+      >
+        Save timings
+      </button>
+      <h3 className="hours-sub">Holidays</h3>
+      <form
+        className="hours-holiday-form"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          const form = e.currentTarget;
+          if (
+            await run(
+              "holiday-add",
+              { date: f.get("date"), note: f.get("note") },
+              "Holiday added. Students will see it.",
+            )
+          )
+            form.reset();
+        }}
+      >
+        <input name="date" type="date" required aria-label="Holiday date" />
+        <input
+          name="note"
+          required
+          maxLength={80}
+          placeholder="Reason, e.g. Diwali"
+          aria-label="Holiday reason"
+        />
+        <button className="button secondary" disabled={busy}>
+          Add holiday
+        </button>
+      </form>
+      {(library?.holidays ?? []).length ? (
+        [...(library?.holidays ?? [])]
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map((h) => (
+            <div key={h.date} className="hours-row">
+              <span>{prettyDate(h.date)}</span>
+              <strong>{h.note}</strong>
+              <button
+                className="text-link"
+                disabled={busy}
+                onClick={() =>
+                  run("holiday-remove", { date: h.date }, "Holiday removed.")
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))
+      ) : (
+        <p className="muted">No holidays yet.</p>
+      )}
+    </section>
+  );
+}
+
 function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
   const [now, setNow] = useState(() => Date.now());
   const [local, setLocal] = useState<{
     state: string;
     last: number;
     seconds: number;
+    target: number;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pick, setPick] = useState<number>(25);
+  // Client-only break countdown after a completed session (nothing is saved).
+  const [breakEnd, setBreakEnd] = useState<number | null>(null);
   useEffect(() => {
     const i = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(i);
@@ -1414,33 +1921,65 @@ function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
           state: String(data.focus.state),
           last: +new Date(String(data.focus.lastResumedAt)),
           seconds: Number(data.focus.activeSeconds),
+          target: focusLength(Number(data.focus.targetMinutes)),
         }
       : null;
+  const target = focus ? focus.target : pick;
+  const total = target * 60;
   const elapsed = focus
     ? focus.seconds +
       (focus.state === "running" ? Math.max(0, (now - focus.last) / 1000) : 0)
     : 0;
-  const left = Math.max(0, 1500 - Math.floor(elapsed));
+  const left = Math.max(0, total - Math.floor(elapsed));
+  const breakLeft = breakEnd
+    ? Math.max(0, Math.round((breakEnd - now) / 1000))
+    : 0;
+  const onBreak = !focus && breakLeft > 0;
+  const shown = onBreak ? breakLeft : left;
   async function act(action: string) {
     setBusy(true);
     try {
       if (preview) {
         if (action === "start")
-          setLocal({ state: "running", last: Date.now(), seconds: 0 });
+          setLocal({
+            state: "running",
+            last: Date.now(),
+            seconds: 0,
+            target: pick,
+          });
         if (action === "pause")
-          setLocal({ state: "paused", last: Date.now(), seconds: elapsed });
+          setLocal({
+            state: "paused",
+            last: Date.now(),
+            seconds: elapsed,
+            target,
+          });
         if (action === "resume")
-          setLocal({ state: "running", last: Date.now(), seconds: elapsed });
+          setLocal({
+            state: "running",
+            last: Date.now(),
+            seconds: elapsed,
+            target,
+          });
         if (action === "complete") {
           setLocal(null);
+          setBreakEnd(Date.now() + breakMinutes(target) * 60000);
           notify(
             "Preview complete. Sign up to save your progress and earn XP.",
           );
         }
       } else {
-        await mutate("focus." + action);
-        if (action === "complete")
-          notify("Focus session verified. Your XP has been recorded.");
+        await mutate(
+          "focus." + action,
+          action === "start" ? { minutes: pick } : {},
+        );
+        if (action === "start") setBreakEnd(null);
+        if (action === "complete") {
+          setBreakEnd(Date.now() + breakMinutes(target) * 60000);
+          notify(
+            `Focus session verified. +${focusXP(target)} XP recorded. Time for a ${breakMinutes(target)}-minute break.`,
+          );
+        }
       }
     } catch (e) {
       notify((e as Error).message);
@@ -1451,65 +1990,100 @@ function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
   return (
     <section className="card focus-room">
       <span className="pill">
-        <Leaf size={14} /> FOCUS ROOM
+        <Leaf size={14} /> {onBreak ? "BREAK TIME" : "FOCUS ROOM"}
       </span>
-      <h2>A quiet space for your next big thing.</h2>
-      <p>25 minutes of intention. One step closer.</p>
+      <h2>
+        {onBreak
+          ? "Step away for a moment."
+          : "A quiet space for your next big thing."}
+      </h2>
+      <p>
+        {onBreak
+          ? "Drink some water, stretch, rest your eyes. Your next session will be sharper."
+          : `${target} minutes of intention. One step closer.`}
+      </p>
+      {!focus && !onBreak && (
+        <div className="focus-lengths" role="group" aria-label="Session length">
+          {FOCUS_LENGTHS.map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={pick === m}
+              onClick={() => setPick(m)}
+            >
+              {m} min
+              <small>+{focusXP(m)} XP</small>
+            </button>
+          ))}
+        </div>
+      )}
       <div
-        className="timer-ring"
+        className={onBreak ? "timer-ring break" : "timer-ring"}
         style={
           {
-            "--progress": `${Math.min(100, (elapsed / 1500) * 100)}%`,
+            "--progress": `${
+              onBreak
+                ? Math.min(100, (breakLeft / (breakMinutes(target) * 60)) * 100)
+                : Math.min(100, (elapsed / total) * 100)
+            }%`,
           } as React.CSSProperties
         }
       >
         <div>
           <span>
-            {String(Math.floor(left / 60)).padStart(2, "0")}
+            {String(Math.floor(shown / 60)).padStart(2, "0")}
             <i>:</i>
-            {String(left % 60).padStart(2, "0")}
+            {String(shown % 60).padStart(2, "0")}
           </span>
           <small>
-            {focus?.state === "running"
-              ? "YOU’RE DOING GREAT"
-              : focus?.state === "paused"
-                ? "TAKE YOUR TIME"
-                : "READY WHEN YOU ARE"}
+            {onBreak
+              ? "BREAK"
+              : focus?.state === "running"
+                ? "YOU’RE DOING GREAT"
+                : focus?.state === "paused"
+                  ? "TAKE YOUR TIME"
+                  : "READY WHEN YOU ARE"}
           </small>
         </div>
       </div>
-      <button
-        disabled={busy}
-        className="button"
-        onClick={() =>
-          act(
-            !focus
-              ? "start"
-              : left === 0
-                ? "complete"
-                : focus.state === "running"
-                  ? "pause"
-                  : "resume",
-          )
-        }
-      >
-        {focus?.state === "running" && left > 0 ? (
-          <Pause size={18} />
-        ) : (
-          <Play size={18} />
-        )}{" "}
-        {!focus
-          ? "Begin focus"
-          : left === 0
-            ? "Complete & collect XP"
-            : focus.state === "running"
-              ? "Pause session"
-              : "Resume focus"}
-      </button>
+      {onBreak ? (
+        <button className="button secondary" onClick={() => setBreakEnd(null)}>
+          Skip break
+        </button>
+      ) : (
+        <button
+          disabled={busy}
+          className="button"
+          onClick={() =>
+            act(
+              !focus
+                ? "start"
+                : left === 0
+                  ? "complete"
+                  : focus.state === "running"
+                    ? "pause"
+                    : "resume",
+            )
+          }
+        >
+          {focus?.state === "running" && left > 0 ? (
+            <Pause size={18} />
+          ) : (
+            <Play size={18} />
+          )}{" "}
+          {!focus
+            ? `Begin ${target}-minute focus`
+            : left === 0
+              ? "Complete & collect XP"
+              : focus.state === "running"
+                ? "Pause session"
+                : "Resume focus"}
+        </button>
+      )}
       <p className="tiny muted">
         {preview
           ? "Preview timer · XP is only saved for signed-in accounts"
-          : "Time is verified on the server · +10 XP per complete session"}
+          : `Time is verified on the server · +${focusXP(target)} XP for a complete ${target}-minute session`}
       </p>
     </section>
   );
@@ -2016,7 +2590,11 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
                 · Select a seat to create an allocation.
               </p>
             </div>
-            <select aria-label="Floor" value={floor} onChange={(e) => setFloor(e.target.value)}>
+            <select
+              aria-label="Floor"
+              value={floor}
+              onChange={(e) => setFloor(e.target.value)}
+            >
               <option>All floors</option>
               {floors.map((f) => (
                 <option key={f}>{f}</option>
@@ -2064,49 +2642,59 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           </div>
         </section>
       ) : section === "settings" ? (
-        <section className="card">
-          <h2>Your library workspace</h2>
-          <div className="lifecycle-toolbar">
-            <button className="button secondary" onClick={() => add("staff")}>
-              Grant staff access
+        <>
+          <section className="card">
+            <h2>Your library workspace</h2>
+            <div className="lifecycle-toolbar">
+              <button className="button secondary" onClick={() => add("staff")}>
+                Grant staff access
+              </button>
+            </div>
+            <p className="muted">
+              Library ID: {String(d.user?.libraryId || "Not connected")}
+            </p>
+            <div className="list-row">
+              <ShieldCheck />
+              <div>
+                <strong>Tenant isolation enabled</strong>
+                <p>
+                  All library records are scoped to your authenticated library.
+                </p>
+              </div>
+            </div>
+            <div className="list-row">
+              <MessageSquare />
+              <div>
+                <strong>In-app messaging</strong>
+                <p>
+                  Announcements are delivered inside StudyQuest. No WhatsApp
+                  provider is configured.
+                </p>
+              </div>
+            </div>
+            <button className="button" onClick={() => add("notifications")}>
+              Create announcement
             </button>
-          </div>
-          <p className="muted">
-            Library ID: {String(d.user?.libraryId || "Not connected")}
-          </p>
-          <div className="list-row">
-            <ShieldCheck />
-            <div>
-              <strong>Tenant isolation enabled</strong>
-              <p>
-                All library records are scoped to your authenticated library.
-              </p>
-            </div>
-          </div>
-          <div className="list-row">
-            <MessageSquare />
-            <div>
-              <strong>In-app messaging</strong>
-              <p>
-                Announcements are delivered inside StudyQuest. No WhatsApp
-                provider is configured.
-              </p>
-            </div>
-          </div>
-          <button className="button" onClick={() => add("notifications")}>
-            Create announcement
-          </button>
-          <h2 style={{ marginTop: 28 }}>Recent audit history</h2>
-          {(d.audit || []).map((a) => (
-            <div className="list-row" key={String(a._id)}>
-              <ShieldCheck size={16} />
-              <strong>{a.action}</strong>
-              <span className="muted">
-                {new Date(String(a.createdAt)).toLocaleString()}
-              </span>
-            </div>
-          ))}
-        </section>
+            <h2 style={{ marginTop: 28 }}>Recent audit history</h2>
+            {(d.audit || []).map((a) => (
+              <div className="list-row" key={String(a._id)}>
+                <ShieldCheck size={16} />
+                <strong>{a.action}</strong>
+                <span className="muted">
+                  {new Date(String(a.createdAt)).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </section>
+          {!preview && String(d.user?.role) === "owner" && (
+            <LibraryHoursEditor
+              library={d.library}
+              mutate={mutate}
+              notify={notify}
+            />
+          )}
+          {!preview && <PushToggle notify={notify} />}
+        </>
       ) : (
         <section className="card table-card">
           <div className="table-toolbar">
