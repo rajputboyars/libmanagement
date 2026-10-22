@@ -6,6 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { StudentWeeklyReport } from "@/components/weekly-report";
 import { PushToggle } from "@/components/push-toggle";
+import { countdownText, daysUntil } from "@/lib/exam-countdown";
 import { STUDENT_FEATURES, lockedMessage, studentFeatureForPath, type StudentAccess } from "@/lib/student-access";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUI } from "@/lib/ui-store";
@@ -149,6 +150,7 @@ type Data = {
   summary?: Record<string, number>;
   library?: { name?: string; hours?: DayHours[]; holidays?: Holiday[] } | null;
   studentAccess?: StudentAccess;
+  exam?: { title: string; date: string } | null;
 };
 // True when StudyQuest runs as the installed app (home-screen icon) or was opened from its start_url.
 const subscribeDisplayMode = (onChange: () => void) => {
@@ -1249,6 +1251,7 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
     <>
       {greeting}
       {path === "/app" && !preview && <LibraryToday library={d.library} />}
+      {path === "/app" && !preview && <ExamCountdown exam={d.exam} />}
       {path === "/app" && (
         <>
           <section className="journey-hero">
@@ -1744,6 +1747,30 @@ const prettyDate = (d: string) =>
     day: "numeric",
     month: "short",
   });
+
+/** Days left to the student's exam, or a nudge to set it. */
+function ExamCountdown({ exam }: { exam?: Data["exam"] }) {
+  const [now] = useState(() => new Date());
+  if (!exam)
+    return (
+      <Link className="exam-countdown empty" href="/app/roadmap">
+        <CalendarDays size={18} aria-hidden="true" />
+        <span>Set your exam and date to see a countdown</span>
+        <ArrowRight size={16} aria-hidden="true" />
+      </Link>
+    );
+  const days = daysUntil(exam.date, now);
+  return (
+    <Link className={`exam-countdown${days >= 0 && days <= 30 ? " soon" : ""}`} href="/app/roadmap">
+      {days > 0 && <strong className="exam-days">{days}</strong>}
+      <span>
+        {countdownText(days, exam.title)}
+        <small>{new Date(`${exam.date}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}</small>
+      </span>
+      <ArrowRight size={16} aria-hidden="true" />
+    </Link>
+  );
+}
 
 /** One line for students: open now / closed today / holiday, from the library's timings. */
 function LibraryToday({ library }: { library?: Data["library"] }) {
