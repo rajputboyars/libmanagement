@@ -127,7 +127,7 @@ export function Insights() {
           <p>{data.activeDays} din padhai in the last year.</p>
         </div>
       </div>
-      <div className="ss-heat" role="img" aria-label="Study minutes for each day of the last year">
+      <div className="ss-heat" ref={(el) => { if (el) el.scrollLeft = el.scrollWidth; }} role="img" aria-label="Study minutes for each day of the last year">
         {Array.from({ length: pad }, (_, i) => <span key={`p${i}`} className="ss-cell empty" />)}
         {days.map((d) => <span key={d.date} className="ss-cell" data-level={heatLevel(d.minutes)} title={`${d.date}: ${hm(d.minutes)}`} />)}
       </div>
