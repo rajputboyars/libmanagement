@@ -36,7 +36,7 @@ export function ExamPrep({ notify, preview }: { notify: (m: string) => void; pre
       {tab === "tests" && <Tests start={start} />}
       {tab === "practice" && <Practice start={start} />}
       {tab === "analytics" && <Analytics />}
-      {tab === "mistakes" && <Mistakes act={act} />}
+      {tab === "mistakes" && <Mistakes act={act} start={start} />}
       {tab === "flashcards" && <Flashcards act={act} />}
       {tab === "notes" && <Notes act={act} />}
       {tab === "journey" && <Journey act={act} notify={notify} />}
@@ -138,7 +138,8 @@ function Analytics() {
   );
 }
 
-function Mistakes({ act }: { act: Act }) {
+const REASONS: [string, string][] = [["didnt-know", "Concept nahi pata"], ["silly", "Silly mistake"], ["time", "Time kam"], ["guess", "Guess kiya"]];
+function Mistakes({ act, start }: { act: Act; start: (action: string) => void }) {
   const [status, setStatus] = useState<"open" | "understood">("open");
   const [topic, setTopic] = useState("");
   const q = useView("mistakes", `&status=${status}${topic ? `&topicId=${topic}` : ""}`);
@@ -146,8 +147,12 @@ function Mistakes({ act }: { act: Act }) {
   if (q.isLoading) return <Skeleton />;
   if (q.isError || !q.data) return <Failed error={q.error} retry={() => q.refetch()} />;
   async function answer(questionId: string, selectedIndex: number | null) { const r = await act("mistake-answer", { questionId, selectedIndex }); if (r) setFeedback((f) => ({ ...f, [questionId]: { ...r, selectedIndex } })); }
+  const reasons: Record<string, number> = q.data.reasons ?? {};
+  const reasonMax = Math.max(1, ...Object.values(reasons));
   return (
     <>
+      {status === "open" && q.data.total > 0 && <div className="queue-actions"><button className="button" onClick={() => start("retest-start")}>Re-test wrong questions</button><small className="muted">2 baar lagatar sahi = fixed</small></div>}
+      {Object.keys(reasons).length > 0 && <div className="ss-bars" aria-label="Why mistakes happen">{REASONS.map(([k, label]) => <div key={k}><span>{label}</span><i style={{ width: `${((reasons[k] ?? 0) / reasonMax) * 100}%` }} /><em>{reasons[k] ?? 0}</em></div>)}</div>}
       <div className="mt-filter"><button className={status === "open" ? "active" : ""} onClick={() => setStatus("open")}>To review</button><button className={status === "understood" ? "active" : ""} onClick={() => setStatus("understood")}>Understood</button>
         <select aria-label="Topic filter" value={topic} onChange={(e) => setTopic(e.target.value)} className="pr-select"><option value="">All topics</option>{q.data.topics.map((t: Json) => <option key={t._id} value={t._id}>{t.title}</option>)}</select></div>
       <div className="mt-list">{q.data.entries.map((e: Json) => {
@@ -157,6 +162,7 @@ function Mistakes({ act }: { act: Act }) {
             <div className="mt-card-head"><div><h3>{question?.prompt ?? "Question no longer available"}</h3><p>{e.topicTitle} · missed {e.wrongCount}× · last {fmtDate(e.lastWrongAt)}</p></div></div>
             {question && <div className="pr-options compact">{question.options.map((o: string, i: number) => <button key={i} disabled={!!f} className={f ? (i === f.correctIndex ? "right" : i === f.selectedIndex ? "wrong" : "") : ""} onClick={() => answer(e.questionId, i)}><kbd>{String.fromCharCode(65 + i)}</kbd><span>{o}</span></button>)}</div>}
             {f && <p className="cm-note" role="status">{f.revealedOnly ? "" : f.correct ? "Correct this time. " : "Not yet. "}{f.explanation}</p>}
+            <div className="ss-reasons" role="group" aria-label="Why did you get it wrong?">{REASONS.map(([k, label]) => <button key={k} type="button" aria-pressed={e.reason === k} onClick={() => act("mistake-update", { id: e._id, reason: k }, "Reason saved.")}>{label}</button>)}</div>
             <form className="queue-actions" onSubmit={(ev: FormEvent<HTMLFormElement>) => { ev.preventDefault(); act("mistake-update", { id: e._id, note: new FormData(ev.currentTarget).get("note") }, "Note saved."); }}>
               <input name="note" defaultValue={e.note} maxLength={600} placeholder="My note on this mistake" aria-label="Note" /><button className="button secondary">Save note</button></form>
             <div className="queue-actions">

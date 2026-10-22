@@ -4,8 +4,15 @@ import { PlatformSettings } from "./saas-models";
 import { lockedMessage, resolveStudentAccess, type StudentAccess, type StudentFeature } from "./student-access";
 
 export async function premiumStudentFeatures(): Promise<string[]> {
-  const s = await PlatformSettings.findOne({ key: "default" }).select("premiumStudentFeatures").lean<{ premiumStudentFeatures?: string[] }>();
+  const s = await PlatformSettings.findOne({ key: "default" }).select("premiumStudentFeatures freeTrial").lean<{ premiumStudentFeatures?: string[]; freeTrial?: boolean }>();
+  // Free trial (default on): nothing is premium, for library and self-study students alike.
+  if (s?.freeTrial !== false) return [];
   return s?.premiumStudentFeatures ?? [];
+}
+
+export async function freeTrialOn() {
+  const s = await PlatformSettings.findOne({ key: "default" }).select("freeTrial").lean<{ freeTrial?: boolean }>();
+  return s?.freeTrial !== false;
 }
 
 export async function studentAccessFor(user: { _id: unknown; role: string }, now = new Date()): Promise<StudentAccess> {
