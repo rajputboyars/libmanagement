@@ -16,9 +16,9 @@ const Empty = ({ title, text }: { title: string; text?: string }) => <div classN
 const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="mt-empty"><AlertTriangle /><h2>Could not load</h2><p>{error instanceof Error ? error.message : "Try again."}</p><button className="button" onClick={retry}>Try again</button></div>;
 const pctText = (v: number | null) => (v === null || v === undefined ? "—" : `${v}%`);
 
-export function SaasAdmin({ notify }: { notify: (m: string) => void }) {
+export function SaasAdmin({ notify, initialTab = "overview" }: { notify: (m: string) => void; initialTab?: Tab }) {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const act = async (action: string, data: unknown, ok?: string, url = api) => {
     try { const r = await post(url, action, data); await qc.invalidateQueries({ queryKey: ["sa"] }); notify(ok ?? "Saved."); return r; } catch (e) { notify(e instanceof Error ? e.message : "Unable to update"); return null; }
   };

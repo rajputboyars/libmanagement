@@ -4110,3 +4110,33 @@ body {
 .premium-lock h2 { margin: 0; }
 .premium-lock p { margin: 0; color: var(--text-muted); }
 .premium-lock .premium-lock-due { color: #8a5d0c; font-weight: 700; }
+
+/* Platform owner dashboard */
+.pf-search { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
+.pf-search input { flex: 1; min-width: 180px; }
+.pf-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.pf-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.pf-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.pf-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pf-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.pf-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.pf-table td small { display: block; color: var(--text-muted); font-size: 12px; }
+.pf-table td .pf-override { color: #8a5d0c; }
+.pf-cell { display: inline-block; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; background: var(--surface); color: var(--text-muted); }
+.pf-cell.plan { background: var(--soft); color: var(--green); border-color: transparent; }
+.pf-cell.added { background: var(--green); color: #fff; border-color: transparent; }
+.pf-cell.removed { background: #fbe9e5; color: #a3402c; border-color: transparent; }
+.pf-cell.restricted { background: #fbf3e2; color: #8a5d0c; border-color: transparent; }
+span.pf-cell { cursor: default; }
+.pf-good { color: var(--green); font-weight: 600; }
+.pf-bad { color: #a3402c; font-weight: 600; }
+.pf-role { text-transform: capitalize; }
+.pf-pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; font-size: 13px; color: var(--text-muted); }
+.pf-modal { display: grid; gap: 12px; max-width: 460px; }
+.pf-modal label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.pf-modes { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.pf-modes label { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.pf-rules { display: grid; gap: 14px; }
+.pf-rule-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.pf-rule { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.pf-rule small { display: block; color: var(--text-muted); font-size: 12px; }

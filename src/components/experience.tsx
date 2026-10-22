@@ -115,7 +115,7 @@ import {
   OwnerCrm,
   OwnerSupport,
   Onboarding,
-  SaasAdmin,
+  SaasAdmin, PlatformFeatures, PlatformStudentRules, PlatformAccounts,
   PilotImport,
   AccountSecurity,
   ForgotPassword,
@@ -324,6 +324,10 @@ export function Experience({ path }: { path: string }) {
           ["/super-admin/business", "Business", ChartNoAxesCombined],
           ["/super-admin/syllabus", "Syllabus", BookOpen],
           ["/super-admin/question-bank", "Question bank", ListChecks],
+          ["/super-admin/features", "Feature access", ShieldCheck],
+          ["/super-admin/student-features", "Student features", Users],
+          ["/super-admin/accounts", "Accounts", Users],
+          ["/super-admin/plans", "Plans", CreditCard],
         ] as typeof ownerNav)
       : studentNav;
   const allowed =
@@ -413,7 +417,8 @@ export function Experience({ path }: { path: string }) {
   ].includes(path);
   const importPath = path === "/owner/import";
   const securityPath = path === "/app/security" || path === "/owner/security";
-  const saasAdminPath = path === "/super-admin/business";
+  const saasAdminPath = path === "/super-admin/business" || path === "/super-admin/plans";
+  const platformPath = ["/super-admin/features", "/super-admin/student-features", "/super-admin/accounts"].includes(path);
   const prepPath = path === "/app/prep";
   const reportPath = path === "/app/report";
   // Premium student features the platform owner has locked for students who are not paid up.
@@ -704,8 +709,20 @@ export function Experience({ path }: { path: string }) {
             ) : (
               <AccountSecurity role={String(d.user?.role)} notify={setToast} />
             )
+          ) : platformPath ? (
+            path === "/super-admin/features" ? (
+              <PlatformFeatures notify={setToast} />
+            ) : path === "/super-admin/student-features" ? (
+              <PlatformStudentRules notify={setToast} />
+            ) : (
+              <PlatformAccounts notify={setToast} />
+            )
           ) : saasAdminPath ? (
-            <SaasAdmin notify={setToast} />
+            <SaasAdmin
+              key={path}
+              notify={setToast}
+              initialTab={path === "/super-admin/plans" ? "plans" : "overview"}
+            />
           ) : saasOwnerPath ? (
             preview ? (
               <div className="mt-empty">
