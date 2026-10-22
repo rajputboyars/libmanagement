@@ -4102,3 +4102,11 @@ body {
 .report-public .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 20px; text-decoration: none; color: var(--text); }
 .report-expiry { font-size: 13px; }
 @media (max-width: 640px) { .report-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .report-bars { gap: 5px; } }
+
+/* Premium student features */
+.nav-lock { margin-left: auto; font-size: 12px; opacity: 0.8; }
+.premium-lock { display: grid; justify-items: center; gap: 12px; text-align: center; max-width: 520px; margin: 40px auto; padding: 32px 24px; border-radius: 20px; border: 1px dashed var(--line); background: var(--surface); }
+.premium-lock-icon { font-size: 34px; }
+.premium-lock h2 { margin: 0; }
+.premium-lock p { margin: 0; color: var(--text-muted); }
+.premium-lock .premium-lock-due { color: #8a5d0c; font-weight: 700; }

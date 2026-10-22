@@ -1,3 +1,4 @@
+import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "node:crypto";
 import { z } from "zod";
@@ -23,6 +24,7 @@ async function titles(ids: unknown[]) {
 
 export async function GET(request: NextRequest) {
   const user = await currentUser();
+  { const blocked = await studentFeatureBlocked(user, "exam-prep"); if (blocked) return blocked; }
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Student access required", 403);
   const p = request.nextUrl.searchParams;
@@ -194,6 +196,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!validOrigin(request)) return err("Invalid origin", 403);
   const user = await currentUser();
+  { const blocked = await studentFeatureBlocked(user, "exam-prep"); if (blocked) return blocked; }
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Student access required", 403);
   if (limited(`prep:${user._id}`, 300)) return err("Please slow down", 429);

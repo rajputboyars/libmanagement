@@ -27,6 +27,7 @@ import {
   StaffMembership,
 } from "@/lib/models";
 import { punchIn } from "@/lib/punch";
+import { studentAccessFor } from "@/lib/student-access-server";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
 import { XP, reward, activeSeconds, focusLength, focusXP } from "@/lib/rules";
 const schemas = {
@@ -261,6 +262,7 @@ export async function GET(req: NextRequest) {
     library: user.libraryId
       ? await Library.findById(user.libraryId).select("name hours holidays").lean()
       : null,
+    studentAccess: await studentAccessFor(user),
     ...Object.fromEntries(entries),
   });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { ReportShare } from "@/lib/models";
 import { buildWeeklyReport, shareWeeklyReport } from "@/lib/weekly-report";
 
@@ -22,6 +23,8 @@ export async function GET(request: NextRequest) {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Weekly reports are for students", 403);
+  const blocked = await studentFeatureBlocked(user, "weekly-report");
+  if (blocked) return blocked;
   return NextResponse.json({ report: await buildWeeklyReport(user._id) });
 }
 
@@ -31,6 +34,8 @@ export async function POST(request: NextRequest) {
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Weekly reports are for students", 403);
   if (limited(`report-share:${user._id}`, 10)) return err("Please slow down", 429);
+  const blocked = await studentFeatureBlocked(user, "weekly-report");
+  if (blocked) return blocked;
   try {
     const body = await request.json();
     const action = z.enum(["share", "revoke"]).parse(body.action);

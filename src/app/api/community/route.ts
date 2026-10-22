@@ -1,3 +1,4 @@
+import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
@@ -16,6 +17,7 @@ async function aliasMap(ids: unknown[]) {
 
 export async function GET(request: NextRequest) {
   const user = await currentUser();
+  { const blocked = await studentFeatureBlocked(user, "social"); if (blocked) return blocked; }
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (!user.libraryId) return NextResponse.json({ error: "Join a library first" }, { status: 400 });
   const view = request.nextUrl.searchParams.get("view") || "hub";
@@ -82,6 +84,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!validOrigin(request)) return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
   const user = await currentUser();
+  { const blocked = await studentFeatureBlocked(user, "social"); if (blocked) return blocked; }
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (!user.libraryId) return NextResponse.json({ error: "Join a library first" }, { status: 400 });
   if (limited(`community:${user._id}`, 30)) return NextResponse.json({ error: "Please slow down" }, { status: 429 });

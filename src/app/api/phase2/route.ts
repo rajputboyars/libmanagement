@@ -1,3 +1,5 @@
+import { studentFeatureBlocked } from "@/lib/student-access-server";
+import type { StudentFeature } from "@/lib/student-access";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
@@ -109,6 +111,19 @@ export async function POST(req: NextRequest) {
     const body = z.object({ action: z.string().min(1), data: z.unknown().default({}) }).parse(await req.json());
     const data = body.data;
     let record: unknown;
+    // Premium student features (the combined GET stays open; pages are locked in the app).
+    const premiumByAction: Record<string, StudentFeature> = {
+      "plan-generate": "planner", "plan-task": "planner",
+      "exam-save": "exam-prep", "topic-progress": "exam-prep", "quiz-start": "exam-prep", "quiz-submit": "exam-prep",
+      "revision-complete": "learning",
+      "friend-request": "social", "friend-respond": "social", "challenge-create": "social", "challenge-join": "social",
+      "room-create": "social", "room-join": "social", "room-start": "social", "room-complete": "social",
+      "garden-refresh": "garden", "garden-select": "garden",
+    };
+    if (premiumByAction[body.action]) {
+      const blocked = await studentFeatureBlocked(user, premiumByAction[body.action]);
+      if (blocked) return blocked;
+    }
 
     if (body.action === "exam-save") {
       const value = z.object({ examKey, customExam: z.string().trim().max(100).default(""), examDate: dateString, weeklyMinutes: z.number().int().min(60).max(5040), subjectIds: z.array(objectId).max(30).default([]), weakTopicIds: z.array(objectId).max(100).default([]) }).parse(data);

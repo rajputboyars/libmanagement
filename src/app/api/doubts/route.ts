@@ -1,3 +1,4 @@
+import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
@@ -6,6 +7,7 @@ import { solveDoubt, validateImageData } from "@/lib/ai-provider";
 
 export async function GET(request: NextRequest) {
   const user = await currentUser();
+  { const blocked = await studentFeatureBlocked(user, "doubts"); if (blocked) return blocked; }
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (user.role !== "student") return NextResponse.json({ error: "Student access required" }, { status: 403 });
   const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
@@ -22,6 +24,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!validOrigin(request)) return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
   const user = await currentUser();
+  { const blocked = await studentFeatureBlocked(user, "doubts"); if (blocked) return blocked; }
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (user.role !== "student") return NextResponse.json({ error: "Student access required" }, { status: 403 });
   if (limited(`doubt:${user._id}`, 12)) return NextResponse.json({ error: "Please slow down" }, { status: 429 });

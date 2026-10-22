@@ -11,6 +11,7 @@ export type AuthUser = {
   libraryId?: Types.ObjectId;
   sessionVersion?: number;
   deletedAt?: Date;
+  suspendedAt?: Date;
 };
 export function validOrigin(request: Request) {
   const origin = request.headers.get("origin");
@@ -45,7 +46,7 @@ export async function currentUser() {
     await db();
     const user = await User.findById(payload.sub).lean<AuthUser>();
     // Sessions end when the account is deleted or its session version changes (password reset/change, sign out everywhere).
-    if (!user || user.deletedAt || (user.sessionVersion ?? 0) !== Number(payload.sv ?? 0)) return null;
+    if (!user || user.deletedAt || user.suspendedAt || (user.sessionVersion ?? 0) !== Number(payload.sv ?? 0)) return null;
     return user;
   } catch {
     return null;

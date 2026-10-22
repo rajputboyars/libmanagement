@@ -6,6 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { StudentWeeklyReport } from "@/components/weekly-report";
 import { PushToggle } from "@/components/push-toggle";
+import { STUDENT_FEATURES, lockedMessage, studentFeatureForPath, type StudentAccess } from "@/lib/student-access";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUI } from "@/lib/ui-store";
 import { PublicPage } from "@/components/site";
@@ -147,6 +148,7 @@ type Data = {
   profile?: Row;
   summary?: Record<string, number>;
   library?: { name?: string; hours?: DayHours[]; holidays?: Holiday[] } | null;
+  studentAccess?: StudentAccess;
 };
 // True when StudyQuest runs as the installed app (home-screen icon) or was opened from its start_url.
 const subscribeDisplayMode = (onChange: () => void) => {
@@ -414,6 +416,11 @@ export function Experience({ path }: { path: string }) {
   const saasAdminPath = path === "/super-admin/business";
   const prepPath = path === "/app/prep";
   const reportPath = path === "/app/report";
+  // Premium student features the platform owner has locked for students who are not paid up.
+  const lockedList = !preview && !owner && !admin ? (d.studentAccess?.locked ?? []) : [];
+  const lockedPaths = new Set<string>(lockedList.flatMap((f) => [...STUDENT_FEATURES[f].paths]));
+  const pageFeature = studentFeatureForPath(path);
+  const lockedFeature = pageFeature && lockedList.includes(pageFeature) ? pageFeature : null;
   const prepAdminPath = path === "/super-admin/question-bank";
   const communityPath =
     path === "/app/community" || path === "/owner/moderation";
@@ -485,6 +492,11 @@ export function Experience({ path }: { path: string }) {
               <Icon size={19} />
               {label}
               {label === "My quests" && <span className="nav-count">✦</span>}
+              {lockedPaths.has(href) && (
+                <span className="nav-lock" title="Premium: clear your fees to unlock" aria-label="locked">
+                  🔒
+                </span>
+              )}
             </Link>
           ))}
         </nav>
@@ -641,6 +653,23 @@ export function Experience({ path }: { path: string }) {
             </div>
           ) : isLoading ? (
             <BrandLoader compact text="Loading your workspace…" />
+          ) : lockedFeature ? (
+            <div className="premium-lock">
+              <span className="premium-lock-icon" aria-hidden="true">🔒</span>
+              <h2>{STUDENT_FEATURES[lockedFeature].label} is a premium feature</h2>
+              <p>{lockedMessage(d.studentAccess?.reason ?? "no-membership")}</p>
+              {d.studentAccess?.reason === "dues" && d.studentAccess.duePaise > 0 && (
+                <p className="premium-lock-due">Fees due: {money(d.studentAccess.duePaise)}</p>
+              )}
+              <div className="queue-actions">
+                <Link className="button" href="/app/membership">
+                  See my fees
+                </Link>
+                <Link className="button secondary" href="/app">
+                  Back to home
+                </Link>
+              </div>
+            </div>
           ) : joinPath ? (
             preview ? (
               <div className="mt-empty">
