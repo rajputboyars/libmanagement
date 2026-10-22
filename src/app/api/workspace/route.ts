@@ -258,6 +258,9 @@ export async function GET(req: NextRequest) {
     audit,
     staff,
     profile: await StudentProfile.findOne({ userId: user._id }).lean(),
+    library: user.libraryId
+      ? await Library.findById(user.libraryId).select("name hours holidays").lean()
+      : null,
     ...Object.fromEntries(entries),
   });
 }
@@ -274,6 +277,32 @@ export async function POST(req: NextRequest) {
     const action = z.string().parse(body.action);
     const owner = user.role === "owner";
     const libraryId = user.libraryId;
+    if (action === "library-hours" || action === "holiday-add" || action === "holiday-remove") {
+      if (!owner || !libraryId)
+        return NextResponse.json({ error: "Only the library owner can change timings" }, { status: 403 });
+      await assertWritable(libraryId);
+      if (action === "library-hours") {
+        const hours = z
+          .array(
+            z
+              .object({ day: z.number().int().min(0).max(6), open: z.number().int().min(0).max(1440), close: z.number().int().min(0).max(1440), closed: z.boolean() })
+              .refine((h) => h.closed || h.close > h.open, "Closing time must be after opening time"),
+          )
+          .length(7)
+          .refine((list) => new Set(list.map((h) => h.day)).size === 7, "Give timings for all 7 days")
+          .parse(body.data?.hours);
+        await Library.updateOne({ _id: libraryId }, { $set: { hours } });
+      } else if (action === "holiday-add") {
+        const h = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), note: z.string().trim().min(1).max(80) }).parse(body.data);
+        await Library.updateOne({ _id: libraryId }, { $pull: { holidays: { date: h.date } } });
+        await Library.updateOne({ _id: libraryId }, { $push: { holidays: { $each: [h], $sort: { date: 1 }, $slice: -60 } } });
+      } else {
+        const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(body.data?.date);
+        await Library.updateOne({ _id: libraryId }, { $pull: { holidays: { date } } });
+      }
+      await AuditLog.create({ libraryId, actorId: user._id, action, recordId: libraryId });
+      return NextResponse.json({ ok: true });
+    }
     if (action === "platform.library") {
       if (user.role !== "super-admin")
         return NextResponse.json(

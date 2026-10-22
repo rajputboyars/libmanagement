@@ -4043,3 +4043,22 @@ body {
 .focus-lengths button small { font-size: 11px; font-weight: 500; color: var(--text-muted); }
 .focus-lengths button[aria-pressed="true"] { border-color: var(--green); background: var(--soft); color: var(--green); }
 .timer-ring.break { filter: hue-rotate(-70deg) saturate(0.8); }
+
+/* Library timings & holidays */
+.library-today { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; padding: 11px 14px; border-radius: 12px; font-weight: 600; font-size: 14px; }
+.library-today.open { background: var(--soft); color: var(--green); }
+.library-today.closed { background: #fbf3e2; color: #8a5d0c; }
+.hours-list { display: grid; margin-top: 8px; }
+.hours-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.hours-row span { color: var(--text-muted); }
+.hours-row .text-link { margin-left: 8px; }
+.hours-sub { margin: 20px 0 6px; font-size: 16px; }
+.hours-edit { display: grid; gap: 8px; margin: 14px 0; }
+.hours-edit-row { display: grid; grid-template-columns: 110px auto 1fr 1fr; gap: 10px; align-items: center; }
+.hours-edit-row input[type="time"] { min-width: 0; }
+.hours-holiday-form { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; margin: 8px 0 6px; }
+@media (max-width: 640px) {
+  .hours-edit-row { grid-template-columns: 1fr auto; }
+  .hours-edit-row input[type="time"] { grid-column: span 1; }
+  .hours-holiday-form { grid-template-columns: 1fr; }
+}

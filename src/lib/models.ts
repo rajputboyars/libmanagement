@@ -50,6 +50,9 @@ export const Library = model("Library", {
   city: { type: String, default: "", trim: true, maxlength: 80, index: true },
   publicDescription: { type: String, default: "", trim: true, maxlength: 700 },
   facilities: [{ type: String, enum: ["wifi", "air-conditioning", "power-backup", "lockers", "drinking-water", "quiet-zone", "accessible-entry"] }],
+  // Weekly opening hours (minutes from midnight, India time) and dated holidays, shown to students.
+  hours: [{ _id: false, day: { type: Number, min: 0, max: 6 }, open: { type: Number, min: 0, max: 1440 }, close: { type: Number, min: 0, max: 1440 }, closed: { type: Boolean, default: false } }],
+  holidays: [{ _id: false, date: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ }, note: { type: String, trim: true, maxlength: 80 } }],
 });
 export const StudentProfile = model("StudentProfile", {
   userId: { type: id, unique: true, required: true },
