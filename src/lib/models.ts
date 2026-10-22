@@ -795,3 +795,26 @@ export const ExamDate = model(
   },
   [[{ examKey: 1, date: 1 }, {}]],
 );
+/** A student's request to move to another seat and/or shift; the owner approves or rejects it. */
+export const SeatChangeRequest = model(
+  "SeatChangeRequest",
+  {
+    ...tenant,
+    userId: { type: id, required: true },
+    assignmentId: { type: id, required: true },
+    fromSeatId: id,
+    fromShiftStart: Number,
+    fromShiftEnd: Number,
+    toSeatId: id,
+    toShiftId: id,
+    note: { type: String, trim: true, maxlength: 300, default: "" },
+    status: { type: String, enum: ["pending", "approved", "rejected", "cancelled"], default: "pending", index: true },
+    decidedBy: id,
+    decidedAt: Date,
+    decisionNote: { type: String, trim: true, maxlength: 300, default: "" },
+  },
+  [
+    [{ userId: 1 }, { unique: true, partialFilterExpression: { status: "pending" } }],
+    [{ libraryId: 1, status: 1, createdAt: -1 }, {}],
+  ],
+);
