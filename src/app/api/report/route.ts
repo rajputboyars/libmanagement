@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { ReportShare } from "@/lib/models";
 import { buildWeeklyReport, shareWeeklyReport } from "@/lib/weekly-report";
 
@@ -13,6 +14,7 @@ export async function GET(request: NextRequest) {
     if (!/^[A-Za-z0-9_-]{20,40}$/.test(token)) return err("This report link is not valid", 404);
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
     if (limited(`report-view:${ip}`, 60)) return err("Please slow down", 429);
+    await db(); // the public link has no session lookup, so connect explicitly
     const share = await ReportShare.findOne({ token, expiresAt: { $gt: new Date() } }).select("report expiresAt").lean<{ report: unknown; expiresAt: Date }>();
     if (!share) return err("This report link has expired or does not exist", 404);
     return NextResponse.json({ report: share.report, expiresAt: share.expiresAt }, { headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" } });
