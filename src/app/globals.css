@@ -4062,3 +4062,18 @@ body {
   .hours-edit-row input[type="time"] { grid-column: span 1; }
   .hours-holiday-form { grid-template-columns: 1fr; }
 }
+
+/* Seat & shift change requests */
+.seat-change-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 10px; }
+.seat-change-form .wide { grid-column: 1 / -1; }
+.seat-change-form label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.seat-change-form select, .seat-change-form input { min-width: 0; }
+.seat-change-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 12px 14px; border-radius: 12px; background: var(--soft); margin-top: 10px; font-size: 14px; }
+.seat-change-status span { display: inline-flex; align-items: center; gap: 6px; }
+.seat-change-status.rejected, .seat-change-status.cancelled { background: #fbf3e2; }
+.seat-change-status small { flex-basis: 100%; color: var(--text-muted); }
+.seat-change-owner { margin-bottom: 20px; }
+.seat-change-row { display: grid; gap: 8px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.seat-change-row small { display: block; color: var(--text-muted); }
+.seat-change-move { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
+@media (max-width: 640px) { .seat-change-form { grid-template-columns: 1fr; } }

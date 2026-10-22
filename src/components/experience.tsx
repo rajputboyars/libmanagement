@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUI } from "@/lib/ui-store";
 import { PublicPage } from "@/components/site";
@@ -647,7 +648,10 @@ export function Experience({ path }: { path: string }) {
             ) : path === "/app/punch" ? (
               <StudentPunch notify={setToast} />
             ) : path === "/owner/join-requests" ? (
-              <OwnerJoinRequests notify={setToast} />
+              <>
+                <OwnerSeatChanges notify={setToast} />
+                <OwnerJoinRequests notify={setToast} />
+              </>
             ) : (
               <OwnerPresence notify={setToast} />
             )
@@ -1135,6 +1139,9 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
           )}
         </section>
         {!preview && <LibraryTimings library={d.library} />}
+        {!preview && d.user?.libraryId && d.memberships.length > 0 && (
+          <StudentSeatChange seats={d.seats} shifts={d.shifts} notify={notify} />
+        )}
         {d.user?.libraryId && (
           <section className="card" style={{ marginTop: 20 }}>
             <div className="section-heading">
