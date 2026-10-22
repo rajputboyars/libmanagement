@@ -5,9 +5,7 @@ import {
   ArrowUpRight,
   ArrowRight,
   Menu,
-  BookOpen,
   Armchair,
-  Flame,
   Clock3,
   ChartNoAxesCombined,
   Wallet,
@@ -19,12 +17,13 @@ import {
   ShieldCheck,
   Leaf,
   Building2,
-  CheckCircle2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Empty, Garden } from "@/components/ui-bits";
+import { Empty } from "@/components/ui-bits";
 import { useUI } from "@/lib/ui-store";
-import { GuideTeaser, VideoGuide } from "@/components/video-guide";
+import { copy, say } from "@/lib/site-copy";
+import { MarketingHome, marketingPage } from "@/components/marketing";
+import { VideoGuide } from "@/components/video-guide";
 import {
   GuideDetail,
   GuideHubCards,
@@ -35,6 +34,10 @@ import { guideRoute } from "@/lib/guide-route";
 export function PublicPage({ path }: { path: string }) {
   const [demo, setDemo] = useState(false);
   const guide = guideRoute(path);
+  const lang = useUI((st) => st.lang);
+  const marketing = marketingPage(path);
+  // The new marketing pages (home, owners, students, how it works, coming soon) carry their own call to action.
+  const ownCta = path === "/" || marketing !== null;
   const features = [
     {
       icon: Armchair,
@@ -72,140 +75,9 @@ export function PublicPage({ path }: { path: string }) {
       <PublicHeader path={path} />
       <main>
         {path === "/" ? (
-          <>
-            <section className="landing-hero">
-              <div className="landing-copy">
-                <span className="pill">
-                  <span className="status-dot" />A LITTLE FOCUS. A WORLD OF
-                  POSSIBILITY.
-                </span>
-                <h1>
-                  Great things
-                  <br />
-                  grow from
-                  <br />
-                  <em>small beginnings.</em>
-                  <span className="heading-spark">✦</span>
-                </h1>
-                <p>
-                  Your favourite place to focus. Your next chapter of growth.
-                  <br />
-                  Meet the study space that brings it all together.
-                </p>
-                <div className="hero-buttons">
-                  <Link href="/register" className="button">
-                    Find your focus <ArrowRight size={18} />
-                  </Link>
-                  <Link href="/owner" className="button secondary">
-                    For library owners <ArrowUpRight size={17} />
-                  </Link>
-                </div>
-                <div className="landing-proof">
-                  <ShieldCheck size={18} />
-                  <span>Your pace. Your progress. Always yours.</span>
-                </div>
-              </div>
-              <div className="landing-art">
-                <span className="art-label">GROW INTO YOUR POTENTIAL</span>
-                <Garden />
-                <div className="landing-float float-focus">
-                  <span className="icon-tile mint">
-                    <Clock3 size={20} />
-                  </span>
-                  <div>
-                    <strong>A little more focused.</strong>
-                    <small>One session at a time.</small>
-                  </div>
-                  <CheckCircle2 size={20} color="#26775e" />
-                </div>
-                <div className="landing-float float-streak">
-                  <Flame size={25} color="#d58a4b" />
-                  <div>
-                    <strong>Good habits are growing.</strong>
-                    <small>Show up. Get a little better.</small>
-                  </div>
-                </div>
-                <div className="art-bottom">
-                  <span>01 — INTENTION</span>
-                  <span>02 — FOCUS</span>
-                  <span>03 — GROWTH</span>
-                </div>
-              </div>
-            </section>
-            <div className="landing-strip">
-              <span>LESS FRICTION. MORE POSSIBILITY.</span>
-              <p>
-                <BookOpen size={20} /> A smarter library
-              </p>
-              <p>
-                <Clock3 size={20} /> A calmer study routine
-              </p>
-              <p>
-                <Leaf size={20} /> A little growth, every day
-              </p>
-            </div>
-            <section className="feature-section">
-              <div className="center-heading">
-                <span className="eyebrow">
-                  DESIGNED AROUND YOUR NEXT CHAPTER
-                </span>
-                <h2>
-                  One thoughtful space.
-                  <br />
-                  So many ways to grow.
-                </h2>
-                <p>
-                  For ambitious students and the libraries that believe in them.
-                </p>
-              </div>
-              <div className="feature-grid">
-                {features.slice(0, 3).map((f) => (
-                  <Feature key={f.title} {...f} />
-                ))}
-              </div>
-              <div className="center-action">
-                <Link href="/features" className="text-link">
-                  Explore what’s possible <ArrowRight size={16} />
-                </Link>
-              </div>
-            </section>
-            <GuideTeaser />
-            <section className="owner-callout">
-              <div>
-                <span className="eyebrow">FOR THE PEOPLE BEHIND THE SPACE</span>
-                <h2>
-                  Less admin.
-                  <br />
-                  More room for ambition.
-                </h2>
-                <p>
-                  Bring your seats, students, and payments into one calm,
-                  <br />
-                  clear workspace. Get back to building your community.
-                </p>
-                <Link className="button" href="/owner">
-                  Explore the owner workspace <ArrowUpRight size={17} />
-                </Link>
-              </div>
-              <div className="mini-workspace">
-                <div className="mini-header">
-                  <span className="brand-mark">✳</span>Your library, at a
-                  glance.<span className="pill">ALL IN ONE PLACE</span>
-                </div>
-                <div className="mini-seats">
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <span key={i} className={i % 4 === 0 ? "free" : ""}>
-                      <Armchair size={21} />
-                    </span>
-                  ))}
-                </div>
-                <div className="mini-footer">
-                  <span className="status-dot" /> A place for every student.{" "}
-                  <ArrowUpRight size={17} />
-                </div>
-              </div>
-            </section>
-          </>
+          <MarketingHome />
+        ) : marketing ? (
+          marketing
         ) : path === "/features" ? (
           <section className="feature-section">
             <div className="center-heading">
@@ -342,30 +214,33 @@ export function PublicPage({ path }: { path: string }) {
             </div>
           </section>
         )}
-        <section className="public-cta">
-          <span>✳</span>
-          <h2>
-            Your next chapter
-            <br />
-            starts with a little focus.
-          </h2>
-          <Link className="button" href="/register">
-            Make room for great things <ArrowRight size={17} />
-          </Link>
-          <p>Small steps. Your pace. A bigger future.</p>
-        </section>
+        {!ownCta && (
+          <section className="public-cta">
+            <span>✳</span>
+            <h2>
+              Your next chapter
+              <br />
+              starts with a little focus.
+            </h2>
+            <Link className="button" href="/register">
+              Make room for great things <ArrowRight size={17} />
+            </Link>
+            <p>Small steps. Your pace. A bigger future.</p>
+          </section>
+        )}
       </main>
       <footer className="public-footer">
         <Link className="brand" href="/">
           <span className="brand-mark">✳</span>StudyQuest.
         </Link>
-        <p>Made for the person you’re becoming.</p>
+        <p>{say(lang, copy.footer)}</p>
         <div>
-          <Link href="/features">Features</Link>
-          <Link href="/pricing">Pricing</Link>
-          <Link href="/guide">Guide</Link>
-          <Link href="/guide/student">Student guide</Link>
-          <Link href="/guide/owner">Owner guide</Link>
+          <Link href="/owners">{say(lang, copy.nav.owners)}</Link>
+          <Link href="/students">{say(lang, copy.nav.students)}</Link>
+          <Link href="/how-it-works">{say(lang, copy.nav.how)}</Link>
+          <Link href="/coming-soon">{say(lang, copy.nav.soon)}</Link>
+          <Link href="/pricing">{say(lang, copy.nav.pricing)}</Link>
+          <Link href="/guide">{say(lang, copy.nav.guide)}</Link>
           <button className="text-link" onClick={() => setDemo(true)}>
             Request a demo
           </button>
@@ -430,20 +305,43 @@ function Feature({
   );
 }
 
-const publicLinks: [string, string][] = [
-  ["/features", "Why StudyQuest"],
-  ["/pricing", "Pricing"],
-  ["/guide", "Guide"],
-  ["/guide/student", "Student guide"],
-  ["/guide/owner", "Owner guide"],
-  ["/libraries", "Find your space"],
+const publicLinks: [string, keyof typeof copy.nav][] = [
+  ["/owners", "owners"],
+  ["/students", "students"],
+  ["/how-it-works", "how"],
+  ["/coming-soon", "soon"],
+  ["/pricing", "pricing"],
+  ["/guide", "guide"],
 ];
+
+function LangToggle({ className = "" }: { className?: string }) {
+  const { lang, setLang } = useUI();
+  return (
+    <div
+      className={`lang-toggle ${className}`}
+      role="group"
+      aria-label="Language"
+    >
+      {(["en", "hi"] as const).map((l) => (
+        <button
+          key={l}
+          type="button"
+          aria-pressed={lang === l}
+          onClick={() => setLang(l)}
+        >
+          {l === "en" ? "EN" : "Hinglish"}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /** The one public-site header (desktop nav + phone hamburger drawer), shared by every public page. */
 export function PublicHeader({ path }: { path: string }) {
-  const { dark, toggle } = useUI();
+  const { dark, toggle, lang } = useUI();
   const [navOpen, setNavOpen] = useState(false);
-  const links = publicLinks;
+  const isOn = (href: string) =>
+    href === "/guide" ? path.startsWith("/guide") : path === href;
   return (
     <>
       <header className="public-header">
@@ -452,27 +350,18 @@ export function PublicHeader({ path }: { path: string }) {
           <span className="brand-dot">.</span>
         </Link>
         <nav>
-          <Link
-            className={path === "/features" ? "selected" : ""}
-            href="/features"
-          >
-            Why StudyQuest
-          </Link>
-          <Link
-            className={path === "/pricing" ? "selected" : ""}
-            href="/pricing"
-          >
-            Pricing
-          </Link>
-          <Link
-            className={path.startsWith("/guide") ? "selected" : ""}
-            href="/guide"
-          >
-            Guide
-          </Link>
-          <Link href="/libraries">Find your space</Link>
+          {publicLinks.map(([href, key]) => (
+            <Link
+              key={href}
+              className={isOn(href) ? "selected" : ""}
+              href={href}
+            >
+              {say(lang, copy.nav[key])}
+            </Link>
+          ))}
         </nav>
         <div>
+          <LangToggle className="lang-toggle-header" />
           <button
             className="icon-btn"
             onClick={toggle}
@@ -481,10 +370,10 @@ export function PublicHeader({ path }: { path: string }) {
             {dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <Link className="login-link" href="/login">
-            Log in
+            {say(lang, copy.nav.login)}
           </Link>
           <Link className="button" href="/register">
-            Get started <ArrowUpRight size={16} />
+            {say(lang, copy.nav.start)} <ArrowUpRight size={16} />
           </Link>
           <button
             type="button"
@@ -509,14 +398,19 @@ export function PublicHeader({ path }: { path: string }) {
             aria-label="Main menu"
             onClick={(e) => e.stopPropagation()}
           >
-            {links.map(([href, label]) => (
+            <LangToggle />
+            {[
+              ["/", "home"] as [string, keyof typeof copy.nav],
+              ...publicLinks,
+              ["/discover", "find"] as [string, keyof typeof copy.nav],
+            ].map(([href, key]) => (
               <Link
                 key={href}
                 href={href}
-                className={path === href ? "selected" : ""}
+                className={isOn(href) ? "selected" : ""}
                 onClick={() => setNavOpen(false)}
               >
-                {label}
+                {say(lang, copy.nav[key])}
               </Link>
             ))}
             <div className="public-drawer-actions">
@@ -532,14 +426,14 @@ export function PublicHeader({ path }: { path: string }) {
                 href="/login"
                 onClick={() => setNavOpen(false)}
               >
-                Log in
+                {say(lang, copy.nav.login)}
               </Link>
               <Link
                 className="button"
                 href="/register"
                 onClick={() => setNavOpen(false)}
               >
-                Get started
+                {say(lang, copy.nav.start)}
               </Link>
             </div>
           </nav>

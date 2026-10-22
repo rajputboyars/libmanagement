@@ -4023,3 +4023,16 @@ body {
 
 /* Pages that use the shared public header but their own content (pricing, demo, discover) */
 .public-shell-main { max-width: 1180px; margin: 0 auto; padding: 32px clamp(16px, 5vw, 64px) 56px; }
+
+/* Public site language switch (English default, Hinglish) */
+.lang-toggle { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.lang-toggle button { border: 0; background: transparent; color: var(--text-muted); font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1; padding: 7px 9px; border-radius: 7px; cursor: pointer; }
+.lang-toggle button[aria-pressed="true"] { background: var(--green); color: #fff; }
+.public-drawer > .lang-toggle { align-self: flex-start; margin: 0 0 10px 6px; }
+@media (max-width: 767px) { .public-header .lang-toggle-header { display: none; } }
+.public-header nav a { white-space: nowrap; }
+/* Six page links + language switch need room: below 1180px the links move into the hamburger menu. */
+@media (max-width: 1180px) {
+  .public-header nav { display: none; }
+  .public-header > div > .public-menu-btn { display: grid; position: relative; z-index: 61; }
+}
