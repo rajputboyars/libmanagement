@@ -375,6 +375,8 @@ export const Question = model(
       notes: { type: String, default: "", trim: true, maxlength: 300 },
     },
     aiGenerated: { type: Boolean, default: false },
+    // Set for daily current-affairs questions: the date (YYYY-MM-DD) they belong to. Shown to every exam.
+    currentAffairsDate: { type: String, match: /^\d{4}-\d{2}-\d{2}$/, index: true },
     contentHash: { type: String, index: true },
     reviewedBy: id,
     reviewedAt: Date,
@@ -731,7 +733,7 @@ export const TestAttempt = model(
     libraryId: id,
     templateId: id,
     examKey: { type: String, required: true },
-    kind: { type: String, enum: ["full", "sectional", "topic", "daily", "mini"], required: true },
+    kind: { type: String, enum: ["full", "sectional", "topic", "daily", "mini", "pyq", "current-affairs"], required: true },
     title: { type: String, required: true },
     day: String,
     topicId: id,

@@ -59,14 +59,14 @@ export async function POST(request: NextRequest) {
     const body = z.object({ action: z.string().min(1), data: z.unknown().default({}) }).parse(await request.json());
     switch (body.action) {
       case "question-save": {
-        const v = z.object({ id: objectId.optional(), examKey, subjectId: objectId.optional(), topicId: objectId.optional(), prompt: z.string(), options: z.array(z.string()), correctIndex: z.number(), explanation: z.string(), difficulty: z.enum(["easy", "medium", "hard"]).default("medium"), source: sourceSchema.default({ name: "", url: "", license: "original", notes: "" }) }).parse(body.data);
+        const v = z.object({ id: objectId.optional(), examKey, subjectId: objectId.optional(), topicId: objectId.optional(), prompt: z.string(), options: z.array(z.string()), correctIndex: z.number(), explanation: z.string(), difficulty: z.enum(["easy", "medium", "hard"]).default("medium"), source: sourceSchema.default({ name: "", url: "", license: "original", notes: "" }), currentAffairsDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional() }).parse(body.data);
         const checked = validateImportRow(v);
         if ("error" in checked) throw new Error(checked.error);
         if (v.topicId && !await SyllabusNode.exists({ _id: v.topicId, examKey: v.examKey, type: "topic" })) throw new Error("Topic does not belong to this exam");
         const hash = contentHash(checked.value.prompt, checked.value.options);
         const dup = await Question.findOne({ examKey: v.examKey, contentHash: hash, ...(v.id ? { _id: { $ne: v.id } } : {}) }).select("_id").lean();
         if (dup) throw new Error("A question with the same text and options already exists");
-        const fields = { examKey: v.examKey, subjectId: v.subjectId, topicId: v.topicId, ...checked.value, source: v.source, contentHash: hash };
+        const fields = { examKey: v.examKey, subjectId: v.subjectId, topicId: v.topicId, ...checked.value, source: v.source, contentHash: hash, ...(v.currentAffairsDate ? { currentAffairsDate: v.currentAffairsDate } : {}) };
         if (v.id) {
           const current = await Question.findById(v.id).select("status");
           if (!current) throw new Error("Question not found");

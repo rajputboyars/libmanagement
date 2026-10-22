@@ -50,7 +50,7 @@ function Questions({ examKey, topics, act }: { examKey: string; topics: Json[]; 
     e.preventDefault(); const f = new FormData(e.currentTarget);
     const options = String(f.get("options")).split("\n").map((x) => x.trim()).filter(Boolean);
     const year = Number(f.get("year")) || undefined;
-    const ok = await act("question-save", { id: edit?._id, examKey, topicId: f.get("topicId") || undefined, prompt: f.get("prompt"), options, correctIndex: Number(f.get("correct")), explanation: f.get("explanation"), difficulty: f.get("difficulty"), source: { name: f.get("sname") || "", url: f.get("surl") || "", year, license: f.get("license"), notes: f.get("snotes") || "" } }, "Question saved as draft.");
+    const ok = await act("question-save", { id: edit?._id, examKey, topicId: f.get("topicId") || undefined, prompt: f.get("prompt"), options, correctIndex: Number(f.get("correct")), explanation: f.get("explanation"), difficulty: f.get("difficulty"), source: { name: f.get("sname") || "", url: f.get("surl") || "", year, license: f.get("license"), notes: f.get("snotes") || "" }, currentAffairsDate: f.get("cadate") || null }, "Question saved as draft.");
     if (ok) setEdit(null);
   }
   const counts = q.data?.counts ?? {};
@@ -73,6 +73,8 @@ function Questions({ examKey, topics, act }: { examKey: string; topics: Json[]; 
           <label>Year<input name="year" type="number" min={1950} max={2100} defaultValue={edit.source?.year} /></label>
           <label>Copyright status<select name="license" defaultValue={edit.source?.license ?? "original"}>{["original", "licensed", "public-domain", "ai-generated", "unknown"].map((l) => <option key={l}>{l}</option>)}</select></label>
           <label className="wide">Source notes<input name="snotes" maxLength={300} defaultValue={edit.source?.notes} /></label>
+          <label>Current affairs date (optional)<input name="cadate" type="date" defaultValue={edit.currentAffairsDate} /></label>
+          <p className="pr-hint wide">Previous year paper: fill Source name (e.g. SSC CGL Tier 1) and Year, then students see it under Previous year papers. Current affairs: set the date and the question joins that day&apos;s current-affairs quiz for every exam.</p>
           <div className="queue-actions"><button className="button">Save</button><button type="button" className="button secondary" onClick={() => setEdit(null)}>Cancel</button></div>
         </form>)}
       {q.isLoading ? <BrandLoader compact text="Loading…" /> : <div className="mt-list">{(q.data?.items ?? []).map((x: Json) => (

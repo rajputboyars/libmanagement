@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { BookOpen, CalendarDays, CheckCircle2, Layers, NotebookPen, Play, Target, Trophy, XCircle, Zap } from "lucide-react";
+import { Newspaper, ScrollText, BookOpen, CalendarDays, CheckCircle2, Layers, NotebookPen, Play, Target, Trophy, XCircle, Zap } from "lucide-react";
 import { fmtDate, getJson, post, type Json } from "./prep-api";
 
 const TABS = [["overview", "Overview"], ["tests", "Mock tests"], ["practice", "Daily practice"], ["analytics", "Analytics"], ["mistakes", "Mistakes"], ["flashcards", "Flashcards"], ["notes", "Notes"], ["journey", "Journey"]] as const;
@@ -66,7 +66,12 @@ function Overview({ go, start }: { go: (t: Tab) => void; start: Start }) {
         <section>
           <div className="section-label"><span>Today</span></div>
           <article className="queue-card"><div><Zap /><span><strong>Daily practice</strong><small>{d.daily?.state === "submitted" ? `Done: ${d.daily.result?.correct ?? 0} correct (+${d.daily.result?.xpGranted ?? 0} XP)` : d.daily ? "In progress" : "A fresh set built from your weak topics"}</small></span></div><button className="button" onClick={() => start("daily-start")}>{d.daily?.state === "submitted" ? "View result" : d.daily ? "Resume" : "Start"}</button></article>
+          {(d.currentAffairs?.questions > 0 || d.currentAffairs?.attempt) && <article className="queue-card"><div><Newspaper /><span><strong>Current affairs · today</strong><small>{d.currentAffairs.attempt?.state === "submitted" ? `Done: ${d.currentAffairs.attempt.result?.correct ?? 0} correct (+${d.currentAffairs.attempt.result?.xpGranted ?? 0} XP)` : d.currentAffairs.attempt ? "In progress" : `${Math.min(10, d.currentAffairs.questions)} questions · 10 minutes`}</small></span></div><button className="button" onClick={() => start("ca-start")}>{d.currentAffairs.attempt?.state === "submitted" ? "View result" : d.currentAffairs.attempt ? "Resume" : "Start"}</button></article>}
           {d.flashcardsDue > 0 && <article className="queue-card"><div><Layers /><span><strong>{d.flashcardsDue} flashcards due</strong><small>Short recall keeps mistakes from returning</small></span></div><button className="button secondary" onClick={() => go("flashcards")}>Review</button></article>}
+          {d.pyqPapers?.length > 0 && <>
+            <div className="section-label"><span>Previous year papers</span></div>
+            {d.pyqPapers.map((x: Json) => <article className="queue-card" key={`${x.name}-${x.year}`}><div><ScrollText /><span><strong>{x.name} · {x.year}</strong><small>{x.questions} questions · about {Math.max(10, Math.ceil(x.questions * 1.2))} minutes</small></span></div><button className="button secondary" onClick={() => start("pyq-start", { name: x.name, year: x.year })}>Start paper</button></article>)}
+          </>}
           <div className="section-label"><span>Recent results</span></div>
           {d.recent.map((r: Json) => <Link className="queue-card" key={r._id} href={`/app/prep/result/${r._id}`}><div><Trophy /><span><strong>{r.title}</strong><small>{fmtDate(r.submittedAt)} · {r.result?.score}/{r.result?.maxScore} ({Math.round(r.result?.percent ?? 0)}%)</small></span></div></Link>)}
           {!d.recent.length && <Empty title="No attempts yet" text="Your results will appear here." />}

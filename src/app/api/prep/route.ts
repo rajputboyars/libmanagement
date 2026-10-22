@@ -1,3 +1,4 @@
+import { libraryClock } from "@/lib/library-hours";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "node:crypto";
@@ -33,6 +34,19 @@ export async function GET(request: NextRequest) {
   const exam = await enrolledExam(user._id);
 
   if (view === "overview") {
+    const caDay = libraryClock(now).date;
+    const [pyqPapers, caCount, caAttempt] = await Promise.all([
+      exam
+        ? Question.aggregate<{ _id: { name: string; year: number }; count: number }>([
+            { $match: { ...publishedFilter(exam.examKey), "source.year": { $exists: true, $ne: null }, "source.name": { $nin: ["", null] } } },
+            { $group: { _id: { name: "$source.name", year: "$source.year" }, count: { $sum: 1 } } },
+            { $sort: { "_id.year": -1, "_id.name": 1 } },
+            { $limit: 40 },
+          ])
+        : [],
+      Question.countDocuments({ active: true, $or: [{ status: "published" }, { status: { $exists: false } }], currentAffairsDate: caDay }),
+      TestAttempt.findOne({ userId: user._id, kind: "current-affairs", day: caDay }).select("state deadline result.correct result.percent result.xpGranted").lean<Lean>(),
+    ]);
     const [templates, active, recent, daily, due, open, dates, xp] = await Promise.all([
       exam ? TestTemplate.find({ examKey: exam.examKey, status: "published" }).sort({ kind: 1, title: 1 }).limit(50).lean<Lean[]>() : [],
       TestAttempt.find({ userId: user._id, state: "in-progress", deadline: { $gt: now } }).select("title kind deadline templateId").lean<Lean[]>(),
@@ -47,6 +61,8 @@ export async function GET(request: NextRequest) {
       exam, templates: templates.map((t) => ({ ...t, sections: (t.sections as { count: number }[]).length, questions: (t.sections as { count: number }[]).reduce((s, x) => s + x.count, 0) })),
       active, recent, daily, flashcardsDue: due, openMistakes: due >= 0 ? open : 0, xpToday: xp[0]?.total || 0,
       dates: dates.map((d) => ({ ...d, status: officialDateStatus(d.lastVerifiedAt, now) })), serverNow: now,
+      pyqPapers: pyqPapers.map((x) => ({ name: x._id.name, year: x._id.year, questions: x.count })),
+      currentAffairs: { date: caDay, questions: caCount, attempt: caAttempt },
     });
   }
 
@@ -252,6 +268,31 @@ export async function POST(request: NextRequest) {
         if (weak.length) plan.push(...await pick([{ name: "Focus topics", marks: 1, negative: 0, count: 4, filter: { topicId: { $in: weak.map((w) => w._id) } } }], `${user._id}:${day}:w`).catch(() => []));
         const rest = await pick([{ name: "Daily mix", marks: 1, negative: 0, count: DAILY_COUNT - plan.length, filter: { _id: { $nin: plan.map((x) => x.questionId) } } }], `${user._id}:${day}`).catch(async () => pick([{ name: "Daily mix", marks: 1, negative: 0, count: 5, filter: { _id: { $nin: plan.map((x) => x.questionId) } } }], `${user._id}:${day}`));
         const a = await create({ kind: "daily", day, title: `Daily practice · ${day}`, plan: [...plan, ...rest], deadline: new Date(now.getTime() + 20 * 60000) });
+        return NextResponse.json(startPayload(a));
+      }
+      case "pyq-start": {
+        const v = z.object({ name: z.string().trim().min(1).max(120), year: z.number().int().min(1950).max(2100) }).parse(body.data);
+        const title = `${v.name} ${v.year} (previous year)`;
+        const live = await TestAttempt.findOne({ userId: user._id, kind: "pyq", title, state: "in-progress" });
+        if (live) {
+          if (acceptsAnswers(live.deadline, now)) return NextResponse.json({ ...startPayload(live), resumed: true });
+          await finalizeAttempt(live._id, user._id);
+        }
+        // The paper in its original order (questions are entered in order), up to 200.
+        const qs = await Question.find(publishedFilter(needExam().examKey, { "source.name": v.name, "source.year": v.year })).sort({ createdAt: 1 }).select("_id").limit(200).lean<{ _id: unknown }[]>();
+        if (!qs.length) throw new Error("This paper has no published questions yet");
+        const plan: PlanItem[] = qs.map((q) => ({ questionId: String(q._id), section: `${v.name} ${v.year}`, marks: 1, negative: 0 }));
+        const a = await create({ kind: "pyq", title, plan, deadline: new Date(now.getTime() + Math.max(10, Math.ceil(qs.length * 1.2)) * 60000) });
+        return NextResponse.json(startPayload(a));
+      }
+      case "ca-start": {
+        const day = libraryClock(now).date;
+        const existing = await TestAttempt.findOne({ userId: user._id, kind: "current-affairs", day });
+        if (existing) return NextResponse.json({ ...startPayload(existing), resumed: true, state: existing.state });
+        const pool = await Question.find({ active: true, $or: [{ status: "published" }, { status: { $exists: false } }], currentAffairsDate: day }).select("_id").limit(50).lean<{ _id: unknown }[]>();
+        if (!pool.length) throw new Error("Today's current affairs quiz isn't ready yet. Check back later.");
+        const ids = seededOrder(pool.map((q) => String(q._id)), `${user._id}:${day}:ca`).slice(0, 10);
+        const a = await create({ kind: "current-affairs", day, title: `Current affairs · ${day}`, plan: ids.map((questionId) => ({ questionId, section: "Current affairs", marks: 1, negative: 0 })), deadline: new Date(now.getTime() + 10 * 60000) });
         return NextResponse.json(startPayload(a));
       }
       case "mini-start": {
