@@ -4170,15 +4170,17 @@ span.pf-cell { cursor: default; }
 
 /* Self-study tools */
 .ss-subject { display: grid; gap: 6px; margin: 0 0 14px; font-size: 13px; font-weight: 600; }
-.ss-subject input, .ss-today input, .ss-today textarea, .ss-goal-form input, .ss-goal-form select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font: inherit; }
+.ss-subject input, .ss-today input:not([type="checkbox"]), .ss-today textarea, .ss-goal-form input, .ss-goal-form select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font: inherit; }
 .ss-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; margin-top: 14px; }
 .ss-sounds, .ss-energy, .ss-steps, .ss-reasons, .ss-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .ss-sounds button, .ss-energy button, .ss-steps button, .ss-reasons button, .ss-tabs button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: 13px; cursor: pointer; }
 .ss-sounds button[aria-pressed="true"], .ss-energy button[aria-pressed="true"], .ss-steps button[aria-pressed="true"], .ss-reasons button[aria-pressed="true"], .ss-tabs button[aria-selected="true"] { border-color: var(--primary); background: var(--primary); color: #fff; }
 .ss-reasons { margin: 8px 0; }
+.ss-steps button { display: inline-flex; align-items: center; gap: 4px; }
+.ss-goals .link-button { justify-self: start; }
 .ss-tabs { margin-bottom: 14px; }
 .focus-room:fullscreen { display: grid; place-content: center; justify-items: center; background: #fff; overflow: auto; }
-.ss-heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 11px); gap: 3px; overflow-x: auto; padding-bottom: 6px; }
+.ss-heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 11px); gap: 3px; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; }
 .ss-cell { display: inline-block; width: 11px; height: 11px; border-radius: 3px; background: #eef2ee; }
 .ss-cell.empty { background: transparent; }
 .ss-cell[data-level="1"] { background: #c6e6d6; }
@@ -4192,6 +4194,8 @@ span.pf-cell { cursor: default; }
 .ss-today { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 18px; }
 .ss-today form, .ss-goal-form { display: grid; gap: 8px; }
 .ss-tasks { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 8px; }
+.ss-tasks label { display: flex; flex-direction: row; align-items: center; gap: 8px; cursor: pointer; }
+.ss-tasks input { width: 18px; height: 18px; accent-color: var(--primary); }
 .ss-tasks span[data-done="true"] { text-decoration: line-through; opacity: 0.6; }
 .ss-tracker { display: grid; gap: 18px; }
 .ss-goals, .ss-partners { list-style: none; padding: 0; margin: 0 0 14px; display: grid; gap: 10px; }
