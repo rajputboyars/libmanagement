@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
+import { StudentWeeklyReport } from "@/components/weekly-report";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUI } from "@/lib/ui-store";
 import { PublicPage } from "@/components/site";
@@ -207,6 +208,7 @@ const studentNav: [string, string, LucideIcon][] = [
   ["/app/focus", "Focus room", Clock3],
   ["/app/quests", "My quests", Flag],
   ["/app/progress", "My progress", ChartNoAxesCombined],
+  ["/app/report", "Weekly report", ChartNoAxesCombined],
   ["/app/achievements", "Achievements", Trophy],
   ["/app/membership", "My library", BookOpen],
   ["/app/security", "Account & privacy", ShieldCheck],
@@ -410,6 +412,7 @@ export function Experience({ path }: { path: string }) {
   const securityPath = path === "/app/security" || path === "/owner/security";
   const saasAdminPath = path === "/super-admin/business";
   const prepPath = path === "/app/prep";
+  const reportPath = path === "/app/report";
   const prepAdminPath = path === "/super-admin/question-bank";
   const communityPath =
     path === "/app/community" || path === "/owner/moderation";
@@ -689,6 +692,15 @@ export function Experience({ path }: { path: string }) {
               <OwnerSupport notify={setToast} />
             ) : (
               <Onboarding notify={setToast} />
+            )
+          ) : reportPath ? (
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to see your weekly report</h2>
+                <p>Preview mode has no real study data.</p>
+              </div>
+            ) : (
+              <StudentWeeklyReport notify={setToast} />
             )
           ) : prepPath ? (
             <ExamPrep preview={preview} notify={setToast} />

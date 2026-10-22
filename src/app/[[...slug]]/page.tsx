@@ -19,6 +19,7 @@ const PRIVATE = ["/app", "/owner", "/super-admin", "/billing", "/login", "/regis
 export async function generateMetadata({ params }: { params: Promise<{ slug?: string[] }> }): Promise<Metadata> {
   const { slug = [] } = await params;
   const path = "/" + slug.join("/");
+  if (path.startsWith("/r/")) return { title: "Weekly study report", robots: { index: false, follow: false } };
   if (PRIVATE.some((p) => path === p || path.startsWith(p + "/"))) return { title: { absolute: "StudyQuest" }, robots: { index: false, follow: false } };
   const meta = PUBLIC[path] ?? guideMeta(path);
   if (!meta) return { title: "Page not found", robots: { index: false } };

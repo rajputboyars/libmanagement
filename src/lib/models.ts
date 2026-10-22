@@ -818,3 +818,14 @@ export const SeatChangeRequest = model(
     [{ libraryId: 1, status: 1, createdAt: -1 }, {}],
   ],
 );
+/** Private snapshot of a student's weekly report, opened by parents through /r/<token>. Deleted after expiresAt. */
+export const ReportShare = model(
+  "ReportShare",
+  {
+    token: { type: String, required: true, unique: true },
+    userId: { type: id, required: true, index: true },
+    report: { type: Schema.Types.Mixed, required: true },
+    expiresAt: { type: Date, required: true },
+  },
+  [[{ expiresAt: 1 }, { expireAfterSeconds: 0 }]],
+);
