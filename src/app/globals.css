@@ -4036,3 +4036,10 @@ body {
   .public-header nav { display: none; }
   .public-header > div > .public-menu-btn { display: grid; position: relative; z-index: 61; }
 }
+
+/* Focus session length picker + break ring */
+.focus-lengths { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 4px 0 2px; }
+.focus-lengths button { display: grid; gap: 2px; min-width: 84px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.focus-lengths button small { font-size: 11px; font-weight: 500; color: var(--text-muted); }
+.focus-lengths button[aria-pressed="true"] { border-color: var(--green); background: var(--soft); color: var(--green); }
+.timer-ring.break { filter: hue-rotate(-70deg) saturate(0.8); }

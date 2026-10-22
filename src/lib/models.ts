@@ -132,6 +132,8 @@ export const StudySession = model(
     startedAt: Date,
     lastResumedAt: Date,
     activeSeconds: { type: Number, default: 0 },
+    // Chosen length in minutes (25, 45 or 60); older sessions have none and count as 25.
+    targetMinutes: { type: Number, enum: [25, 45, 60], default: 25 },
     state: {
       type: String,
       enum: ["running", "paused", "complete"],

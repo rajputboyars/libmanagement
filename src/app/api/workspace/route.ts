@@ -28,7 +28,7 @@ import {
 } from "@/lib/models";
 import { punchIn } from "@/lib/punch";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
-import { XP, reward, activeSeconds } from "@/lib/rules";
+import { XP, reward, activeSeconds, focusLength, focusXP } from "@/lib/rules";
 const schemas = {
   seats: z.object({
     label: z.string().min(1).max(20),
@@ -375,7 +375,14 @@ export async function POST(req: NextRequest) {
           if (action === "focus.start") {
             if (focus) throw new Error("A focus session is already active");
             [focus] = await StudySession.create(
-              [{ userId: user._id, startedAt: now, lastResumedAt: now }],
+              [
+                {
+                  userId: user._id,
+                  startedAt: now,
+                  lastResumedAt: now,
+                  targetMinutes: focusLength(Number(body.data?.minutes)),
+                },
+              ],
               { session },
             );
           } else {
@@ -391,8 +398,9 @@ export async function POST(req: NextRequest) {
               focus.state = "running";
             } else if (action === "focus.complete") {
               const seconds = activeSeconds(focus, now);
-              if (seconds < 1500)
-                throw new Error("Complete 25 active minutes to earn XP");
+              const target = focusLength(focus.targetMinutes);
+              if (seconds < target * 60)
+                throw new Error(`Complete ${target} active minutes to earn XP`);
               focus.state = "complete";
               focus.completedAt = now;
               const day = now.toISOString().slice(0, 10);
@@ -402,7 +410,7 @@ export async function POST(req: NextRequest) {
               }).session(session);
               const amount = reward(
                 ledger.reduce((n, x) => n + x.amount, 0),
-                XP.focus,
+                focusXP(target),
               );
               await XPTransaction.create(
                 [

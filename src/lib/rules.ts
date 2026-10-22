@@ -41,11 +41,23 @@ export function activeSeconds(
       : 0)
   );
 }
+/** Focus session lengths a student can choose, in minutes. 25 is the default. */
+export const FOCUS_LENGTHS = [25, 45, 60] as const;
+export type FocusLength = (typeof FOCUS_LENGTHS)[number];
+export const focusLength = (minutes: unknown): FocusLength =>
+  FOCUS_LENGTHS.includes(minutes as FocusLength) ? (minutes as FocusLength) : 25;
+/** XP scales with length (10 XP per 25 minutes): 25 → 10, 45 → 18, 60 → 24. The daily cap still applies. */
+export const focusXP = (minutes: number) => Math.round((focusLength(minutes) * XP.focus) / 25);
+/** Suggested break after a session: 5 minutes, or 10 after 45+ minutes. */
+export const breakMinutes = (minutes: number) => (focusLength(minutes) >= 45 ? 10 : 5);
 export function canComplete(
-  session: { state: string; activeSeconds: number; lastResumedAt: Date },
+  session: { state: string; activeSeconds: number; lastResumedAt: Date; targetMinutes?: number },
   now = new Date(),
 ) {
-  return session.state !== "complete" && activeSeconds(session, now) >= 1500;
+  return (
+    session.state !== "complete" &&
+    activeSeconds(session, now) >= focusLength(session.targetMinutes) * 60
+  );
 }
 export function streak(days: string[], today: string, rests: string[] = []) {
   const active = new Set(days);

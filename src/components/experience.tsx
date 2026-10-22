@@ -63,7 +63,7 @@ import {
   ListChecks,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { level, streak } from "@/lib/rules";
+import { FOCUS_LENGTHS, breakMinutes, focusLength, focusXP, level, streak } from "@/lib/rules";
 import { BranchSwitcher, JoinBanner, LibraryIdChip, PlanBanner, RememberLibraryName, RememberStudentLibrary } from "@/components/org-chrome";
 import { clearClientCaches } from "@/components/pwa";
 import { Phase2Experience, LearningIntelligence, DoubtSolver, RewardsMarketplace, LibraryDiscovery, Maintenance, ExamPrep, TestResult, TestRunner, PrepAdmin, OwnerBilling, OwnerBranches, OwnerCrm, OwnerSupport, Onboarding, SaasAdmin, PilotImport, AccountSecurity, ForgotPassword, ResetPassword, Community, CommunityModeration, DemoPage, SandboxCheckout, SaasPricing } from "@/components/lazy";
@@ -1401,8 +1401,12 @@ function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
     state: string;
     last: number;
     seconds: number;
+    target: number;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pick, setPick] = useState<number>(25);
+  // Client-only break countdown after a completed session (nothing is saved).
+  const [breakEnd, setBreakEnd] = useState<number | null>(null);
   useEffect(() => {
     const i = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(i);
@@ -1414,33 +1418,43 @@ function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
           state: String(data.focus.state),
           last: +new Date(String(data.focus.lastResumedAt)),
           seconds: Number(data.focus.activeSeconds),
+          target: focusLength(Number(data.focus.targetMinutes)),
         }
       : null;
+  const target = focus ? focus.target : pick;
+  const total = target * 60;
   const elapsed = focus
     ? focus.seconds +
       (focus.state === "running" ? Math.max(0, (now - focus.last) / 1000) : 0)
     : 0;
-  const left = Math.max(0, 1500 - Math.floor(elapsed));
+  const left = Math.max(0, total - Math.floor(elapsed));
+  const breakLeft = breakEnd ? Math.max(0, Math.round((breakEnd - now) / 1000)) : 0;
+  const onBreak = !focus && breakLeft > 0;
+  const shown = onBreak ? breakLeft : left;
   async function act(action: string) {
     setBusy(true);
     try {
       if (preview) {
         if (action === "start")
-          setLocal({ state: "running", last: Date.now(), seconds: 0 });
+          setLocal({ state: "running", last: Date.now(), seconds: 0, target: pick });
         if (action === "pause")
-          setLocal({ state: "paused", last: Date.now(), seconds: elapsed });
+          setLocal({ state: "paused", last: Date.now(), seconds: elapsed, target });
         if (action === "resume")
-          setLocal({ state: "running", last: Date.now(), seconds: elapsed });
+          setLocal({ state: "running", last: Date.now(), seconds: elapsed, target });
         if (action === "complete") {
           setLocal(null);
+          setBreakEnd(Date.now() + breakMinutes(target) * 60000);
           notify(
             "Preview complete. Sign up to save your progress and earn XP.",
           );
         }
       } else {
-        await mutate("focus." + action);
-        if (action === "complete")
-          notify("Focus session verified. Your XP has been recorded.");
+        await mutate("focus." + action, action === "start" ? { minutes: pick } : {});
+        if (action === "start") setBreakEnd(null);
+        if (action === "complete") {
+          setBreakEnd(Date.now() + breakMinutes(target) * 60000);
+          notify(`Focus session verified. +${focusXP(target)} XP recorded. Time for a ${breakMinutes(target)}-minute break.`);
+        }
       }
     } catch (e) {
       notify((e as Error).message);
@@ -1451,65 +1465,96 @@ function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
   return (
     <section className="card focus-room">
       <span className="pill">
-        <Leaf size={14} /> FOCUS ROOM
+        <Leaf size={14} /> {onBreak ? "BREAK TIME" : "FOCUS ROOM"}
       </span>
-      <h2>A quiet space for your next big thing.</h2>
-      <p>25 minutes of intention. One step closer.</p>
+      <h2>{onBreak ? "Step away for a moment." : "A quiet space for your next big thing."}</h2>
+      <p>
+        {onBreak
+          ? "Drink some water, stretch, rest your eyes. Your next session will be sharper."
+          : `${target} minutes of intention. One step closer.`}
+      </p>
+      {!focus && !onBreak && (
+        <div className="focus-lengths" role="group" aria-label="Session length">
+          {FOCUS_LENGTHS.map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={pick === m}
+              onClick={() => setPick(m)}
+            >
+              {m} min
+              <small>+{focusXP(m)} XP</small>
+            </button>
+          ))}
+        </div>
+      )}
       <div
-        className="timer-ring"
+        className={onBreak ? "timer-ring break" : "timer-ring"}
         style={
           {
-            "--progress": `${Math.min(100, (elapsed / 1500) * 100)}%`,
+            "--progress": `${
+              onBreak
+                ? Math.min(100, (breakLeft / (breakMinutes(target) * 60)) * 100)
+                : Math.min(100, (elapsed / total) * 100)
+            }%`,
           } as React.CSSProperties
         }
       >
         <div>
           <span>
-            {String(Math.floor(left / 60)).padStart(2, "0")}
+            {String(Math.floor(shown / 60)).padStart(2, "0")}
             <i>:</i>
-            {String(left % 60).padStart(2, "0")}
+            {String(shown % 60).padStart(2, "0")}
           </span>
           <small>
-            {focus?.state === "running"
-              ? "YOU’RE DOING GREAT"
-              : focus?.state === "paused"
-                ? "TAKE YOUR TIME"
-                : "READY WHEN YOU ARE"}
+            {onBreak
+              ? "BREAK"
+              : focus?.state === "running"
+                ? "YOU’RE DOING GREAT"
+                : focus?.state === "paused"
+                  ? "TAKE YOUR TIME"
+                  : "READY WHEN YOU ARE"}
           </small>
         </div>
       </div>
-      <button
-        disabled={busy}
-        className="button"
-        onClick={() =>
-          act(
-            !focus
-              ? "start"
-              : left === 0
-                ? "complete"
-                : focus.state === "running"
-                  ? "pause"
-                  : "resume",
-          )
-        }
-      >
-        {focus?.state === "running" && left > 0 ? (
-          <Pause size={18} />
-        ) : (
-          <Play size={18} />
-        )}{" "}
-        {!focus
-          ? "Begin focus"
-          : left === 0
-            ? "Complete & collect XP"
-            : focus.state === "running"
-              ? "Pause session"
-              : "Resume focus"}
-      </button>
+      {onBreak ? (
+        <button className="button secondary" onClick={() => setBreakEnd(null)}>
+          Skip break
+        </button>
+      ) : (
+        <button
+          disabled={busy}
+          className="button"
+          onClick={() =>
+            act(
+              !focus
+                ? "start"
+                : left === 0
+                  ? "complete"
+                  : focus.state === "running"
+                    ? "pause"
+                    : "resume",
+            )
+          }
+        >
+          {focus?.state === "running" && left > 0 ? (
+            <Pause size={18} />
+          ) : (
+            <Play size={18} />
+          )}{" "}
+          {!focus
+            ? `Begin ${target}-minute focus`
+            : left === 0
+              ? "Complete & collect XP"
+              : focus.state === "running"
+                ? "Pause session"
+                : "Resume focus"}
+        </button>
+      )}
       <p className="tiny muted">
         {preview
           ? "Preview timer · XP is only saved for signed-in accounts"
-          : "Time is verified on the server · +10 XP per complete session"}
+          : `Time is verified on the server · +${focusXP(target)} XP for a complete ${target}-minute session`}
       </p>
     </section>
   );

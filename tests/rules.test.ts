@@ -97,3 +97,17 @@ test("timer requires 25 server-verified active minutes; pause time never counts"
     false,
   );
 });
+
+test("focus length, XP and break follow the chosen session length", async () => {
+  const { focusLength, focusXP, breakMinutes, canComplete } = await import("../src/lib/rules");
+  assert.equal(focusLength(45), 45);
+  assert.equal(focusLength(30), 25); // unknown lengths fall back to 25
+  assert.equal(focusLength(undefined), 25);
+  assert.deepEqual([25, 45, 60].map(focusXP), [10, 18, 24]);
+  assert.deepEqual([25, 45, 60].map(breakMinutes), [5, 10, 10]);
+  const now = new Date();
+  const paused = (activeSeconds: number, targetMinutes?: number) => ({ state: "paused", activeSeconds, lastResumedAt: now, targetMinutes });
+  assert.equal(canComplete(paused(1500), now), true); // old sessions count as 25 minutes
+  assert.equal(canComplete(paused(1500, 45), now), false);
+  assert.equal(canComplete(paused(2700, 45), now), true);
+});
