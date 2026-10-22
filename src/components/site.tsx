@@ -1,33 +1,40 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowUpRight, ArrowRight, Menu, BookOpen, Armchair, Flame, Clock3, ChartNoAxesCombined, Wallet, Search, Check, X, Sun, Moon, ShieldCheck, Leaf, Building2, CheckCircle2 } from "lucide-react";
+import {
+  ArrowUpRight,
+  ArrowRight,
+  Menu,
+  BookOpen,
+  Armchair,
+  Flame,
+  Clock3,
+  ChartNoAxesCombined,
+  Wallet,
+  Search,
+  Check,
+  X,
+  Sun,
+  Moon,
+  ShieldCheck,
+  Leaf,
+  Building2,
+  CheckCircle2,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Empty, Garden } from "@/components/ui-bits";
+import { useUI } from "@/lib/ui-store";
 import { GuideTeaser, VideoGuide } from "@/components/video-guide";
-import { GuideDetail, GuideHubCards, GuidePortal } from "@/components/guide-site";
+import {
+  GuideDetail,
+  GuideHubCards,
+  GuidePortal,
+} from "@/components/guide-site";
 import { guideRoute } from "@/lib/guide-route";
 
-export function PublicPage({
-  path,
-  dark,
-  toggle,
-}: {
-  path: string;
-  dark: boolean;
-  toggle: () => void;
-}) {
+export function PublicPage({ path }: { path: string }) {
   const [demo, setDemo] = useState(false);
-  const [navOpen, setNavOpen] = useState(false);
   const guide = guideRoute(path);
-  const links: [string, string][] = [
-    ["/features", "Why StudyQuest"],
-    ["/pricing", "Pricing"],
-    ["/guide", "Guide"],
-    ["/guide/student", "Student guide"],
-    ["/guide/owner", "Owner guide"],
-    ["/libraries", "Find your space"],
-  ];
   const features = [
     {
       icon: Armchair,
@@ -62,90 +69,7 @@ export function PublicPage({
   ];
   return (
     <div className="public">
-      <header className="public-header">
-        <Link href="/" className="brand">
-          <span className="brand-mark">✳</span>StudyQuest
-          <span className="brand-dot">.</span>
-        </Link>
-        <nav>
-          <Link
-            className={path === "/features" ? "selected" : ""}
-            href="/features"
-          >
-            Why StudyQuest
-          </Link>
-          <Link
-            className={path === "/pricing" ? "selected" : ""}
-            href="/pricing"
-          >
-            Pricing
-          </Link>
-          <Link
-            className={path.startsWith("/guide") ? "selected" : ""}
-            href="/guide"
-          >
-            Guide
-          </Link>
-          <Link href="/libraries">Find your space</Link>
-        </nav>
-        <div>
-          <button
-            className="icon-btn"
-            onClick={toggle}
-            aria-label="Toggle theme"
-          >
-            {dark ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-          <Link className="login-link" href="/login">
-            Log in
-          </Link>
-          <Link className="button" href="/register">
-            Get started <ArrowUpRight size={16} />
-          </Link>
-          <button
-            type="button"
-            className="icon-btn public-menu-btn"
-            onClick={() => setNavOpen((o) => !o)}
-            aria-label={navOpen ? "Close menu" : "Open menu"}
-            aria-expanded={navOpen}
-            aria-controls="public-drawer"
-          >
-            {navOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
-        </div>
-      </header>
-      {navOpen && (
-        <div className="public-drawer-backdrop" onClick={() => setNavOpen(false)}>
-          <nav
-            id="public-drawer"
-            className="public-drawer"
-            aria-label="Main menu"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {links.map(([href, label]) => (
-              <Link
-                key={href}
-                href={href}
-                className={path === href ? "selected" : ""}
-                onClick={() => setNavOpen(false)}
-              >
-                {label}
-              </Link>
-            ))}
-            <div className="public-drawer-actions">
-              <button className="icon-btn" onClick={toggle} aria-label="Toggle theme">
-                {dark ? <Sun size={18} /> : <Moon size={18} />}
-              </button>
-              <Link className="button secondary" href="/login" onClick={() => setNavOpen(false)}>
-                Log in
-              </Link>
-              <Link className="button" href="/register" onClick={() => setNavOpen(false)}>
-                Get started
-              </Link>
-            </div>
-          </nav>
-        </div>
-      )}
+      <PublicHeader path={path} />
       <main>
         {path === "/" ? (
           <>
@@ -364,8 +288,8 @@ export function PublicPage({
         ) : path === "/guide" ? (
           <section className="feature-section">
             <div className="center-heading">
-              <span className="eyebrow">VIDEO GUIDE · हिंदी में</span>
-              <h1 lang="hi">हर स्क्रीन, आसान भाषा में</h1>
+              <span className="eyebrow">VIDEO GUIDE · HINDI AUDIO</span>
+              <h1>Har screen, aasaan bhasha mein</h1>
               <p>
                 Short Hindi videos that explain every page of StudyQuest, for
                 students and for library owners.
@@ -477,7 +401,8 @@ export function PublicPage({
               Create an account
             </Link>
             <p className="tiny muted">
-              Want a guided walkthrough? <Link href="/demo">Book a demo</Link> — we only contact you if you agree.
+              Want a guided walkthrough? <Link href="/demo">Book a demo</Link> —
+              we only contact you if you agree.
             </p>
           </section>
         </div>
@@ -502,5 +427,124 @@ function Feature({
       <h3>{title}</h3>
       <p>{text}</p>
     </section>
+  );
+}
+
+const publicLinks: [string, string][] = [
+  ["/features", "Why StudyQuest"],
+  ["/pricing", "Pricing"],
+  ["/guide", "Guide"],
+  ["/guide/student", "Student guide"],
+  ["/guide/owner", "Owner guide"],
+  ["/libraries", "Find your space"],
+];
+
+/** The one public-site header (desktop nav + phone hamburger drawer), shared by every public page. */
+export function PublicHeader({ path }: { path: string }) {
+  const { dark, toggle } = useUI();
+  const [navOpen, setNavOpen] = useState(false);
+  const links = publicLinks;
+  return (
+    <>
+      <header className="public-header">
+        <Link href="/" className="brand">
+          <span className="brand-mark">✳</span>StudyQuest
+          <span className="brand-dot">.</span>
+        </Link>
+        <nav>
+          <Link
+            className={path === "/features" ? "selected" : ""}
+            href="/features"
+          >
+            Why StudyQuest
+          </Link>
+          <Link
+            className={path === "/pricing" ? "selected" : ""}
+            href="/pricing"
+          >
+            Pricing
+          </Link>
+          <Link
+            className={path.startsWith("/guide") ? "selected" : ""}
+            href="/guide"
+          >
+            Guide
+          </Link>
+          <Link href="/libraries">Find your space</Link>
+        </nav>
+        <div>
+          <button
+            className="icon-btn"
+            onClick={toggle}
+            aria-label="Toggle theme"
+          >
+            {dark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <Link className="login-link" href="/login">
+            Log in
+          </Link>
+          <Link className="button" href="/register">
+            Get started <ArrowUpRight size={16} />
+          </Link>
+          <button
+            type="button"
+            className="icon-btn public-menu-btn"
+            onClick={() => setNavOpen((o) => !o)}
+            aria-label={navOpen ? "Close menu" : "Open menu"}
+            aria-expanded={navOpen}
+            aria-controls="public-drawer"
+          >
+            {navOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
+      </header>
+      {navOpen && (
+        <div
+          className="public-drawer-backdrop"
+          onClick={() => setNavOpen(false)}
+        >
+          <nav
+            id="public-drawer"
+            className="public-drawer"
+            aria-label="Main menu"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {links.map(([href, label]) => (
+              <Link
+                key={href}
+                href={href}
+                className={path === href ? "selected" : ""}
+                onClick={() => setNavOpen(false)}
+              >
+                {label}
+              </Link>
+            ))}
+            <div className="public-drawer-actions">
+              <button
+                className="icon-btn"
+                onClick={toggle}
+                aria-label="Toggle theme"
+              >
+                {dark ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+              <Link
+                className="button secondary"
+                href="/login"
+                onClick={() => setNavOpen(false)}
+              >
+                Log in
+              </Link>
+              <Link
+                className="button"
+                href="/register"
+                onClick={() => setNavOpen(false)}
+              >
+                Get started
+              </Link>
+            </div>
+          </nav>
+        </div>
+      )}
+    </>
   );
 }

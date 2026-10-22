@@ -41,7 +41,7 @@ const roleCopy: Record<
   }
 > = {
   student: {
-    hindi: "स्टूडेंट पोर्टल गाइड",
+    hindi: "Student Portal Guide",
     english: "Student portal guide",
     intro:
       "Everything a student can do in StudyQuest: join a library, mark attendance, study with a focus timer, earn XP and badges, prepare for exams and stay safe in the community.",
@@ -54,7 +54,7 @@ const roleCopy: Record<
     icon: GraduationCap,
   },
   owner: {
-    hindi: "लाइब्रेरी ओनर गाइड",
+    hindi: "Library Owner Guide",
     english: "Library owner guide",
     intro:
       "Everything a library owner can do: set up seats and shifts, admit students with a Library ID, collect fees with receipts, track attendance live, and understand profit with reports.",
@@ -78,7 +78,7 @@ const reveal = {
   viewport: { once: true, margin: "-40px" },
   transition: { duration: 0.45, ease: "easeOut" as const },
 };
-// Devanagari reads best in Nirmala UI (Windows) / Mangal, with the site font as fallback.
+// Hinglish headings; kept as a class so the guide font can be tuned in one place.
 const hi = "guide-hi";
 const muted = "text-[var(--text-muted,var(--muted))]";
 const card = "rounded-2xl border border-[var(--line)] bg-[var(--surface)]";
@@ -108,10 +108,7 @@ export function GuideHubCards() {
                 <Icon size={24} />
               </span>
               <div>
-                <h2
-                  lang="hi"
-                  className={`m-0 text-[28px] font-bold leading-tight ${hi}`}
-                >
+                <h2 className={`m-0 text-[28px] font-bold leading-tight ${hi}`}>
                   {c.hindi}
                 </h2>
                 <p
@@ -180,7 +177,7 @@ function PageCard({
         )}
         <span className="flex flex-1 flex-col gap-1.5 p-4">
           <small className={`text-xs ${muted}`}>{v?.page ?? page.slug}</small>
-          <strong lang="hi" className={`text-[17px] ${hi}`}>
+          <strong className={`text-[17px] ${hi}`}>
             {v?.title ?? page.slug}
           </strong>
           <span className={`text-[13.5px] leading-relaxed ${muted}`}>
@@ -214,7 +211,6 @@ export function GuidePortal({ role }: { role: GuideRole }) {
             <Sparkles size={14} /> {c.english}
           </span>
           <h1
-            lang="hi"
             className={`mb-4 mt-4 text-[clamp(36px,6vw,64px)] font-bold leading-[1.05] tracking-tight ${hi}`}
           >
             {c.hindi}
@@ -311,16 +307,12 @@ export function GuideDetail({ role, slug }: { role: GuideRole; slug: string }) {
           {page.category} · {i + 1} of {pages.length}
         </span>
         <h1
-          lang="hi"
           className={`mb-2 mt-3 text-[clamp(32px,5vw,52px)] font-bold leading-tight tracking-tight ${hi}`}
         >
           {v?.title ?? slug}
         </h1>
         <p className={`m-0 text-lg ${muted}`}>
-          <span lang="hi" className={hi}>
-            {v?.subtitle}
-          </span>{" "}
-          · {v?.page}
+          <span className={hi}>{v?.subtitle}</span> · {v?.page}
         </p>
       </header>
       {v && (
@@ -357,16 +349,14 @@ export function GuideDetail({ role, slug }: { role: GuideRole; slug: string }) {
         </motion.section>
       </div>
       <motion.section {...reveal} className="mt-10">
-        <h2 lang="hi" className={`mb-5 text-[26px] font-bold ${hi}`}>
-          स्टेप बाय स्टेप
-        </h2>
+        <h2 className={`mb-5 text-[26px] font-bold ${hi}`}>Step by step</h2>
         <ol className="m-0 grid gap-4 p-0">
           {page.steps.map((s, n) => (
             <li key={n} className={`flex list-none gap-4 ${card} p-5`}>
               <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--green)] font-bold text-white">
                 {n + 1}
               </span>
-              <div lang="hi" className={hi}>
+              <div className={hi}>
                 <strong className="block text-[17px]">{s.caption}</strong>
                 <p className={`mb-0 mt-1 leading-relaxed ${muted}`}>{s.text}</p>
               </div>
@@ -394,7 +384,7 @@ export function GuideDetail({ role, slug }: { role: GuideRole; slug: string }) {
             <small className={`inline-flex items-center gap-1 ${muted}`}>
               <ArrowLeft size={14} /> Previous
             </small>
-            <strong lang="hi" className={hi}>
+            <strong className={hi}>
               {videoFor(role, prev.slug)?.title ?? prev.slug}
             </strong>
           </Link>
@@ -409,7 +399,7 @@ export function GuideDetail({ role, slug }: { role: GuideRole; slug: string }) {
             <small className={`inline-flex items-center gap-1 ${muted}`}>
               Next <ArrowRight size={14} />
             </small>
-            <strong lang="hi" className={hi}>
+            <strong className={hi}>
               {videoFor(role, next.slug)?.title ?? next.slug}
             </strong>
           </Link>

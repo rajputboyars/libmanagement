@@ -16,8 +16,12 @@ const lists: Record<GuideRole, GuideVideo[]> = {
   owner: ownerGuide,
 };
 const tabs: { role: GuideRole; label: string; hint: string }[] = [
-  { role: "student", label: "स्टूडेंट के लिए", hint: "For students" },
-  { role: "owner", label: "लाइब्रेरी ओनर के लिए", hint: "For library owners" },
+  { role: "student", label: "Students ke liye", hint: "For students" },
+  {
+    role: "owner",
+    label: "Library owners ke liye",
+    hint: "For library owners",
+  },
 ];
 const clock = (s: number) =>
   `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -69,7 +73,7 @@ function GuidePlayer({ initial }: { initial: GuideRole }) {
               setPlayAll(false);
             }}
           >
-            <span lang="hi">{t.label}</span>
+            <span>{t.label}</span>
             <small>
               {t.hint} · {lists[t.role].length} videos ·{" "}
               {totalMinutes(lists[t.role])} min
@@ -96,8 +100,8 @@ function GuidePlayer({ initial }: { initial: GuideRole }) {
             <span className="eyebrow">
               {index + 1} / {videos.length} · {current.page}
             </span>
-            <h2 lang="hi">{current.title}</h2>
-            <p lang="hi">{current.subtitle}</p>
+            <h2>{current.title}</h2>
+            <p>{current.subtitle}</p>
           </div>
           <button className="button" onClick={() => open(0, true)}>
             <ListVideo size={17} />
@@ -132,7 +136,7 @@ function GuidePlayer({ initial }: { initial: GuideRole }) {
                 <small>
                   {String(i + 1).padStart(2, "0")} · {v.page}
                 </small>
-                <strong lang="hi">{v.title}</strong>
+                <strong>{v.title}</strong>
               </span>
             </button>
           </li>
@@ -152,22 +156,22 @@ export function GuideTeaser() {
   }[] = [
     {
       role: "student",
-      label: "स्टूडेंट के लिए",
-      text: "पढ़ाई का टाइमर, XP, स्ट्रीक और अटेंडेंस।",
+      label: "Students ke liye",
+      text: "Padhai ka timer, XP, streak aur attendance.",
       video: studentGuide[0],
     },
     {
       role: "owner",
-      label: "लाइब्रेरी ओनर के लिए",
-      text: "सीटें, फीस, अटेंडेंस और रिपोर्ट्स, एक जगह।",
+      label: "Library owners ke liye",
+      text: "Seats, fees, attendance aur reports, ek jagah.",
       video: ownerGuide[0],
     },
   ];
   return (
     <section className="vg-teaser">
       <div className="center-heading">
-        <span className="eyebrow">VIDEO GUIDE · हिंदी में</span>
-        <h2 lang="hi">देखिए कैसे काम करता है</h2>
+        <span className="eyebrow">VIDEO GUIDE · HINDI AUDIO</span>
+        <h2>Dekhiye kaise kaam karta hai</h2>
         <p>
           Short Hindi videos for every screen, for students and for library
           owners.
@@ -184,8 +188,8 @@ export function GuideTeaser() {
               preload="none"
             />
             <div>
-              <h3 lang="hi">{it.label}</h3>
-              <p lang="hi">{it.text}</p>
+              <h3>{it.label}</h3>
+              <p>{it.text}</p>
               <Link className="text-link" href={`/guide?for=${it.role}`}>
                 All {lists[it.role].length} videos <ArrowRight size={16} />
               </Link>
