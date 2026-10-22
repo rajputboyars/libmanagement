@@ -4149,3 +4149,18 @@ span.pf-cell { cursor: default; }
 .exam-countdown.soon .exam-days { background: #fbf3e2; color: #8a5d0c; }
 .exam-countdown.empty { border-style: dashed; color: var(--text-muted); }
 .exam-countdown:hover { border-color: var(--green); }
+
+/* Library leaderboard */
+.board-page { display: grid; gap: 4px; }
+.board-join p { margin: 0 0 10px; }
+.board-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.board-name input { flex: 1; min-width: 160px; }
+.board-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; }
+.board-list li { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 6px; border-bottom: 1px solid var(--line); }
+.board-list li.me { background: var(--soft); border-radius: 10px; }
+.board-rank { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--line); font-weight: 700; font-variant-numeric: tabular-nums; }
+.board-rank.r1 { background: #f3d27a; color: #5c4307; }
+.board-rank.r2 { background: #d9dde3; color: #3b434d; }
+.board-rank.r3 { background: #e8b98f; color: #5a3416; }
+.board-time { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--green); }
+.board-mine { margin: 12px 0 0; }

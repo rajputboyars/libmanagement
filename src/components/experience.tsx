@@ -6,6 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { StudentWeeklyReport } from "@/components/weekly-report";
 import { PushToggle } from "@/components/push-toggle";
+import { Leaderboard } from "@/components/leaderboard";
 import { countdownText, daysUntil } from "@/lib/exam-countdown";
 import { STUDENT_FEATURES, lockedMessage, studentFeatureForPath, type StudentAccess } from "@/lib/student-access";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -214,6 +215,7 @@ const studentNav: [string, string, LucideIcon][] = [
   ["/app/quests", "My quests", Flag],
   ["/app/progress", "My progress", ChartNoAxesCombined],
   ["/app/report", "Weekly report", ChartNoAxesCombined],
+  ["/app/leaderboard", "Leaderboard", Trophy],
   ["/app/achievements", "Achievements", Trophy],
   ["/app/membership", "My library", BookOpen],
   ["/app/security", "Account & privacy", ShieldCheck],
@@ -423,6 +425,7 @@ export function Experience({ path }: { path: string }) {
   const platformPath = ["/super-admin/features", "/super-admin/student-features", "/super-admin/accounts"].includes(path);
   const prepPath = path === "/app/prep";
   const reportPath = path === "/app/report";
+  const leaderboardPath = path === "/app/leaderboard";
   // Premium student features the platform owner has locked for students who are not paid up.
   const lockedList = !preview && !owner && !admin ? (d.studentAccess?.locked ?? []) : [];
   const lockedPaths = new Set<string>(lockedList.flatMap((f) => [...STUDENT_FEATURES[f].paths]));
@@ -741,6 +744,15 @@ export function Experience({ path }: { path: string }) {
               <OwnerSupport notify={setToast} />
             ) : (
               <Onboarding notify={setToast} />
+            )
+          ) : leaderboardPath ? (
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to see your library leaderboard</h2>
+                <p>Preview mode has no real study data.</p>
+              </div>
+            ) : (
+              <Leaderboard notify={setToast} />
             )
           ) : reportPath ? (
             preview ? (

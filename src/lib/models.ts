@@ -66,6 +66,9 @@ export const StudentProfile = model("StudentProfile", {
   goalMinutes: { type: Number, default: 120 },
   anonymous: { type: Boolean, default: true },
   restDays: [String],
+  // Opt-in library leaderboard: shown only when true, under the name the student chose.
+  leaderboard: { type: Boolean, default: false },
+  leaderboardName: { type: String, trim: true, maxlength: 24, default: "" },
 });
 export const Seat = model(
   "Seat",
