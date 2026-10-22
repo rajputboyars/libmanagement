@@ -6,7 +6,7 @@ const PUBLIC: Record<string, { title: string; description: string }> = {
   "/": { title: "StudyQuest — A little focus. A bigger future.", description: "Manage your study library and give students a rewarding way to focus: seats, memberships, attendance, fees and study progress in one place." },
   "/features": { title: "Features", description: "Seat and shift management, memberships, fee records, QR attendance, admissions CRM and a gamified study experience for students." },
   "/pricing": { title: "Pricing", description: "Simple plans for study libraries: Free, Starter, Pro and Business. Start with a free trial; no card needed." },
-  "/guide": { title: "Video guide (Hindi)", description: "Short Hindi videos (हिंदी वीडियो गाइड) explaining every StudyQuest screen for students and library owners." },
+  "/guide": { title: "Video guide", description: "Short videos with Hindi audio explaining every StudyQuest screen for students and library owners." },
   "/demo": { title: "Book a demo", description: "See StudyQuest running a real library. Book a short walkthrough." },
   "/discover": { title: "Find a study library", description: "Search study libraries by location, fees, facilities and live seat availability." },
 };

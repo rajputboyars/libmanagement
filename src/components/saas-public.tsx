@@ -1,5 +1,7 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+import { PublicHeader } from "@/components/site";
 import { BrandLoader } from "@/components/brand-loader";
 import Link from "next/link";
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -9,9 +11,9 @@ import { getJson, inr, send, type Json } from "./prep-api";
 
 function Shell({ children }: { children: ReactNode }) {
   return (
-    <div className="discovery-public">
-      <header><Link className="brand" href="/"><span className="brand-mark">✳</span>StudyQuest<span className="brand-dot">.</span></Link><nav><Link href="/features">Features</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Book a demo</Link><Link href="/login">Sign in</Link></nav></header>
-      <main>{children}</main>
+    <div className="public">
+      <PublicHeader path={usePathname()} />
+      <main className="public-shell-main">{children}</main>
     </div>
   );
 }

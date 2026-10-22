@@ -266,7 +266,7 @@ export function Experience({ path }: { path: string }) {
   if (path.startsWith("/billing/sandbox/")) return <SandboxCheckout id={path.split("/")[3] ?? ""} />;
   if (path.startsWith("/app/prep/test/")) return <TestRunner id={path.split("/")[4] ?? ""} />;
   if (path.startsWith("/app/prep/result/")) return <TestResult id={path.split("/")[4] ?? ""} />;
-  if (!app) return <PublicPage path={path} dark={dark} toggle={toggle} />;
+  if (!app) return <PublicPage path={path} />;
   // Show only the loader while the session is checked or a redirect is on its way,
   // so the installed app never flashes the sample "preview" workspace first.
   if (app && !isError && (isLoading || (home && area && area !== home) || (!home && installed)))

@@ -14,7 +14,7 @@ const PUBLIC_ROUTES = new Set(["/", "/features", "/guide", "/login", "/register"
 export const isPublicRoute = (path: string) => PUBLIC_ROUTES.has(path) || path.startsWith("/guide/") || path.startsWith("/billing/sandbox/");
 
 export function AppEntry({ path }: { path: string }) {
-  const { dark, toggle } = useUI();
+  const { dark } = useUI();
   useEffect(() => { document.documentElement.dataset.theme = dark ? "dark" : "light"; }, [dark]);
   if (!isPublicRoute(path)) return <Workspace path={path} />;
   if (path === "/login" || path === "/register") return <Auth register={path === "/register"} />;
@@ -24,5 +24,5 @@ export function AppEntry({ path }: { path: string }) {
   if (path === "/forgot-password") return <ForgotPassword />;
   if (path === "/reset-password") return <ResetPassword />;
   if (path.startsWith("/billing/sandbox/")) return <SandboxCheckout id={path.split("/")[3] ?? ""} />;
-  return <PublicPage path={path} dark={dark} toggle={toggle} />;
+  return <PublicPage path={path} />;
 }
