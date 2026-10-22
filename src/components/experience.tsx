@@ -4,7 +4,8 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
-import { StudentWeeklyReport } from "@/components/weekly-report";
+import { FocusTools, Insights, ReportSwitch, StudyPartnerPage, SubjectInput, SyllabusTracker, TodayCards } from "@/components/self-study";
+import { focusQuality } from "@/lib/self-study";
 import { PushToggle } from "@/components/push-toggle";
 import { Leaderboard } from "@/components/leaderboard";
 import { LibraryNotes, OwnerSharedNotes } from "@/components/shared-notes";
@@ -204,6 +205,8 @@ const studentNav: [string, string, LucideIcon][] = [
   ["/app/punch", "Punch in / out", Clock3],
   ["/app/prep", "Exam prep", Target],
   ["/app/planner", "Study planner", CalendarDays],
+  ["/app/tracker", "Syllabus tracker", CheckCircle2],
+  ["/app/partner", "Study partner", Users],
   ["/app/quiz", "Quiz arena", HelpCircle],
   ["/app/garden", "Study garden", Leaf],
   ["/app/friends", "Friends & challenges", Users],
@@ -429,6 +432,8 @@ export function Experience({ path }: { path: string }) {
   const reportPath = path === "/app/report";
   const leaderboardPath = path === "/app/leaderboard";
   const libraryNotesPath = path === "/app/library-notes";
+  const trackerPath = path === "/app/tracker";
+  const partnerPath = path === "/app/partner";
   // Premium student features the platform owner has locked for students who are not paid up.
   const lockedList = !preview && !owner && !admin ? (d.studentAccess?.locked ?? []) : [];
   const lockedPaths = new Set<string>(lockedList.flatMap((f) => [...STUDENT_FEATURES[f].paths]));
@@ -748,6 +753,17 @@ export function Experience({ path }: { path: string }) {
             ) : (
               <Onboarding notify={setToast} />
             )
+          ) : trackerPath || partnerPath ? (
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to use this</h2>
+                <p>Preview mode saves nothing.</p>
+              </div>
+            ) : trackerPath ? (
+              <SyllabusTracker notify={setToast} />
+            ) : (
+              <StudyPartnerPage notify={setToast} />
+            )
           ) : libraryNotesPath ? (
             preview ? (
               <div className="mt-empty">
@@ -773,7 +789,7 @@ export function Experience({ path }: { path: string }) {
                 <p>Preview mode has no real study data.</p>
               </div>
             ) : (
-              <StudentWeeklyReport notify={setToast} />
+              <ReportSwitch notify={setToast} />
             )
           ) : prepPath ? (
             <ExamPrep preview={preview} notify={setToast} />
@@ -1411,6 +1427,8 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
             </p>
           </section>
         )}
+        {path === "/app" && !preview && <TodayCards notify={notify} />}
+        {path === "/app/progress" && !preview && <Insights />}
         {(path === "/app" || path === "/app/progress") && (
           <section className="card chart-card">
             <div className="section-heading">
@@ -2008,6 +2026,17 @@ function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [pick, setPick] = useState<number>(25);
+  const [subject, setSubject] = useState("");
+  // Times the student left the app while the timer ran (sent with pause/complete).
+  const [left_, setLeft] = useState(0);
+  const [quality, setQuality] = useState<number | null>(null);
+  const running = data.focus?.state === "running" || local?.state === "running";
+  useEffect(() => {
+    if (!running) return;
+    const away = () => document.visibilityState === "hidden" && setLeft((n) => n + 1);
+    document.addEventListener("visibilitychange", away);
+    return () => document.removeEventListener("visibilitychange", away);
+  }, [running]);
   // Client-only break countdown after a completed session (nothing is saved).
   const [breakEnd, setBreakEnd] = useState<number | null>(null);
   useEffect(() => {
@@ -2071,10 +2100,15 @@ function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
       } else {
         await mutate(
           "focus." + action,
-          action === "start" ? { minutes: pick } : {},
+          action === "start" ? { minutes: pick, subject } : { distractions: left_ },
         );
-        if (action === "start") setBreakEnd(null);
+        if (action !== "start") setLeft(0);
+        if (action === "start") {
+          setBreakEnd(null);
+          setQuality(null);
+        }
         if (action === "complete") {
+          setQuality(focusQuality(Number(data.focus?.distractions ?? 0) + left_));
           setBreakEnd(Date.now() + breakMinutes(target) * 60000);
           notify(
             `Focus session verified. +${focusXP(target)} XP recorded. Time for a ${breakMinutes(target)}-minute break.`,
@@ -2102,6 +2136,8 @@ function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
           ? "Drink some water, stretch, rest your eyes. Your next session will be sharper."
           : `${target} minutes of intention. One step closer.`}
       </p>
+      {!focus && !onBreak && !preview && <SubjectInput value={subject} onChange={setSubject} />}
+      {quality !== null && !focus && <p className="pill neutral">Focus quality {quality}%</p>}
       {!focus && !onBreak && (
         <div className="focus-lengths" role="group" aria-label="Session length">
           {FOCUS_LENGTHS.map((m) => (
@@ -2185,6 +2221,8 @@ function Focus({ data, preview, mutate, notify }: Omit<Props, "path">) {
           ? "Preview timer · XP is only saved for signed-in accounts"
           : `Time is verified on the server · +${focusXP(target)} XP for a complete ${target}-minute session`}
       </p>
+      {focus && left_ > 0 && <p className="tiny muted">App {left_} baar chhoda · phone door rakho</p>}
+      <FocusTools />
     </section>
   );
 }

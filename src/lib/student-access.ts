@@ -10,6 +10,11 @@ export const STUDENT_FEATURES = {
   social: { label: "Friends, focus rooms & community", paths: ["/app/friends", "/app/rooms", "/app/community"] },
   rewards: { label: "Rewards marketplace", paths: ["/app/rewards"] },
   garden: { label: "Study garden", paths: ["/app/garden"] },
+  "deep-insights": { label: "Deep insights (subject time, heatmap, monthly report, focus quality)", paths: [] },
+  "focus-mode": { label: "Full-screen focus with calm sounds", paths: [] },
+  planning: { label: "Daily plan, goals & syllabus tracker", paths: ["/app/tracker"] },
+  "mistake-coach": { label: "Mistake reasons & re-test", paths: [] },
+  partner: { label: "Study partner", paths: ["/app/partner"] },
 } as const;
 export type StudentFeature = keyof typeof STUDENT_FEATURES;
 export const isStudentFeature = (k: string): k is StudentFeature => k in STUDENT_FEATURES;

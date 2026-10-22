@@ -7,7 +7,7 @@ import { FEATURES, type Overrides } from "@/lib/saas";
 import { accessForLibrary, audit, ensurePlans } from "@/lib/saas-server";
 import { applyFeatureSwitch, featureCell } from "@/lib/feature-matrix";
 import { STUDENT_FEATURES, isStudentFeature, paidUpStatus } from "@/lib/student-access";
-import { premiumStudentFeatures } from "@/lib/student-access-server";
+import { freeTrialOn } from "@/lib/student-access-server";
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
 const err = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -75,7 +75,8 @@ export async function GET(request: NextRequest) {
   }
 
   if (view === "students") {
-    const premium = await premiumStudentFeatures();
+    const premium = (await PlatformSettings.findOne({ key: "default" }).select("premiumStudentFeatures").lean<{ premiumStudentFeatures?: string[] }>())?.premiumStudentFeatures ?? [];
+    const freeTrial = await freeTrialOn();
     const now = new Date();
     const libraries = await Library.find({}).sort({ createdAt: -1 }).limit(200).select("name").lean<(Lean & { name: string })[]>();
     const students = await User.find({ role: "student", libraryId: { $in: libraries.map((l) => l._id) }, deletedAt: { $exists: false } }).select("libraryId").lean<(Lean & { libraryId: unknown })[]>();
@@ -95,6 +96,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       catalog: Object.fromEntries(Object.entries(STUDENT_FEATURES).map(([k, v]) => [k, { label: v.label, paths: v.paths }])),
       premium,
+      freeTrial,
       libraries: stats.filter((s) => s.students > 0),
     });
   }
@@ -163,9 +165,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "student-premium-save") {
-      const v = z.object({ features: z.array(z.string()).max(20) }).parse(body.data);
+      const v = z.object({ features: z.array(z.string()).max(30), freeTrial: z.boolean().default(true) }).parse(body.data);
       const features = [...new Set(v.features)].filter(isStudentFeature);
-      await PlatformSettings.updateOne({ key: "default" }, { $set: { premiumStudentFeatures: features } }, { upsert: true });
+      await PlatformSettings.updateOne({ key: "default" }, { $set: { premiumStudentFeatures: features, freeTrial: v.freeTrial } }, { upsert: true });
       await audit({ actorId: user._id, actorRole: "super-admin", action: "student-premium.save", details: { features } });
       return NextResponse.json({ ok: true, features });
     }

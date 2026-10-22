@@ -318,6 +318,8 @@ export const PlatformSettings = model("PlatformSettings", {
   invoiceSeq: { type: Number, default: 0 },
   // Student features that need an active, fully paid library membership (see student-access.ts).
   premiumStudentFeatures: { type: [String], default: [] },
+  // Trial run: while true, every student feature is free for everyone (premium rules are ignored).
+  freeTrial: { type: Boolean, default: true },
 });
 export const VerificationCode = model(
   "VerificationCode",

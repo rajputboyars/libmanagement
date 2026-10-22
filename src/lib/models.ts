@@ -145,6 +145,10 @@ export const StudySession = model(
     activeSeconds: { type: Number, default: 0 },
     // Chosen length in minutes (25, 45 or 60); older sessions have none and count as 25.
     targetMinutes: { type: Number, enum: [25, 45, 60], default: 25 },
+    // What was studied and how often the student left the app during the session.
+    subject: { type: String, trim: true, maxlength: 40, default: "" },
+    topic: { type: String, trim: true, maxlength: 60, default: "" },
+    distractions: { type: Number, default: 0, min: 0 },
     state: {
       type: String,
       enum: ["running", "paused", "complete"],
@@ -325,6 +329,8 @@ export const TopicProgress = model(
     revisionLevel: { type: Number, default: 0, min: 0, max: 6 },
     nextRevisionAt: { type: Date, index: true },
     mockBest: { type: Number, default: 0, min: 0, max: 100 },
+    // Chapter checklist: Read → Notes → Revision 1 → Revision 2 → PYQs done.
+    steps: { _id: false, read: Boolean, notes: Boolean, rev1: Boolean, rev2: Boolean, pyq: Boolean },
   },
   [[{ userId: 1, topicId: 1 }, { unique: true }]],
 );
@@ -733,7 +739,7 @@ export const TestAttempt = model(
     libraryId: id,
     templateId: id,
     examKey: { type: String, required: true },
-    kind: { type: String, enum: ["full", "sectional", "topic", "daily", "mini", "pyq", "current-affairs"], required: true },
+    kind: { type: String, enum: ["full", "sectional", "topic", "daily", "mini", "pyq", "current-affairs", "retest"], required: true },
     title: { type: String, required: true },
     day: String,
     topicId: id,
@@ -779,6 +785,7 @@ export const MistakeEntry = model(
     status: { type: String, enum: ["open", "understood"], default: "open" },
     note: { type: String, default: "", maxlength: 600 },
     retries: [{ _id: false, at: Date, correct: Boolean }],
+    reason: { type: String, enum: ["didnt-know", "silly", "time", "guess"] },
   },
   [[{ userId: 1, questionId: 1 }, { unique: true }], [{ userId: 1, status: 1, lastWrongAt: -1 }, {}]],
 );
@@ -878,4 +885,27 @@ export const PushSubscription = model(
     keys: { _id: false, p256dh: { type: String, required: true }, auth: { type: String, required: true } },
     userAgent: { type: String, default: "" },
   },
+);
+/** Self-study: up to 3 tasks a student plans for a day and ticks off. */
+export const DailyPlan = model(
+  "DailyPlan",
+  { userId: { type: id, required: true }, day: { type: String, required: true }, tasks: [{ _id: false, text: { type: String, trim: true, maxlength: 120 }, done: { type: Boolean, default: false } }] },
+  [[{ userId: 1, day: 1 }, { unique: true }]],
+);
+/** Self-study: one-minute evening reflection. */
+export const DailyReflection = model(
+  "DailyReflection",
+  { userId: { type: id, required: true }, day: { type: String, required: true }, energy: { type: Number, min: 1, max: 5, required: true }, hard: { type: String, trim: true, maxlength: 300, default: "" } },
+  [[{ userId: 1, day: 1 }, { unique: true }]],
+);
+/** Self-study: a goal like "Finish Polity by 30 Nov", tracked through chapter checklists. */
+export const SelfGoal = model(
+  "SelfGoal",
+  { userId: { type: id, required: true, index: true }, title: { type: String, trim: true, maxlength: 100, required: true }, topicIds: [id], deadline: { type: Date, required: true } },
+);
+/** Self-study: two students who see each other's daily study minutes. */
+export const StudyPartner = model(
+  "StudyPartner",
+  { a: { type: id, required: true, index: true }, b: { type: id, required: true, index: true }, pairKey: { type: String, required: true }, status: { type: String, enum: ["pending", "accepted", "ended"], default: "pending" }, lastNudge: String },
+  [[{ pairKey: 1 }, { unique: true }]],
 );

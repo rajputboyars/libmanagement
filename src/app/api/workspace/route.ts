@@ -29,6 +29,7 @@ import {
   ExamCatalog,
 } from "@/lib/models";
 import { punchIn } from "@/lib/punch";
+import { nudgePartners } from "@/lib/partner-nudge";
 import { studentAccessFor } from "@/lib/student-access-server";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
 import { XP, reward, activeSeconds, focusLength, focusXP } from "@/lib/rules";
@@ -423,12 +424,16 @@ export async function POST(req: NextRequest) {
                   startedAt: now,
                   lastResumedAt: now,
                   targetMinutes: focusLength(Number(body.data?.minutes)),
+                  subject: String(body.data?.subject ?? "").trim().slice(0, 40),
+                  topic: String(body.data?.topic ?? "").trim().slice(0, 60),
                 },
               ],
               { session },
             );
           } else {
             if (!focus) throw new Error("Start a focus session first");
+            const left = Math.min(50, Math.max(0, Math.floor(Number(body.data?.distractions) || 0)));
+            if (action !== "focus.resume") focus.distractions = (focus.distractions ?? 0) + left;
             if (action === "focus.pause" && focus.state === "running") {
               focus.activeSeconds += Math.max(
                 0,
@@ -563,6 +568,7 @@ export async function POST(req: NextRequest) {
       } finally {
         await session.endSession();
       }
+      if (action === "focus.complete") await nudgePartners(user).catch(() => undefined);
       return NextResponse.json({ ok: true, focus: result });
     }
     if (action === "complaints" && libraryId) {

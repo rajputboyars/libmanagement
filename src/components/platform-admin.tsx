@@ -113,7 +113,8 @@ export function PlatformStudentRules({ notify }: { notify: (m: string) => void }
     e.preventDefault();
     setBusy(true);
     try {
-      await post("/api/platform", "student-premium-save", { features: new FormData(e.currentTarget).getAll("premium") });
+      const f = new FormData(e.currentTarget);
+      await post("/api/platform", "student-premium-save", { features: f.getAll("premium"), freeTrial: f.get("freeTrial") === "on" });
       await qc.invalidateQueries({ queryKey: ["platform", "students"] });
       notify("Student feature rules saved.");
     } catch (err) {
@@ -127,6 +128,10 @@ export function PlatformStudentRules({ notify }: { notify: (m: string) => void }
     <div className="pr-page">
       <header className="p2-heading"><div><span className="eyebrow">Platform owner</span><h1>Student features</h1><p>Basic features are always on. Premium features work only for students whose library membership is active today and fully paid. Students with dues see a lock and a link to their fees.</p></div></header>
       <form className="card pf-rules" onSubmit={save}>
+        <label className="pf-rule pf-trial">
+          <input type="checkbox" name="freeTrial" defaultChecked={!!data.data.freeTrial} />
+          <span><strong>Free trial: everything free</strong><small>While this is on, every student gets every feature, whatever is ticked below. Turn it off to start charging.</small></span>
+        </label>
         <h2>Premium student features</h2>
         <div className="pf-rule-list">
           {Object.entries(catalog).map(([k, f]) => (

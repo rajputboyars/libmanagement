@@ -1,4 +1,5 @@
 import type { Types } from "mongoose";
+import { fixedByRetries } from "./self-study";
 import { MistakeEntry, Question, StudentExam, TestAnswer, TestAttempt, TopicProgress, XPTransaction } from "./models";
 import { DAILY_XP_CAP, acceptsAnswers, dailyXp, miniXp, scoreAttempt, type PlanItem } from "./prep";
 
@@ -78,7 +79,19 @@ export async function finalizeAttempt(attemptId: Id, userId: Id, payload?: { que
   await TestAttempt.updateOne({ _id: attempt._id }, { state: "submitted", submittedAt: now, autoSubmitted: now.getTime() > attempt.deadline.getTime(), result, xpGranted });
   const wrong = scored.rows.filter((r) => r.status === "incorrect");
   if (wrong.length) await MistakeEntry.bulkWrite(wrong.map((r) => ({ updateOne: { filter: { userId, questionId: r.questionId }, update: { $set: { lastWrongAt: now, status: "open", ...(r.topicId ? { topicId: r.topicId } : {}) }, $inc: { wrongCount: 1 } }, upsert: true } })));
+  if (attempt.kind === "retest") {
+    // Re-test: log each answer as a retry; 2 correct in a row marks the mistake fixed.
+    const entries = await MistakeEntry.find({ userId, questionId: { $in: scored.rows.filter((r) => r.status !== "unattempted").map((r) => r.questionId) } });
+    for (const e of entries) {
+      const row = scored.rows.find((r) => String(r.questionId) === String(e.questionId));
+      e.retries.push({ at: now, correct: row?.status === "correct" });
+      e.retries = e.retries.slice(-20);
+      if (fixedByRetries(e.retries)) e.status = "understood";
+      await e.save();
+    }
+  }
   const topicOps = scored.topics.filter((t) => /^[a-f\d]{24}$/i.test(t.key) && t.correct + t.incorrect >= 2).map((t) => ({ updateOne: { filter: { userId, topicId: t.key }, update: { $max: { mockBest: Math.round((t.correct / t.total) * 100) } }, upsert: true } }));
   if (topicOps.length) await TopicProgress.bulkWrite(topicOps);
   return { result, repeated: false, attempt };
 }
+export { fixedByRetries };

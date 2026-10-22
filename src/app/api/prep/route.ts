@@ -6,7 +6,7 @@ import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { ExamDate, ExamGoal, Flashcard, MistakeEntry, PlanTask, Question, StudentNote, StudyPlan, SyllabusNode, TestAnswer, TestAttempt, TestTemplate, TopicProgress, XPTransaction } from "@/lib/models";
 import { DAILY_COUNT, MINI_COUNT, attributedTime, acceptsAnswers, checkpoint, cohortStanding, flashNext, flashReview, officialDateStatus, remainingMs, seededOrder, spreadOverdue, topicStrength, type PlanItem } from "@/lib/prep";
-import { enrolledExam, finalizeAttempt, publishedFilter, toPublic, today } from "@/lib/prep-server";
+import { enrolledExam, finalizeAttempt, fixedByRetries, publishedFilter, toPublic, today } from "@/lib/prep-server";
 import { simplifyExplanation, aiConfigured } from "@/lib/prep-ai";
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
@@ -144,9 +144,10 @@ export async function GET(request: NextRequest) {
       MistakeEntry.find(filter).sort({ lastWrongAt: -1 }).skip((pageOf(request) - 1) * 10).limit(10).lean<(Lean & { questionId: unknown; topicId?: unknown })[]>(),
       MistakeEntry.countDocuments(filter), MistakeEntry.distinct("topicId", { userId: user._id }),
     ]);
+    const reasons = await MistakeEntry.aggregate<{ _id: string; n: number }>([{ $match: { userId: user._id, reason: { $exists: true } } }, { $group: { _id: "$reason", n: { $sum: 1 } } }]);
     const [questions, names] = await Promise.all([Question.find({ _id: { $in: entries.map((e) => e.questionId) } }).select("prompt options difficulty").lean<Lean[]>(), titles([...topicIds, ...entries.map((e) => e.topicId)])]);
     const qMap = new Map(questions.map((q) => [String(q._id), q]));
-    return NextResponse.json({ total, topics: topicIds.filter(Boolean).map((t) => ({ _id: t, title: names.get(String(t)) || "Topic" })), entries: entries.map((e) => ({ ...e, topicTitle: names.get(String(e.topicId)) || "General", question: qMap.get(String(e.questionId)) || null })) });
+    return NextResponse.json({ total, reasons: Object.fromEntries(reasons.map((r) => [r._id, r.n])), topics: topicIds.filter(Boolean).map((t) => ({ _id: t, title: names.get(String(t)) || "Topic" })), entries: entries.map((e) => ({ ...e, topicTitle: names.get(String(e.topicId)) || "General", question: qMap.get(String(e.questionId)) || null })) });
   }
 
   if (view === "flashcards") {
@@ -285,6 +286,19 @@ export async function POST(request: NextRequest) {
         const a = await create({ kind: "pyq", title, plan, deadline: new Date(now.getTime() + Math.max(10, Math.ceil(qs.length * 1.2)) * 60000) });
         return NextResponse.json(startPayload(a));
       }
+      case "retest-start": {
+        { const blocked = await studentFeatureBlocked(user, "mistake-coach"); if (blocked) return blocked; }
+        const live = await TestAttempt.findOne({ userId: user._id, kind: "retest", state: "in-progress" });
+        if (live) {
+          if (acceptsAnswers(live.deadline, now)) return NextResponse.json({ ...startPayload(live), resumed: true });
+          await finalizeAttempt(live._id, user._id);
+        }
+        const open = await MistakeEntry.find({ userId: user._id, status: "open" }).sort({ lastWrongAt: -1 }).limit(20).select("questionId").lean<{ questionId: unknown }[]>();
+        if (!open.length) throw new Error("No open mistakes to re-test");
+        const plan: PlanItem[] = open.map((m) => ({ questionId: String(m.questionId), section: "Re-test", marks: 1, negative: 0 }));
+        const a = await create({ kind: "retest", day: today(), title: `Re-test wrong questions · ${today()}`, plan, deadline: new Date(now.getTime() + Math.max(5, open.length) * 60000) });
+        return NextResponse.json(startPayload(a));
+      }
       case "ca-start": {
         const day = libraryClock(now).date;
         const existing = await TestAttempt.findOne({ userId: user._id, kind: "current-affairs", day });
@@ -336,12 +350,12 @@ export async function POST(request: NextRequest) {
         const q = await Question.findById(v.questionId).select("+correctIndex options explanation").lean<{ correctIndex: number; explanation: string; options: string[] }>();
         if (!q) throw new Error("Question unavailable");
         const correct = v.selectedIndex !== null && v.selectedIndex === q.correctIndex;
-        if (v.selectedIndex !== null) { entry.retries.push({ at: now, correct }); entry.retries = entry.retries.slice(-20); await entry.save(); }
+        if (v.selectedIndex !== null) { entry.retries.push({ at: now, correct }); entry.retries = entry.retries.slice(-20); if (fixedByRetries(entry.retries)) entry.status = "understood"; await entry.save(); }
         return NextResponse.json({ ok: true, correct, correctIndex: q.correctIndex, explanation: q.explanation, revealedOnly: v.selectedIndex === null });
       }
       case "mistake-update": {
-        const v = z.object({ id: objectId, status: z.enum(["open", "understood"]).optional(), note: z.string().trim().max(600).optional() }).parse(body.data);
-        const set: Record<string, unknown> = {}; if (v.status) set.status = v.status; if (v.note !== undefined) set.note = v.note;
+        const v = z.object({ id: objectId, status: z.enum(["open", "understood"]).optional(), note: z.string().trim().max(600).optional(), reason: z.enum(["didnt-know", "silly", "time", "guess"]).optional() }).parse(body.data);
+        const set: Record<string, unknown> = {}; if (v.status) set.status = v.status; if (v.note !== undefined) set.note = v.note; if (v.reason) set.reason = v.reason;
         const r = await MistakeEntry.findOneAndUpdate({ _id: v.id, userId: user._id }, { $set: set }, { new: true });
         if (!r) throw new Error("Entry not found");
         return NextResponse.json({ ok: true, record: r });
