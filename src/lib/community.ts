@@ -42,11 +42,11 @@ export function pairKey(kind: "buddy" | "mentorship", a: string, b: string) {
   return kind === "buddy" ? `buddy:${[a, b].sort().join(":")}` : `mentorship:${a}:${b}`;
 }
 
-export type MatchCandidate = { userId: string; examKey: string; weeklyMinutes: number; sharedSubjects: number };
-/** Deterministic buddy score: closer weekly target and more shared subjects rank higher. */
+export type MatchCandidate = { userId: string; examKey: string; weeklyMinutes: number; sharedSubjects: number; sameShift?: boolean };
+/** Deterministic buddy score: same shift in the library, a closer weekly target and more shared subjects rank higher. */
 export function buddyScore(self: { weeklyMinutes: number }, other: MatchCandidate) {
   const gap = Math.abs(self.weeklyMinutes - other.weeklyMinutes) / Math.max(self.weeklyMinutes, other.weeklyMinutes, 1);
-  return Math.round((1 - gap) * 60) + other.sharedSubjects * 10;
+  return Math.round((1 - gap) * 60) + other.sharedSubjects * 10 + (other.sameShift ? 25 : 0);
 }
 
 export const xml = (value: string) => value.replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" })[c]!);

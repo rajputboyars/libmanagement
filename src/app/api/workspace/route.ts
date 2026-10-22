@@ -25,11 +25,21 @@ import {
   Quest,
   QuestProgress,
   StaffMembership,
+  StudentExam,
+  ExamCatalog,
 } from "@/lib/models";
 import { punchIn } from "@/lib/punch";
 import { studentAccessFor } from "@/lib/student-access-server";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
 import { XP, reward, activeSeconds, focusLength, focusXP } from "@/lib/rules";
+
+/** The student's chosen exam and date, for the home-screen countdown. */
+async function examForCountdown(userId: unknown) {
+  const e = await StudentExam.findOne({ userId }).select("examKey customExam examDate").lean<{ examKey: string; customExam?: string; examDate: Date }>();
+  if (!e) return null;
+  const catalog = e.customExam ? null : await ExamCatalog.findOne({ key: e.examKey }).select("title").lean<{ title: string }>();
+  return { title: e.customExam || catalog?.title || e.examKey.toUpperCase(), date: new Date(e.examDate).toISOString().slice(0, 10) };
+}
 const schemas = {
   seats: z.object({
     label: z.string().min(1).max(20),
@@ -263,6 +273,7 @@ export async function GET(req: NextRequest) {
       ? await Library.findById(user.libraryId).select("name hours holidays").lean()
       : null,
     studentAccess: await studentAccessFor(user),
+    exam: user.role === "student" ? await examForCountdown(user._id) : null,
     ...Object.fromEntries(entries),
   });
 }

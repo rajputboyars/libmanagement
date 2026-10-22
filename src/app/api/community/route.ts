@@ -2,7 +2,7 @@ import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
-import { AuditLog, CommunityBlock, CommunityLink, CommunityProfile, CommunityReport, Notification, StudentExam, SuccessPost } from "@/lib/models";
+import { AuditLog, CommunityBlock, CommunityLink, CommunityProfile, CommunityReport, Notification, SeatAssignment, StudentExam, SuccessPost } from "@/lib/models";
 import { AGE_BANDS, MENTORSHIP, MILESTONE_TYPES, REPORT_REASONS, VISIBILITY, buddyScore, containsContactInfo, headline, pairKey, type MilestoneType } from "@/lib/community";
 import { blockedBetween, canViewPost, mayInteract, verifiedStats, type ExamDoc, type PostDoc, type ProfileDoc } from "@/lib/community-server";
 
@@ -69,8 +69,14 @@ export async function GET(request: NextRequest) {
   const examBy = new Map(exams.map((e) => [String(e.userId), e]));
   const sameExam = peers.filter((p) => examBy.has(String(p.userId)));
   const mySubjects = new Set((exam?.subjectIds || []).map(String));
-  const score = (p: (typeof peers)[number]) => { const e = examBy.get(String(p.userId))!; return buddyScore({ weeklyMinutes: exam?.weeklyMinutes || 600 }, { userId: String(p.userId), examKey: e.examKey, weeklyMinutes: e.weeklyMinutes, sharedSubjects: (e.subjectIds || []).filter((s: unknown) => mySubjects.has(String(s))).length }); };
-  const shape = (p: (typeof peers)[number]) => ({ userId: p.userId, alias: p.alias, sharedGoal: p.sharedGoal, score: score(p) });
+  // Same shift = seat assignments running now whose daily times overlap (you're in the library together).
+  const nowAt = new Date();
+  const seats = await SeatAssignment.find({ libraryId, userId: { $in: [user._id, ...sameExam.map((p) => p.userId)] }, start: { $lte: nowAt }, end: { $gt: nowAt } }).select("userId shiftStart shiftEnd").lean<{ userId: unknown; shiftStart?: number; shiftEnd?: number }[]>();
+  const shiftOf = new Map(seats.map((a) => [String(a.userId), a]));
+  const myShift = shiftOf.get(String(user._id));
+  const sameShift = (id: unknown) => { const o = shiftOf.get(String(id)); return !!(myShift && o && myShift.shiftStart !== undefined && o.shiftStart !== undefined && myShift.shiftStart < (o.shiftEnd ?? 0) && o.shiftStart < (myShift.shiftEnd ?? 0)); };
+  const score = (p: (typeof peers)[number]) => { const e = examBy.get(String(p.userId))!; return buddyScore({ weeklyMinutes: exam?.weeklyMinutes || 600 }, { userId: String(p.userId), examKey: e.examKey, weeklyMinutes: e.weeklyMinutes, sharedSubjects: (e.subjectIds || []).filter((s: unknown) => mySubjects.has(String(s))).length, sameShift: sameShift(p.userId) }); };
+  const shape = (p: (typeof peers)[number]) => ({ userId: p.userId, alias: p.alias, sharedGoal: p.sharedGoal, score: score(p), sameShift: sameShift(p.userId) });
   const aliases = await aliasMap([...linked].filter((id) => id !== String(user._id)));
   return NextResponse.json({
     ...out,

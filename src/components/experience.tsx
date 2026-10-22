@@ -6,6 +6,9 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { StudentWeeklyReport } from "@/components/weekly-report";
 import { PushToggle } from "@/components/push-toggle";
+import { Leaderboard } from "@/components/leaderboard";
+import { LibraryNotes, OwnerSharedNotes } from "@/components/shared-notes";
+import { countdownText, daysUntil } from "@/lib/exam-countdown";
 import { STUDENT_FEATURES, lockedMessage, studentFeatureForPath, type StudentAccess } from "@/lib/student-access";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUI } from "@/lib/ui-store";
@@ -149,6 +152,7 @@ type Data = {
   summary?: Record<string, number>;
   library?: { name?: string; hours?: DayHours[]; holidays?: Holiday[] } | null;
   studentAccess?: StudentAccess;
+  exam?: { title: string; date: string } | null;
 };
 // True when StudyQuest runs as the installed app (home-screen icon) or was opened from its start_url.
 const subscribeDisplayMode = (onChange: () => void) => {
@@ -212,6 +216,8 @@ const studentNav: [string, string, LucideIcon][] = [
   ["/app/quests", "My quests", Flag],
   ["/app/progress", "My progress", ChartNoAxesCombined],
   ["/app/report", "Weekly report", ChartNoAxesCombined],
+  ["/app/leaderboard", "Leaderboard", Trophy],
+  ["/app/library-notes", "Library notes", BookOpen],
   ["/app/achievements", "Achievements", Trophy],
   ["/app/membership", "My library", BookOpen],
   ["/app/security", "Account & privacy", ShieldCheck],
@@ -421,6 +427,8 @@ export function Experience({ path }: { path: string }) {
   const platformPath = ["/super-admin/features", "/super-admin/student-features", "/super-admin/accounts"].includes(path);
   const prepPath = path === "/app/prep";
   const reportPath = path === "/app/report";
+  const leaderboardPath = path === "/app/leaderboard";
+  const libraryNotesPath = path === "/app/library-notes";
   // Premium student features the platform owner has locked for students who are not paid up.
   const lockedList = !preview && !owner && !admin ? (d.studentAccess?.locked ?? []) : [];
   const lockedPaths = new Set<string>(lockedList.flatMap((f) => [...STUDENT_FEATURES[f].paths]));
@@ -740,6 +748,24 @@ export function Experience({ path }: { path: string }) {
             ) : (
               <Onboarding notify={setToast} />
             )
+          ) : libraryNotesPath ? (
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to read your library&apos;s notes</h2>
+                <p>Preview mode has no real library.</p>
+              </div>
+            ) : (
+              <LibraryNotes />
+            )
+          ) : leaderboardPath ? (
+            preview ? (
+              <div className="mt-empty">
+                <h2>Sign in to see your library leaderboard</h2>
+                <p>Preview mode has no real study data.</p>
+              </div>
+            ) : (
+              <Leaderboard notify={setToast} />
+            )
           ) : reportPath ? (
             preview ? (
               <div className="mt-empty">
@@ -755,7 +781,10 @@ export function Experience({ path }: { path: string }) {
             <PrepAdmin notify={setToast} />
           ) : communityPath ? (
             path === "/owner/moderation" ? (
-              <CommunityModeration notify={setToast} />
+              <>
+                <CommunityModeration notify={setToast} />
+                <OwnerSharedNotes notify={setToast} />
+              </>
             ) : (
               <Community preview={preview} notify={setToast} />
             )
@@ -1249,6 +1278,7 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
     <>
       {greeting}
       {path === "/app" && !preview && <LibraryToday library={d.library} />}
+      {path === "/app" && !preview && <ExamCountdown exam={d.exam} />}
       {path === "/app" && (
         <>
           <section className="journey-hero">
@@ -1744,6 +1774,30 @@ const prettyDate = (d: string) =>
     day: "numeric",
     month: "short",
   });
+
+/** Days left to the student's exam, or a nudge to set it. */
+function ExamCountdown({ exam }: { exam?: Data["exam"] }) {
+  const [now] = useState(() => new Date());
+  if (!exam)
+    return (
+      <Link className="exam-countdown empty" href="/app/roadmap">
+        <CalendarDays size={18} aria-hidden="true" />
+        <span>Set your exam and date to see a countdown</span>
+        <ArrowRight size={16} aria-hidden="true" />
+      </Link>
+    );
+  const days = daysUntil(exam.date, now);
+  return (
+    <Link className={`exam-countdown${days >= 0 && days <= 30 ? " soon" : ""}`} href="/app/roadmap">
+      {days > 0 && <strong className="exam-days">{days}</strong>}
+      <span>
+        {countdownText(days, exam.title)}
+        <small>{new Date(`${exam.date}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}</small>
+      </span>
+      <ArrowRight size={16} aria-hidden="true" />
+    </Link>
+  );
+}
 
 /** One line for students: open now / closed today / holiday, from the library's timings. */
 function LibraryToday({ library }: { library?: Data["library"] }) {

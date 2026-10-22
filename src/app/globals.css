@@ -4140,3 +4140,29 @@ span.pf-cell { cursor: default; }
 .pf-rule-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .pf-rule { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .pf-rule small { display: block; color: var(--text-muted); font-size: 12px; }
+
+/* Exam countdown (student home) */
+.exam-countdown { display: flex; align-items: center; gap: 14px; margin: 0 0 18px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); color: var(--text); text-decoration: none; }
+.exam-countdown span { flex: 1; display: grid; gap: 2px; font-weight: 600; }
+.exam-countdown small { font-weight: 500; color: var(--text-muted); font-size: 12px; }
+.exam-countdown .exam-days { display: grid; place-items: center; min-width: 54px; height: 54px; padding: 0 8px; border-radius: 12px; background: var(--soft); color: var(--green); font-size: 24px; font-variant-numeric: tabular-nums; }
+.exam-countdown.soon .exam-days { background: #fbf3e2; color: #8a5d0c; }
+.exam-countdown.empty { border-style: dashed; color: var(--text-muted); }
+.exam-countdown:hover { border-color: var(--green); }
+
+/* Library leaderboard */
+.board-page { display: grid; gap: 4px; }
+.board-join p { margin: 0 0 10px; }
+.board-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.board-name input { flex: 1; min-width: 160px; }
+.board-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; }
+.board-list li { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 6px; border-bottom: 1px solid var(--line); }
+.board-list li.me { background: var(--soft); border-radius: 10px; }
+.board-rank { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--line); font-weight: 700; font-variant-numeric: tabular-nums; }
+.board-rank.r1 { background: #f3d27a; color: #5c4307; }
+.board-rank.r2 { background: #d9dde3; color: #3b434d; }
+.board-rank.r3 { background: #e8b98f; color: #5a3416; }
+.board-time { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--green); }
+.board-mine { margin: 12px 0 0; }
+.buddy-shift { margin-left: 8px; font-size: 10px; vertical-align: middle; }
+.shared-note.hidden-note { opacity: 0.75; border-style: dashed; }

@@ -17,7 +17,7 @@ export async function enrolledExam(userId: Id) {
 }
 
 type AttemptDoc = {
-  _id: Id; userId: Id; kind: string; templateId?: Id; topicId?: Id; day?: string; plan: PlanItem[]; deadline: Date; startedAt: Date; state: string;
+  _id: Id; userId: Id; kind: string; title?: string; templateId?: Id; topicId?: Id; day?: string; plan: PlanItem[]; deadline: Date; startedAt: Date; state: string;
   result?: Record<string, unknown>; autoSubmitted?: boolean; save: () => Promise<unknown>;
 };
 
@@ -60,8 +60,10 @@ export async function finalizeAttempt(attemptId: Id, userId: Id, payload?: { que
   const prior = await TestAttempt.find({ userId, state: "submitted", kind: attempt.kind, ...(attempt.templateId ? { templateId: attempt.templateId } : {}), ...(attempt.topicId ? { topicId: attempt.topicId } : {}), _id: { $ne: attempt._id } }).select("result.percent").lean<{ result?: { percent?: number } }[]>();
   const previousBest = prior.length ? Math.max(...prior.map((p) => p.result?.percent ?? 0)) : null;
   const eligible = scored.attempted * 2 >= attempt.plan.length;
-  const baseXp = attempt.kind === "daily" ? dailyXp(scored.correct, attempt.plan.length) : attempt.kind === "mini" ? miniXp(scored.correct) : eligible ? 20 : 0;
-  const source = `prep:${attempt.kind}:${attempt.kind === "daily" ? attempt.day : attempt.kind === "mini" ? `${attempt.topicId}:${attempt.day}` : attempt.templateId}`;
+  const dailyLike = attempt.kind === "daily" || attempt.kind === "current-affairs";
+  const baseXp = dailyLike ? dailyXp(scored.correct, attempt.plan.length) : attempt.kind === "mini" ? miniXp(scored.correct) : eligible ? 20 : 0;
+  // XP once per day (daily, current affairs), per topic per day (mini), per paper (previous year) or per template.
+  const source = `prep:${attempt.kind}:${dailyLike ? attempt.day : attempt.kind === "mini" ? `${attempt.topicId}:${attempt.day}` : attempt.kind === "pyq" ? attempt.title : attempt.templateId}`;
   let xpGranted = 0;
   if (baseXp > 0) {
     const used = await XPTransaction.aggregate([{ $match: { userId, day: today(), source: /^prep:/ } }, { $group: { _id: null, total: { $sum: "$amount" } } }]);

@@ -7,7 +7,7 @@ import { Ban, Flag, Heart, ShieldCheck, Users } from "lucide-react";
 import { LADDERS, MILESTONE_TYPES, REPORT_REASONS, headline, type MilestoneType } from "@/lib/community";
 
 type Act = (action: string, data: unknown, success: string) => Promise<boolean>;
-type Person = { userId: string; alias: string; sharedGoal?: string };
+type Person = { userId: string; alias: string; sharedGoal?: string; sameShift?: boolean };
 type Profile = { optedIn: boolean; alias: string; ageBand: "adult" | "minor"; consentStatus: string; guardianName: string; lookingForBuddy: boolean; mentorship: string; sharedGoal: string; moderation: string; moderationNote?: string };
 type Hub = { profile: Profile | null; hasExam: boolean; blocks: { userId: string; alias: string }[]; buddies: Person[]; mentors: Person[]; group: { examKey: string; count: number; members: Person[] } | null; links: { _id: string; kind: string; status: string; incoming: boolean; alias: string }[] };
 type Post = { _id: string; alias?: string; headline: string; message: string; visibility: string; createdAt: string; milestoneType?: string; milestoneValue?: number; status?: string };
@@ -73,7 +73,7 @@ function ProfileForm({ data, act }: { data: Hub; act: Act }) {
 
 function PersonCard({ person, label, onRequest, act }: { person: Person; label: string; onRequest: () => void; act: Act }) {
   return (
-    <article className="queue-card"><div><Users /><span><strong>{person.alias}</strong><small>{person.sharedGoal || "No shared goal"}</small></span></div>
+    <article className="queue-card"><div><Users /><span><strong>{person.alias}{person.sameShift && <span className="pill buddy-shift">Same shift</span>}</strong><small>{person.sharedGoal || "No shared goal"}</small></span></div>
       <div className="queue-actions"><button className="button" onClick={onRequest}>{label}</button><button className="button secondary" onClick={() => { if (confirm(`Block ${person.alias}?`)) act("block", { userId: person.userId }, "Member blocked."); }}><Ban /> Block</button></div></article>
   );
 }

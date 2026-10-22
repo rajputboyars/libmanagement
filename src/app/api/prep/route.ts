@@ -1,3 +1,4 @@
+import { libraryClock } from "@/lib/library-hours";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "node:crypto";
@@ -33,6 +34,19 @@ export async function GET(request: NextRequest) {
   const exam = await enrolledExam(user._id);
 
   if (view === "overview") {
+    const caDay = libraryClock(now).date;
+    const [pyqPapers, caCount, caAttempt] = await Promise.all([
+      exam
+        ? Question.aggregate<{ _id: { name: string; year: number }; count: number }>([
+            { $match: { ...publishedFilter(exam.examKey), "source.year": { $exists: true, $ne: null }, "source.name": { $nin: ["", null] } } },
+            { $group: { _id: { name: "$source.name", year: "$source.year" }, count: { $sum: 1 } } },
+            { $sort: { "_id.year": -1, "_id.name": 1 } },
+            { $limit: 40 },
+          ])
+        : [],
+      Question.countDocuments({ active: true, $or: [{ status: "published" }, { status: { $exists: false } }], currentAffairsDate: caDay }),
+      TestAttempt.findOne({ userId: user._id, kind: "current-affairs", day: caDay }).select("state deadline result.correct result.percent result.xpGranted").lean<Lean>(),
+    ]);
     const [templates, active, recent, daily, due, open, dates, xp] = await Promise.all([
       exam ? TestTemplate.find({ examKey: exam.examKey, status: "published" }).sort({ kind: 1, title: 1 }).limit(50).lean<Lean[]>() : [],
       TestAttempt.find({ userId: user._id, state: "in-progress", deadline: { $gt: now } }).select("title kind deadline templateId").lean<Lean[]>(),
@@ -47,6 +61,8 @@ export async function GET(request: NextRequest) {
       exam, templates: templates.map((t) => ({ ...t, sections: (t.sections as { count: number }[]).length, questions: (t.sections as { count: number }[]).reduce((s, x) => s + x.count, 0) })),
       active, recent, daily, flashcardsDue: due, openMistakes: due >= 0 ? open : 0, xpToday: xp[0]?.total || 0,
       dates: dates.map((d) => ({ ...d, status: officialDateStatus(d.lastVerifiedAt, now) })), serverNow: now,
+      pyqPapers: pyqPapers.map((x) => ({ name: x._id.name, year: x._id.year, questions: x.count })),
+      currentAffairs: { date: caDay, questions: caCount, attempt: caAttempt },
     });
   }
 
@@ -254,6 +270,31 @@ export async function POST(request: NextRequest) {
         const a = await create({ kind: "daily", day, title: `Daily practice · ${day}`, plan: [...plan, ...rest], deadline: new Date(now.getTime() + 20 * 60000) });
         return NextResponse.json(startPayload(a));
       }
+      case "pyq-start": {
+        const v = z.object({ name: z.string().trim().min(1).max(120), year: z.number().int().min(1950).max(2100) }).parse(body.data);
+        const title = `${v.name} ${v.year} (previous year)`;
+        const live = await TestAttempt.findOne({ userId: user._id, kind: "pyq", title, state: "in-progress" });
+        if (live) {
+          if (acceptsAnswers(live.deadline, now)) return NextResponse.json({ ...startPayload(live), resumed: true });
+          await finalizeAttempt(live._id, user._id);
+        }
+        // The paper in its original order (questions are entered in order), up to 200.
+        const qs = await Question.find(publishedFilter(needExam().examKey, { "source.name": v.name, "source.year": v.year })).sort({ createdAt: 1 }).select("_id").limit(200).lean<{ _id: unknown }[]>();
+        if (!qs.length) throw new Error("This paper has no published questions yet");
+        const plan: PlanItem[] = qs.map((q) => ({ questionId: String(q._id), section: `${v.name} ${v.year}`, marks: 1, negative: 0 }));
+        const a = await create({ kind: "pyq", title, plan, deadline: new Date(now.getTime() + Math.max(10, Math.ceil(qs.length * 1.2)) * 60000) });
+        return NextResponse.json(startPayload(a));
+      }
+      case "ca-start": {
+        const day = libraryClock(now).date;
+        const existing = await TestAttempt.findOne({ userId: user._id, kind: "current-affairs", day });
+        if (existing) return NextResponse.json({ ...startPayload(existing), resumed: true, state: existing.state });
+        const pool = await Question.find({ active: true, $or: [{ status: "published" }, { status: { $exists: false } }], currentAffairsDate: day }).select("_id").limit(50).lean<{ _id: unknown }[]>();
+        if (!pool.length) throw new Error("Today's current affairs quiz isn't ready yet. Check back later.");
+        const ids = seededOrder(pool.map((q) => String(q._id)), `${user._id}:${day}:ca`).slice(0, 10);
+        const a = await create({ kind: "current-affairs", day, title: `Current affairs · ${day}`, plan: ids.map((questionId) => ({ questionId, section: "Current affairs", marks: 1, negative: 0 })), deadline: new Date(now.getTime() + 10 * 60000) });
+        return NextResponse.json(startPayload(a));
+      }
       case "mini-start": {
         const v = z.object({ topicId: objectId }).parse(body.data);
         if (!await SyllabusNode.exists({ _id: v.topicId, examKey: needExam().examKey, type: "topic", active: true })) throw new Error("Topic not found in your exam");
@@ -355,6 +396,20 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, record: rec });
       }
       case "note-bookmark": { const v = z.object({ id: objectId, bookmarked: z.boolean() }).parse(body.data); const r = await StudentNote.findOneAndUpdate({ _id: v.id, userId: user._id }, { bookmarked: v.bookmarked }, { new: true }); if (!r) throw new Error("Note not found"); return NextResponse.json({ ok: true }); }
+      case "note-share": {
+        const v = z.object({ id: objectId, shared: z.boolean() }).parse(body.data);
+        if (v.shared && !user.libraryId) throw new Error("Join a library to share notes with it");
+        const r = await StudentNote.findOneAndUpdate(
+          { _id: v.id, userId: user._id },
+          v.shared
+            ? { $set: { shared: true, sharedAt: new Date(), libraryId: user.libraryId, authorName: user.name.split(" ")[0] } }
+            : { $set: { shared: false } },
+          { new: true },
+        );
+        if (!r) throw new Error("Note not found");
+        if (v.shared && r.moderation === "hidden") throw new Error("Your library hid this note, so classmates can't see it.");
+        return NextResponse.json({ ok: true, record: r });
+      }
       case "note-delete": { const v = z.object({ id: objectId }).parse(body.data); await StudentNote.deleteOne({ _id: v.id, userId: user._id }); return NextResponse.json({ ok: true }); }
       case "goal-save": { const v = z.object({ title: z.string().trim().min(2).max(120), targetDate: z.iso.datetime().optional() }).parse(body.data); if (await ExamGoal.countDocuments({ userId: user._id, done: false }) >= 30) throw new Error("Finish some goals before adding more"); return NextResponse.json({ ok: true, record: await ExamGoal.create({ userId: user._id, title: v.title, targetDate: v.targetDate ? new Date(v.targetDate) : undefined }) }); }
       case "goal-toggle": { const v = z.object({ id: objectId, done: z.boolean() }).parse(body.data); const r = await ExamGoal.findOneAndUpdate({ _id: v.id, userId: user._id }, { done: v.done, doneAt: v.done ? now : undefined }, { new: true }); if (!r) throw new Error("Goal not found"); return NextResponse.json({ ok: true }); }
