@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { StudentWeeklyReport } from "@/components/weekly-report";
+import { PushToggle } from "@/components/push-toggle";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUI } from "@/lib/ui-store";
 import { PublicPage } from "@/components/site";
@@ -1059,6 +1060,7 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
             Take a rest day
           </button>
         </section>
+        {!preview && <PushToggle notify={notify} />}
       </>
     );
   if (path === "/app/focus")
@@ -2691,6 +2693,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
               notify={notify}
             />
           )}
+          {!preview && <PushToggle notify={notify} />}
         </>
       ) : (
         <section className="card table-card">

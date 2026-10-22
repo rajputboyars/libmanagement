@@ -5,9 +5,11 @@ export function model(
   name: string,
   fields: SchemaDefinition,
   indexes: [Record<string, 1 | -1>, Record<string, unknown>][] = [],
+  setup?: (schema: Schema) => void,
 ) {
   const schema = new Schema(fields, { timestamps: true, strict: "throw" });
   for (const [keys, options] of indexes) schema.index(keys, options);
+  setup?.(schema);
   return mongoose.models[name] || mongoose.model(name, schema);
 }
 export const User = model("User", {
@@ -167,13 +169,36 @@ export const XPTransaction = model(
     [{ userId: 1, day: 1 }, {}],
   ],
 );
-export const Notification = model("Notification", {
-  libraryId: id,
-  userId: id,
-  title: String,
-  message: String,
-  read: { type: Boolean, default: false },
-});
+export const Notification = model(
+  "Notification",
+  {
+    libraryId: id,
+    userId: id,
+    title: String,
+    message: String,
+    read: { type: Boolean, default: false },
+  },
+  [],
+  (schema) => {
+    // Every new notification is also sent to the recipient's phone (web push), without slowing the request.
+    schema.pre("save", function () {
+      this.$locals.wasNew = this.isNew;
+    });
+    schema.post("save", function (doc) {
+      if (!doc.$locals.wasNew) return;
+      void import("./push")
+        .then((m) =>
+          m.pushForNotification({
+            userId: doc.get("userId"),
+            libraryId: doc.get("libraryId"),
+            title: String(doc.get("title") ?? ""),
+            message: String(doc.get("message") ?? ""),
+          }),
+        )
+        .catch(() => {});
+    });
+  },
+);
 export const Expense = model("Expense", {
   ...tenant,
   title: String,
@@ -828,4 +853,14 @@ export const ReportShare = model(
     expiresAt: { type: Date, required: true },
   },
   [[{ expiresAt: 1 }, { expireAfterSeconds: 0 }]],
+);
+/** A phone/browser registered for web push notifications. One endpoint belongs to one browser. */
+export const PushSubscription = model(
+  "PushSubscription",
+  {
+    userId: { type: id, required: true, index: true },
+    endpoint: { type: String, required: true, unique: true },
+    keys: { _id: false, p256dh: { type: String, required: true }, auth: { type: String, required: true } },
+    userAgent: { type: String, default: "" },
+  },
 );
