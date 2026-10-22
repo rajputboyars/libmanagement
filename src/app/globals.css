@@ -4164,3 +4164,4 @@ span.pf-cell { cursor: default; }
 .board-rank.r3 { background: #e8b98f; color: #5a3416; }
 .board-time { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--green); }
 .board-mine { margin: 12px 0 0; }
+.buddy-shift { margin-left: 8px; font-size: 10px; vertical-align: middle; }

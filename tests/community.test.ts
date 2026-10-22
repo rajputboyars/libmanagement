@@ -32,3 +32,8 @@ describe("Community safety rules", () => {
     assert.equal(xml(`<a href="x">&'`), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
   });
 });
+
+it("buddy score prefers students in the same shift", () => {
+  const base = { userId: "x", examKey: "ssc", weeklyMinutes: 600, sharedSubjects: 1 };
+  assert.equal(buddyScore({ weeklyMinutes: 600 }, { ...base, sameShift: true }) - buddyScore({ weeklyMinutes: 600 }, base), 25);
+});
