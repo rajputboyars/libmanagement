@@ -48,28 +48,28 @@ const schemas = {
   }),
   shifts: z
     .object({
-      name: z.string().min(1),
+      name: z.string().trim().min(1).max(60),
       start: z.number().int().min(0).max(1439),
       end: z.number().int().min(1).max(1440),
     })
     .refine((x) => x.end > x.start, "End must follow start"),
   plans: z.object({
-    name: z.string().min(1),
+    name: z.string().trim().min(1).max(80),
     amount: z.number().int().min(0),
     days: z.number().int().min(1).max(365),
   }),
   expenses: z.object({
-    title: z.string().min(1),
+    title: z.string().trim().min(1).max(120),
     amount: z.number().int().positive(),
-    category: z.string(),
+    category: z.string().trim().max(40),
     date: z.iso.datetime(),
   }),
   complaints: z.object({
-    title: z.string().min(1),
+    title: z.string().trim().min(1).max(120),
     message: z.string().min(5).max(2000),
   }),
   notifications: z.object({
-    title: z.string().min(1),
+    title: z.string().trim().min(1).max(120),
     message: z.string().min(1).max(2000),
   }),
 };
@@ -622,7 +622,8 @@ export async function POST(req: NextRequest) {
             !member ||
             member.role === "owner" ||
             member.role === "super-admin" ||
-            (member.libraryId && String(member.libraryId) !== String(libraryId))
+            // Only people who already joined this library (their own choice) can be made staff.
+            String(member.libraryId ?? "") !== String(libraryId)
           )
             throw new Error(
               "Use an eligible registered account from this library",
@@ -713,9 +714,9 @@ export async function POST(req: NextRequest) {
               planId: objectId,
               seatId: objectId,
               start: z.iso.datetime(),
-              shiftStart: z.number().min(0).max(1439),
-              shiftEnd: z.number().min(1).max(1440),
-              discount: z.number().min(0).default(0),
+              shiftStart: z.number().int().min(0).max(1439),
+              shiftEnd: z.number().int().min(1).max(1440),
+              discount: z.number().int().min(0).default(0),
             })
             .parse(body.data);
           if (data.shiftEnd <= data.shiftStart)

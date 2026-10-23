@@ -185,7 +185,9 @@ export async function POST(request: NextRequest) {
     } else if (action === "partner-invite") {
       const email = z.email().parse(String(d.email ?? "").toLowerCase().trim());
       const other = await User.findOne({ email, role: "student", deletedAt: { $exists: false } }).select("_id name").lean<{ _id: unknown; name: string }>();
-      if (!other || String(other._id) === String(user._id)) throw new Error("No other student account with that email");
+      if (other && String(other._id) === String(user._id)) throw new Error("You cannot invite yourself");
+      // Same reply whether or not the email exists, so this cannot be used to look up accounts.
+      if (!other) return NextResponse.json({ ok: true });
       if ((await StudyPartner.countDocuments({ $or: [{ a: user._id }, { b: user._id }], status: { $in: ["pending", "accepted"] } })) >= 3) throw new Error("You can have up to 3 study partners");
       await StudyPartner.updateOne({ pairKey: pairKey(user._id, other._id) }, { $set: { a: user._id, b: other._id, status: "pending" } }, { upsert: true });
       await Notification.create({ userId: other._id, title: "Study partner request", message: `${user.name.split(" ")[0]} wants to be your study partner. Open Study partner to accept.` });
