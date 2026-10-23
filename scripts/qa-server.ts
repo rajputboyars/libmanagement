@@ -20,6 +20,8 @@ async function main() {
   const student = await reg("student@qa.in", "student");
   const post = (cookie: string, path: string, action: string, data: unknown) => fetch(base + path, { method: "POST", headers: { cookie: `sq-session=${cookie}`, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action, data }) });
   await post(owner, "/api/workspace", "students", { email: "student@qa.in", name: "Demo Person" });
+  const invite = (await (await fetch(base + "/api/join", { headers: { cookie: `sq-session=${student}` } })).json()).requests.find((r: { status: string }) => r.status === "pending");
+  await post(student, "/api/join", "invite-accept", { id: invite._id });
   await post(owner, "/api/onboarding", "seats", { prefix: "A", count: 40 });
   await post(owner, "/api/onboarding", "shifts", { items: [{ name: "Morning", start: 360, end: 720 }] });
   await post(owner, "/api/onboarding", "fees", { items: [{ name: "Monthly", rupees: 1200, days: 30 }] });

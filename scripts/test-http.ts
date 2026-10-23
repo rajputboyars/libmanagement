@@ -84,15 +84,21 @@ async function main() {
       assert.equal(response.status, status, JSON.stringify(body));
       return body;
     }
+    // Owner invites by email; the student joins only after accepting.
+    const invite = async (ownerCookie: string, studentCookie: string, name: string, email: string) => {
+      const sent = await fetch(base + "/api/workspace", { method: "POST", headers: { cookie: ownerCookie, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action: "students", data: { name, email } }) });
+      assert.equal(sent.status, 200, await sent.text());
+      const mine = await (await fetch(base + "/api/join", { headers: { cookie: studentCookie } })).json();
+      const pending = mine.requests.find((r: { status: string; invitedBy?: string }) => r.status === "pending" && r.invitedBy);
+      const ok = await fetch(base + "/api/join", { method: "POST", headers: { cookie: studentCookie, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action: "invite-accept", data: { id: pending._id } }) });
+      assert.equal(ok.status, 200, await ok.text());
+    };
     const owner = await account("owner", "owner@example.invalid");
     const other = await account("owner", "other@example.invalid");
     const student = await account("student", "student@example.invalid");
     assert.equal((await fetch(base + "/api/workspace")).status, 401);
     await post(student, "seats", { label: "Forbidden", floor: "Ground" }, 403);
-    await post(owner, "students", {
-      name: "Student",
-      email: "student@example.invalid",
-    });
+    await invite(owner, student, "Student", "student@example.invalid");
     await post(owner, "seats", { label: "A1", floor: "Ground" });
     await post(owner, "plans", { name: "Monthly", amount: 100000, days: 30 });
     let state = await get(owner);
@@ -187,6 +193,8 @@ async function main() {
     );
     assert.equal(listing.status, 200);
     const staff = await account("student", "staff@example.invalid");
+    // Staff must first join the library themselves (accepting an invite), then the owner gives a permission.
+    await invite(owner, staff, "Staff", "staff@example.invalid");
     await post(owner, "staff", {
       email: "staff@example.invalid",
       permission: "attendance",
@@ -271,7 +279,7 @@ async function main() {
     }
     const getJson = async (path: string, cookie: string) => (await fetch(base + path, { headers: { cookie } })).json();
     const minor = await account("student", "minor@example.invalid");
-    await post(owner, "students", { name: "Minor", email: "minor@example.invalid" });
+    await invite(owner, minor, "Minor", "minor@example.invalid");
     const studentId = study.user._id;
     const community = (cookie: string, action: string, data: unknown = {}, status = 200) => api("/api/community", cookie, action, data, status);
     const adultProfile = { optedIn: true, alias: "Comet", ageBand: "adult", lookingForBuddy: true, sharedGoal: "Finish quant by December" };
@@ -819,7 +827,7 @@ async function main() {
     const del = (password: string, confirm = "DELETE") => send("/api/privacy", { action: "delete-account", password, confirm }, { cookie: privCookie, Origin: base });
     assert.equal((await del("not-the-password")).status, 400);
     assert.equal((await del(newPassword, "nope")).status, 400);
-    await post(owner, "students", { name: "Victim", email: "victim@example.invalid" });
+    await invite(owner, privCookie, "Victim", "victim@example.invalid");
     const victimMembershipId = new (await import("mongoose")).default.Types.ObjectId();
     await MembershipDoc.create({ _id: victimMembershipId, libraryId: ctx.activeBranchId, userId: victimUser!._id, start: new Date(), end: new Date(Date.now() + 86400000), amount: 100000, paid: 40000 });
     await PaymentDoc.create({ libraryId: ctx.activeBranchId, membershipId: victimMembershipId, userId: victimUser!._id, amount: 40000, method: "cash", key: "victim-pay", receipt: "R-V" });
@@ -832,8 +840,8 @@ async function main() {
     assert.equal(await NotificationModel.countDocuments({ userId: victimUser!._id }), 0, "personal data is erased");
 
     // concurrency: seat double-booking, repeated reward requests, duplicate payment events
-    const racer1 = await account("student", "race1@example.invalid"); await account("student", "race2@example.invalid");
-    await post(owner, "students", { name: "Racer One", email: "race1@example.invalid" }); await post(owner, "students", { name: "Racer Two", email: "race2@example.invalid" });
+    const racer1 = await account("student", "race1@example.invalid"); const racer2 = await account("student", "race2@example.invalid");
+    await invite(owner, racer1, "Racer One", "race1@example.invalid"); await invite(owner, racer2, "Racer Two", "race2@example.invalid");
     await post(owner, "seats", { label: "RACE1", floor: "G" });
     const raceState = await get(owner);
     const raceSeat = raceState.seats.find((s: { label: string }) => s.label === "RACE1")._id;

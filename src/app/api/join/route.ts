@@ -14,6 +14,26 @@ const objectId = z.string().regex(/^[a-f\d]{24}$/i);
 const err = (message: string, status = 400, code?: string) => NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
 type Lean = Record<string, unknown> & { _id: unknown };
 
+type JoinDoc = InstanceType<typeof JoinRequest>;
+/** Links the student to the request's library and marks the request approved, in one transaction. */
+async function linkStudent(req: JoinDoc, decidedBy: unknown, message: string) {
+  const libraryId = req.libraryId;
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const student = await User.findOne({ _id: req.userId, role: "student" }).session(session);
+      if (!student || student.deletedAt) throw new Error("This student account is no longer available");
+      if (student.libraryId && String(student.libraryId) !== String(libraryId)) throw new Error("This student already belongs to another library");
+      student.libraryId = libraryId as never;
+      await student.save({ session });
+      await StudentProfile.updateOne({ userId: student._id }, { libraryId }, { session });
+      req.status = "approved"; req.decidedBy = decidedBy as never; req.decidedAt = new Date();
+      await req.save({ session });
+      await Notification.create([{ userId: student._id, libraryId, title: "Library membership verified", message }], { session });
+    });
+  } finally { await session.endSession(); }
+}
+
 /** Owners always; staff only with the students permission. */
 async function team(user: { _id: unknown; role: string; libraryId?: unknown }) {
   if (user.role === "owner" && user.libraryId) return true;
@@ -71,6 +91,20 @@ export async function POST(request: NextRequest) {
       const record = await createJoinRequest(user._id, v.code, v.message);
       return NextResponse.json({ ok: true, record });
     }
+    if (body.action === "invite-accept" || body.action === "invite-decline") {
+      if (user.role !== "student") throw new Error("Student access required");
+      const v = z.object({ id: objectId }).parse(body.data);
+      const invite = await JoinRequest.findOne({ _id: v.id, userId: user._id, status: "pending", invitedBy: { $exists: true } });
+      if (!invite) throw new Error("Invite not found");
+      if (body.action === "invite-decline") {
+        invite.status = "rejected"; invite.decidedBy = user._id as never; invite.decidedAt = new Date(); await invite.save();
+        return NextResponse.json({ ok: true });
+      }
+      await assertWritable(invite.libraryId);
+      await requireStudentRoom(invite.libraryId);
+      await linkStudent(invite, user._id, "Welcome! You joined the library. They will allot your seat soon.");
+      return NextResponse.json({ ok: true });
+    }
     if (body.action === "cancel") {
       if (user.role !== "student") throw new Error("Student access required");
       const v = z.object({ id: objectId }).parse(body.data);
@@ -86,26 +120,19 @@ export async function POST(request: NextRequest) {
       const v = z.object({ id: objectId, note: z.string().trim().max(300).default("") }).parse(body.data);
       const req = await JoinRequest.findOne({ _id: v.id, libraryId, status: "pending" });
       if (!req) throw new Error("Pending request not found");
+      if (req.invitedBy && body.action === "approve") throw new Error("The student has to accept this invite themselves");
+      if (req.invitedBy) {
+        req.status = "cancelled"; req.decidedBy = user._id as never; req.decidedAt = new Date(); await req.save();
+        return NextResponse.json({ ok: true, record: req });
+      }
       if (body.action === "reject") {
         req.status = "rejected"; req.note = v.note; req.decidedBy = user._id as never; req.decidedAt = new Date(); await req.save();
         await Notification.create({ userId: req.userId, title: "Library request not approved", message: v.note ? `The library could not approve your request: ${v.note}` : "The library could not approve your request. Please check your Library ID with the desk." });
       } else {
         await assertWritable(libraryId);
         await requireStudentRoom(libraryId);
-        const session = await mongoose.startSession();
-        try {
-          await session.withTransaction(async () => {
-            const student = await User.findOne({ _id: req.userId, role: "student" }).session(session);
-            if (!student || student.deletedAt) throw new Error("This student account is no longer available");
-            if (student.libraryId && String(student.libraryId) !== String(libraryId)) throw new Error("This student already belongs to another library");
-            student.libraryId = libraryId as never;
-            await student.save({ session });
-            await StudentProfile.updateOne({ userId: student._id }, { libraryId }, { session });
-            req.status = "approved"; req.note = v.note; req.decidedBy = user._id as never; req.decidedAt = new Date();
-            await req.save({ session });
-            await Notification.create([{ userId: student._id, libraryId, title: "Library membership verified", message: "Your library verified your registration. They will allot your seat; once it is active you can punch in and out from the app." }], { session });
-          });
-        } finally { await session.endSession(); }
+        req.note = v.note;
+        await linkStudent(req, user._id, "Your library verified your registration. They will allot your seat; once it is active you can punch in and out from the app.");
       }
       const orgId = await ensureOrganizationForLibrary(libraryId);
       await audit({ organizationId: orgId as never, actorId: user._id, actorRole: user.role, action: `join.${body.action}`, targetType: "user", targetId: String(req.userId) });

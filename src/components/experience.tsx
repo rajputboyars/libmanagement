@@ -2984,7 +2984,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
             if (action === "payments" || action === "renew")
               data.key = crypto.randomUUID();
             await mutate(action, data);
-            notify("Record saved");
+            notify(action === "students" ? "Invite sent. The student joins after accepting it." : "Record saved");
             setModal(false);
           }}
         />

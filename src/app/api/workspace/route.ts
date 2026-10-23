@@ -29,6 +29,7 @@ import {
   ExamCatalog,
 } from "@/lib/models";
 import { punchIn } from "@/lib/punch";
+import { JoinRequest } from "@/lib/ops-models";
 import { nudgePartners } from "@/lib/partner-nudge";
 import { studentAccessFor } from "@/lib/student-access-server";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
@@ -662,14 +663,22 @@ export async function POST(req: NextRequest) {
           }).session(session);
           if (!student)
             throw new Error("Student must first register a StudyQuest account");
-          if (
-            student.libraryId &&
-            String(student.libraryId) !== String(libraryId)
-          )
+          if (String(student.libraryId ?? "") === String(libraryId))
+            throw new Error("This student is already in your library");
+          if (student.libraryId)
             throw new Error("Student belongs to another library");
-          student.libraryId = libraryId;
-          await student.save({ session });
-          record = student;
+          // The student joins only after accepting this invite.
+          if (await JoinRequest.exists({ userId: student._id, status: "pending" }).session(session))
+            throw new Error("This student already has a pending library request or invite");
+          [record] = await JoinRequest.create(
+            [{ libraryId, userId: student._id, invitedBy: user._id, message: data.name }],
+            { session },
+          );
+          const library = await Library.findById(libraryId).select("name").session(session).lean<{ name: string }>();
+          await Notification.create(
+            [{ userId: student._id, title: "Library invite", message: `${library?.name ?? "A library"} invited you to join. Open My library to accept or decline.` }],
+            { session },
+          );
         } else if (action === "payments") {
           const data = z
             .object({
