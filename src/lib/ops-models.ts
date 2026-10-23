@@ -45,6 +45,8 @@ export const JoinRequest = model(
     note: { type: String, default: "", trim: true, maxlength: 300 },
     decidedBy: id,
     decidedAt: Date,
+    // Set when the library invited the student; the student must accept before joining.
+    invitedBy: id,
   },
   [
     [{ libraryId: 1, status: 1, createdAt: -1 }, {}],

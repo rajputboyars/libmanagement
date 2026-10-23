@@ -297,7 +297,7 @@ export function StudyPartnerPage({ notify }: Notify) {
           </li>
         ))}
       </ul>
-      <form className="ss-goal-form" onSubmit={async (e) => { e.preventDefault(); const form = e.currentTarget; if (await save("partner-invite", { email: new FormData(form).get("email") }, "Request bheji")) form.reset(); }}>
+      <form className="ss-goal-form" onSubmit={async (e) => { e.preventDefault(); const form = e.currentTarget; if (await save("partner-invite", { email: new FormData(form).get("email") }, "Agar ye email kisi student ka hai, to unhe request mil jayegi")) form.reset(); }}>
         <input name="email" type="email" required placeholder="Dost ka StudyQuest email" />
         <button className="button">Invite</button>
       </form>

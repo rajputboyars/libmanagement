@@ -68,6 +68,10 @@ export function StudentJoin({ notify }: { notify: (m: string) => void }) {
   if (q.isLoading) return <Skeleton />;
   if (q.isError || !q.data) return <Empty title="Could not load" text={q.error instanceof Error ? q.error.message : "Try again."} />;
   const d = q.data, pending = (d.requests as Json[]).find((r) => r.status === "pending");
+  async function answer(action: "invite-accept" | "invite-decline") {
+    try { await post("/api/join", action, { id: pending!._id }); notify(action === "invite-accept" ? "You joined the library." : "Invite declined."); await qc.invalidateQueries({ queryKey: ["join"] }); await qc.invalidateQueries({ queryKey: ["workspace"] }); }
+    catch (e) { notify(e instanceof Error ? e.message : "Unable to update"); }
+  }
   async function lookup(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setError(""); setPreview(null); setBusy(true);
     try { const r = await getJson(`/api/join?code=${encodeURIComponent(code)}`); setPreview(r); } catch (err) { setError(err instanceof Error ? err.message : "Lookup failed"); } finally { setBusy(false); }
@@ -83,6 +87,9 @@ export function StudentJoin({ notify }: { notify: (m: string) => void }) {
       <JoinQuest requested={!!pending} linked={!!d.linked} />
       {d.linked ? (
         <section className="weekly-card"><div className="section-label"><span><ShieldCheck size={14} /> Verified</span></div><h2>{d.linked.name}</h2><p>{d.linked.city}{d.linked.code ? ` · ${d.linked.code}` : ""}</p><p className="pr-hint">Once your library allots a seat and activates your membership you can punch in and out from <strong>Punch in / out</strong>.</p></section>
+      ) : pending?.invitedBy ? (
+        <section className="weekly-card" role="status"><div className="section-label"><span>Library invite</span><span className="mt-pill">new</span></div><h2>{pending.library?.name ?? "A library"} invited you</h2><p>Accept karne par aap is library se jud jaoge. Owner aapki attendance, fees aur seat manage kar payega.</p>
+          <div className="queue-actions"><button className="button" onClick={() => answer("invite-accept")}>Accept</button><button className="button secondary" onClick={() => answer("invite-decline")}>Decline</button></div></section>
       ) : pending ? (
         <section className="weekly-card" role="status"><div className="section-label"><span>Waiting for verification</span><span className="mt-pill">pending</span></div><h2>{pending.library?.name ?? "Your library"}</h2><p>Sent {new Date(pending.createdAt).toLocaleString("en-IN")}. You will get a notification when the owner decides.</p>
           <button className="button secondary" onClick={async () => { try { await post("/api/join", "cancel", { id: pending._id }); notify("Request cancelled."); await qc.invalidateQueries({ queryKey: ["join"] }); } catch (e) { notify(e instanceof Error ? e.message : "Unable to cancel"); } }}>Cancel request</button></section>
@@ -187,7 +194,9 @@ export function OwnerJoinRequests({ notify }: { notify: (m: string) => void }) {
       <div className="mt-list">{(d.requests as Json[]).map((r) => (
         <article className="queue-card" key={r._id}>
           <div><Users /><span><strong>{r.student?.name ?? "Student"}</strong><small>{r.student?.email} · {new Date(r.createdAt).toLocaleString("en-IN")}</small>{r.message && <small>“{r.message}”</small>}{r.note && <small>Note: {r.note}</small>}</span></div>
-          {r.status === "pending" ? (
+          {r.status === "pending" && r.invitedBy ? (
+            <div className="queue-actions"><span className="mt-pill">Invite sent · waiting for student</span><button className="button secondary" onClick={async () => { try { await post("/api/join", "reject", { id: r._id }); notify("Invite withdrawn."); await refresh(); } catch (e) { notify(e instanceof Error ? e.message : "Unable to withdraw"); } }}>Withdraw invite</button></div>
+          ) : r.status === "pending" ? (
             <>
               <div className="queue-actions"><button className="button" onClick={() => setOpen(open === r._id ? "" : r._id)}>Approve &amp; allot seat</button><button className="button secondary" onClick={() => approve(r)}>Approve only</button><button className="button secondary" onClick={() => reject(r)}>Reject</button></div>
               {open === r._id && (

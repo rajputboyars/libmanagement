@@ -2,18 +2,24 @@
 
 import { BrandLoader } from "@/components/brand-loader";
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
+import { PublicHeader } from "@/components/site";
 
 /**
  * Route-level code splitting. These screens are only needed after sign-in or on specific routes, so they are loaded on
  * demand instead of shipping inside the first bundle of every public page.
  */
 const Skeleton = () => <BrandLoader compact text="Loading…" />;
+// Public pages keep the site header visible while their chunk loads.
+function PublicSkeleton() {
+  return <div className="public"><PublicHeader path={usePathname()} /><main className="public-shell-main"><BrandLoader compact text="Loading…" /></main></div>;
+}
 
 export const Phase2Experience = dynamic(() => import("./phase2").then((m) => m.Phase2Experience), { loading: Skeleton });
 export const LearningIntelligence = dynamic(() => import("./learning-intelligence").then((m) => m.LearningIntelligence), { loading: Skeleton });
 export const DoubtSolver = dynamic(() => import("./doubt-solver").then((m) => m.DoubtSolver), { loading: Skeleton });
 export const RewardsMarketplace = dynamic(() => import("./rewards-marketplace").then((m) => m.RewardsMarketplace), { loading: Skeleton });
-export const LibraryDiscovery = dynamic(() => import("./library-discovery").then((m) => m.LibraryDiscovery), { loading: Skeleton });
+export const LibraryDiscovery = dynamic(() => import("./library-discovery").then((m) => m.LibraryDiscovery), { loading: PublicSkeleton });
 export const Maintenance = dynamic(() => import("./maintenance").then((m) => m.Maintenance), { loading: Skeleton });
 export const ExamPrep = dynamic(() => import("./prep").then((m) => m.ExamPrep), { loading: Skeleton });
 export const TestResult = dynamic(() => import("./prep-test").then((m) => m.TestResult), { loading: Skeleton });
@@ -34,9 +40,9 @@ export const ForgotPassword = dynamic(() => import("./account").then((m) => m.Fo
 export const ResetPassword = dynamic(() => import("./account").then((m) => m.ResetPassword), { loading: Skeleton });
 export const Community = dynamic(() => import("./community").then((m) => m.Community), { loading: Skeleton });
 export const CommunityModeration = dynamic(() => import("./community").then((m) => m.CommunityModeration), { loading: Skeleton });
-export const DemoPage = dynamic(() => import("./saas-public").then((m) => m.DemoPage), { loading: Skeleton });
+export const DemoPage = dynamic(() => import("./saas-public").then((m) => m.DemoPage), { loading: PublicSkeleton });
 export const SandboxCheckout = dynamic(() => import("./saas-public").then((m) => m.SandboxCheckout), { loading: Skeleton });
-export const SaasPricing = dynamic(() => import("./saas-public").then((m) => m.SaasPricing), { loading: Skeleton });
+export const SaasPricing = dynamic(() => import("./saas-public").then((m) => m.SaasPricing), { loading: PublicSkeleton });
 export const Auth = dynamic(() => import("./auth").then((m) => m.Auth), { loading: Skeleton });
 export const StudentJoin = dynamic(() => import("./join").then((m) => m.StudentJoin), { loading: Skeleton });
 export const StudentPunch = dynamic(() => import("./join").then((m) => m.StudentPunch), { loading: Skeleton });

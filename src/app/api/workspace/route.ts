@@ -29,6 +29,7 @@ import {
   ExamCatalog,
 } from "@/lib/models";
 import { punchIn } from "@/lib/punch";
+import { JoinRequest } from "@/lib/ops-models";
 import { nudgePartners } from "@/lib/partner-nudge";
 import { studentAccessFor } from "@/lib/student-access-server";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
@@ -48,28 +49,28 @@ const schemas = {
   }),
   shifts: z
     .object({
-      name: z.string().min(1),
+      name: z.string().trim().min(1).max(60),
       start: z.number().int().min(0).max(1439),
       end: z.number().int().min(1).max(1440),
     })
     .refine((x) => x.end > x.start, "End must follow start"),
   plans: z.object({
-    name: z.string().min(1),
+    name: z.string().trim().min(1).max(80),
     amount: z.number().int().min(0),
     days: z.number().int().min(1).max(365),
   }),
   expenses: z.object({
-    title: z.string().min(1),
+    title: z.string().trim().min(1).max(120),
     amount: z.number().int().positive(),
-    category: z.string(),
+    category: z.string().trim().max(40),
     date: z.iso.datetime(),
   }),
   complaints: z.object({
-    title: z.string().min(1),
+    title: z.string().trim().min(1).max(120),
     message: z.string().min(5).max(2000),
   }),
   notifications: z.object({
-    title: z.string().min(1),
+    title: z.string().trim().min(1).max(120),
     message: z.string().min(1).max(2000),
   }),
 };
@@ -622,7 +623,8 @@ export async function POST(req: NextRequest) {
             !member ||
             member.role === "owner" ||
             member.role === "super-admin" ||
-            (member.libraryId && String(member.libraryId) !== String(libraryId))
+            // Only people who already joined this library (their own choice) can be made staff.
+            String(member.libraryId ?? "") !== String(libraryId)
           )
             throw new Error(
               "Use an eligible registered account from this library",
@@ -661,14 +663,22 @@ export async function POST(req: NextRequest) {
           }).session(session);
           if (!student)
             throw new Error("Student must first register a StudyQuest account");
-          if (
-            student.libraryId &&
-            String(student.libraryId) !== String(libraryId)
-          )
+          if (String(student.libraryId ?? "") === String(libraryId))
+            throw new Error("This student is already in your library");
+          if (student.libraryId)
             throw new Error("Student belongs to another library");
-          student.libraryId = libraryId;
-          await student.save({ session });
-          record = student;
+          // The student joins only after accepting this invite.
+          if (await JoinRequest.exists({ userId: student._id, status: "pending" }).session(session))
+            throw new Error("This student already has a pending library request or invite");
+          [record] = await JoinRequest.create(
+            [{ libraryId, userId: student._id, invitedBy: user._id, message: data.name }],
+            { session },
+          );
+          const library = await Library.findById(libraryId).select("name").session(session).lean<{ name: string }>();
+          await Notification.create(
+            [{ userId: student._id, title: "Library invite", message: `${library?.name ?? "A library"} invited you to join. Open My library to accept or decline.` }],
+            { session },
+          );
         } else if (action === "payments") {
           const data = z
             .object({
@@ -713,9 +723,9 @@ export async function POST(req: NextRequest) {
               planId: objectId,
               seatId: objectId,
               start: z.iso.datetime(),
-              shiftStart: z.number().min(0).max(1439),
-              shiftEnd: z.number().min(1).max(1440),
-              discount: z.number().min(0).default(0),
+              shiftStart: z.number().int().min(0).max(1439),
+              shiftEnd: z.number().int().min(1).max(1440),
+              discount: z.number().int().min(0).default(0),
             })
             .parse(body.data);
           if (data.shiftEnd <= data.shiftStart)
