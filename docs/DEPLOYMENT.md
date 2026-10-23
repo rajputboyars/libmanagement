@@ -51,7 +51,7 @@ docker run --env-file prod.env studyquest-worker
 ## 4. Background worker
 
 One or more worker processes run all idempotent jobs every `JOB_INTERVAL_MINUTES` (default 15): membership expiry, fee-due and revision reminders, trial and billing reminders, notification retries, billing reconciliation and weekly reports. A shared lock prevents duplicated work; running two workers is safe.
-Alternative: schedule `POST /api/jobs/run` with header `x-cron-secret: $CRON_SECRET` every 15 minutes.
+On Vercel, `vercel.json` runs the jobs daily at 08:00 IST via Vercel Cron (`GET /api/jobs/run` with `Authorization: Bearer $CRON_SECRET`, sent by Vercel when `CRON_SECRET` is set). Elsewhere, schedule `POST /api/jobs/run` with header `x-cron-secret: $CRON_SECRET` every 15 minutes.
 `/api/ready` reports `degraded` if no job has succeeded within `JOBS_MAX_AGE_HOURS` (default 26).
 
 ## 5. Payment gateway setup (Razorpay)
