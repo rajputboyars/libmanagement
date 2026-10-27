@@ -2,7 +2,11 @@ node_modules
 .next
 .git
 .env*
+*.env
 !.env.example
+.vercel
+*.pem
+*.key
 artifacts
 backups
 tests
