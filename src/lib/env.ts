@@ -17,7 +17,8 @@ export function checkEnv(env: NodeJS.ProcessEnv = process.env): EnvIssue[] {
   }
   if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET || !env.RAZORPAY_WEBHOOK_SECRET) issues.push({ level: "warn", key: "RAZORPAY_*", message: "Billing gateway not configured: paid subscriptions cannot be taken" });
   need("CRON_SECRET", "Scheduled jobs cannot be triggered over HTTP without it (the worker process does not need it)", "warn");
-  need("EMAIL_WEBHOOK_URL", "Password-reset, verification and billing emails will not be delivered", "warn");
+  if (!env.EMAIL_WEBHOOK_URL) issues.push({ level: prod ? "error" : "warn", key: "EMAIL_WEBHOOK_URL", message: "Password-reset, verification and billing emails will not be delivered" });
+  else if (prod && !env.EMAIL_WEBHOOK_URL.startsWith("https://")) issues.push({ level: "error", key: "EMAIL_WEBHOOK_URL", message: "Must be an https:// endpoint in production" });
   need("ALERT_WEBHOOK_URL", "No alert destination: failures are logged but nobody is notified", "warn");
   return issues;
 }
