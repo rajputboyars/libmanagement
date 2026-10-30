@@ -6,7 +6,7 @@ import { User } from "./models";
 import { PasswordReset } from "./ops-models";
 import { currentUser, issueSession } from "./auth";
 import { clientIp, hashToken, limitedShared, newToken, warnAuth } from "./security";
-import { sendEmail } from "./saas-notify";
+import { emailConfigured, sendEmail } from "./saas-notify";
 import { log } from "./log";
 
 const password = z.string().min(10).max(100);
@@ -21,17 +21,26 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
   try {
     if (action === "forgot") {
       const { email } = z.object({ email: z.email().max(200) }).parse(await req.json());
+      // Missing configuration is the same for every address, so failing here reveals nothing about accounts.
+      if (!emailConfigured() && process.env.NODE_ENV === "production") {
+        log("error", "auth.reset_email_not_configured");
+        return NextResponse.json({ error: "Password reset by email is not available right now. Please contact support.", code: "email-not-configured" }, { status: 503 });
+      }
       if (await limitedShared(`forgot:ip:${ip}`, 20, 3600) || await limitedShared(`forgot:acct:${email.toLowerCase()}`, 3, 3600))
         return NextResponse.json({ ok: true, message: "If that account exists, a reset link has been sent." }); // same answer: no enumeration or limit leak
       const user = await User.findOne({ email: email.toLowerCase(), deletedAt: { $exists: false } }).select("_id").lean<{ _id: unknown }>();
       let sandboxToken: string | undefined;
       if (user) {
         const token = newToken();
-        await PasswordReset.create({ userId: user._id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 30 * 60000) });
+        const reset = await PasswordReset.create({ userId: user._id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 30 * 60000) });
         const link = `${process.env.APP_URL || new URL(req.url).origin}/reset-password?token=${token}`;
         const result = await sendEmail(email, "Reset your StudyQuest password", `Use this link within 30 minutes to choose a new password: ${link}\nIf you did not ask for this, ignore this email.`);
         if (result === "not-configured") { log("warn", "auth.reset_email_not_configured"); if (process.env.NODE_ENV !== "production") sandboxToken = token; }
-        else if (result === "failed") log("error", "auth.reset_email_failed");
+        else if (result === "failed") {
+          // The answer stays generic (no account enumeration), but the undelivered link is revoked and the failure is logged.
+          await PasswordReset.deleteOne({ _id: reset._id });
+          log("error", "auth.reset_email_failed");
+        }
       }
       return NextResponse.json({ ok: true, message: "If that account exists, a reset link has been sent.", ...(sandboxToken ? { sandboxToken, notice: "Local sandbox: no email provider is configured." } : {}) });
     }

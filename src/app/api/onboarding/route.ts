@@ -6,7 +6,7 @@ import { Library, MembershipPlan, Seat, Shift, User } from "@/lib/models";
 import { OnboardingDraft, Organization, PendingStudent, VerificationCode } from "@/lib/saas-models";
 import { PlanError, accessForLibrary, activeStudentCount, audit, requireStudentRoom, verifyOrgOwner } from "@/lib/saas-server";
 import { parseStudentCsv } from "@/lib/saas";
-import { sendEmail, sendSms } from "@/lib/saas-notify";
+import { emailConfigured, sendEmail, sendSms } from "@/lib/saas-notify";
 
 const err = (message: string, status = 400, code?: string) => NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
 const STEPS = ["organization", "verify", "branch", "shifts", "seats", "fees", "students", "plan"] as const;
@@ -58,13 +58,14 @@ export async function POST(request: NextRequest) {
         const target = v.channel === "email" ? (v.target || user.email).toLowerCase() : (v.target || "").replace(/[^\d+]/g, "");
         if (v.channel === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) throw new Error("Enter a valid email");
         if (v.channel === "mobile" && target.replace(/\D/g, "").length < 10) throw new Error("Enter a valid mobile number");
+        if (v.channel === "email" && !emailConfigured() && process.env.NODE_ENV === "production") return err("Email verification is not available right now. You can skip this step for now.", 503, "email-not-configured");
         if (await VerificationCode.countDocuments({ userId: user._id, channel: v.channel, createdAt: { $gt: new Date(Date.now() - 3600000) } }) >= 3) throw new Error("Too many codes requested. Try again in an hour.");
         const code = String(randomInt(100000, 1000000));
-        await VerificationCode.create({ userId: user._id, channel: v.channel, target, codeHash: hashCode(String(user._id), v.channel, code), expiresAt: new Date(Date.now() + 10 * 60000) });
+        const sent = await VerificationCode.create({ userId: user._id, channel: v.channel, target, codeHash: hashCode(String(user._id), v.channel, code), expiresAt: new Date(Date.now() + 10 * 60000) });
         const result = v.channel === "email" ? await sendEmail(target, "Your StudyQuest verification code", `Your code is ${code}. It expires in 10 minutes.`) : await sendSms(target, `Your StudyQuest code is ${code}`);
         const sandbox = result === "not-configured" && process.env.NODE_ENV !== "production";
         record = { delivered: result === "accepted", provider: result, ...(sandbox ? { sandboxCode: code, notice: "Local sandbox: no delivery provider is configured, so the code is shown here." } : {}), ...(result === "not-configured" && !sandbox ? { notice: "No delivery provider is configured. You can skip verification for now." } : {}) };
-        if (result === "failed") throw new Error("The delivery provider could not send the code. Try again.");
+        if (result === "failed") { await VerificationCode.deleteOne({ _id: sent._id }); return err("The delivery provider could not send the code. Try again.", 502, "delivery-failed"); }
         break;
       }
       case "verify-check": {

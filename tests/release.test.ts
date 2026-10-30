@@ -13,7 +13,7 @@ const ref = {
 const header = "name,email,phone,seat,shift,plan,start_date,paid_rupees,discount_rupees";
 
 describe("Production config validation", () => {
-  const good = { NODE_ENV: "production", MONGODB_URI: "mongodb://x", SESSION_SECRET: "k9Zq2vX7mP4tR8wB1nC6yL3hD5gJ0sAe", APP_URL: "https://app.example.com" } as unknown as NodeJS.ProcessEnv;
+  const good = { NODE_ENV: "production", MONGODB_URI: "mongodb://x", SESSION_SECRET: "k9Zq2vX7mP4tR8wB1nC6yL3hD5gJ0sAe", APP_URL: "https://app.example.com", EMAIL_WEBHOOK_URL: "https://mail.example.com/send" } as unknown as NodeJS.ProcessEnv;
   it("accepts a valid production environment", () => assert.equal(checkEnv(good).filter((i) => i.level === "error").length, 0));
   it("rejects weak or placeholder secrets, http origins and enabled sandbox billing", () => {
     const errors = (env: object) => checkEnv({ ...good, ...env } as NodeJS.ProcessEnv).filter((i) => i.level === "error").map((i) => i.key);
@@ -22,6 +22,8 @@ describe("Production config validation", () => {
     assert.ok(errors({ APP_URL: "http://app.example.com" }).includes("APP_URL"));
     assert.ok(errors({ ALLOW_BILLING_SANDBOX: "1" }).includes("ALLOW_BILLING_SANDBOX"));
     assert.ok(errors({ MONGODB_URI: "" }).includes("MONGODB_URI"));
+    assert.ok(errors({ EMAIL_WEBHOOK_URL: "" }).includes("EMAIL_WEBHOOK_URL"));
+    assert.ok(errors({ EMAIL_WEBHOOK_URL: "http://mail.example.com/send" }).includes("EMAIL_WEBHOOK_URL"));
   });
 });
 
