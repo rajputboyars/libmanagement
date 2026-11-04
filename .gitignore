@@ -3,7 +3,12 @@ node_modules/
 .next/
 next-env.d.ts
 .env*
+*.env
 !.env.example
+# Vercel CLI link data and local key material
+.vercel/
+*.pem
+*.key
 *.tsbuildinfo
 artifacts/visual/*.png
 artifacts/lighthouse/

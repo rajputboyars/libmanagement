@@ -26,7 +26,7 @@ Use a different `SESSION_SECRET` in every environment (`openssl rand -base64 48`
 - `APP_URL` — canonical `https://` origin.
 - `TRUST_PROXY=1` — **only** when the app sits behind a proxy or load balancer that overwrites `X-Forwarded-For`; otherwise per-IP limits share one bucket.
 - `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` — to take subscription payments.
-- `EMAIL_WEBHOOK_URL` (+ `EMAIL_WEBHOOK_TOKEN`) — password-reset, invitation and billing emails.
+- `EMAIL_WEBHOOK_URL` (+ `EMAIL_WEBHOOK_TOKEN`) — **required in production** (`/api/ready` reports an error without it). An `https://` endpoint that accepts `POST {to, subject, text}` (JSON) with `Idempotency-Key` and optional `Authorization: Bearer <token>` headers and answers 2xx when the email is accepted. Without it, password reset and owner email verification return `503 email-not-configured`; nothing is reported as sent.
 - `ALERT_WEBHOOK_URL` — Slack/Teams/PagerDuty-compatible incoming webhook for alerts.
 - `CRON_SECRET` — only if jobs are triggered over HTTP instead of by the worker.
 

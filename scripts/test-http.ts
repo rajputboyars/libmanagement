@@ -585,7 +585,7 @@ async function main() {
     await ob("organization", { name: "Quiet Hours Group" }, 403, student);
     await ob("organization", { name: "Quiet Hours Group" });
     await ob("verify-check", { channel: "email", code: "123456" }, 400); // no code requested
-    await ob("verify-send", { channel: "email" });
+    await ob("verify-send", { channel: "email" }, 503); // production without an email provider fails clearly instead of pretending to send
     await ob("verify-check", { channel: "email", code: "000000" }, 400); // wrong code
     await ob("branch", { branchName: "Main", city: "Pune", address: "MG Road" });
     await ob("shifts", { items: [{ name: "Morning", start: 360, end: 720 }, { name: "Evening", start: 960, end: 1320 }] });
@@ -796,8 +796,11 @@ async function main() {
     // password reset, session revocation
     const victim = await account("student", "victim@example.invalid");
     assert.equal((await fetch(base + "/api/workspace", { headers: { cookie: victim } })).status, 200);
+    // No email provider in this production-mode run: reset is unavailable, with one answer for every address.
     const forgot = await send("/api/auth/forgot", { email: "nobody-here@example.invalid" }, { Origin: base });
-    assert.equal(forgot.status, 200); assert.ok((await rawJson(forgot)).message, "unknown accounts get the same answer");
+    const forgotKnown = await send("/api/auth/forgot", { email: "victim@example.invalid" }, { Origin: base });
+    assert.equal(forgot.status, 503); assert.equal(forgotKnown.status, 503);
+    assert.deepEqual(await rawJson(forgot), await rawJson(forgotKnown), "known and unknown accounts get the same answer");
     const victimUser = await User.findOne({ email: "victim@example.invalid" });
     const mintToken = async (expires: number) => { const t = rb(24).toString("base64url"); await ResetModel.create({ userId: victimUser!._id, tokenHash: hashToken(t), expiresAt: new Date(Date.now() + expires) }); return t; };
     assert.equal((await send("/api/auth/reset", { token: await mintToken(-60000), password: pw() }, { Origin: base })).status, 400, "expired reset token");
