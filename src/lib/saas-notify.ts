@@ -1,18 +1,36 @@
+import { randomUUID } from "node:crypto";
 import type { Types } from "mongoose";
+import { log } from "./log";
 import { Notification, User } from "./models";
 import { NotificationDelivery, Organization, OrganizationMembership } from "./saas-models";
 
 type Id = Types.ObjectId | string;
 
+/** True when the email webhook can be used. Production requires an https endpoint so links and codes never travel in clear text. */
+export function emailConfigured(env: NodeJS.ProcessEnv = process.env) {
+  const url = env.EMAIL_WEBHOOK_URL;
+  if (!url) return false;
+  return env.NODE_ENV !== "production" || url.startsWith("https://");
+}
+
+/**
+ * Sends one email through the configured webhook (POST {to, subject, text}).
+ * "accepted" only when the provider answered 2xx; network errors, 5xx and 429 are retried once with the same Idempotency-Key.
+ */
 export async function sendEmail(to: string, subject: string, text: string) {
-  const url = process.env.EMAIL_WEBHOOK_URL;
-  if (!url) return "not-configured" as const;
-  try {
-    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...(process.env.EMAIL_WEBHOOK_TOKEN ? { Authorization: `Bearer ${process.env.EMAIL_WEBHOOK_TOKEN}` } : {}) }, body: JSON.stringify({ to, subject, text }), signal: AbortSignal.timeout(10000) });
-    return response.ok ? ("accepted" as const) : ("failed" as const);
-  } catch {
-    return "failed" as const;
+  if (!emailConfigured()) return "not-configured" as const;
+  const headers = { "Content-Type": "application/json", "Idempotency-Key": randomUUID(), ...(process.env.EMAIL_WEBHOOK_TOKEN ? { Authorization: `Bearer ${process.env.EMAIL_WEBHOOK_TOKEN}` } : {}) };
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(process.env.EMAIL_WEBHOOK_URL!, { method: "POST", headers, body: JSON.stringify({ to, subject, text }), signal: AbortSignal.timeout(10000) });
+      if (response.ok) return "accepted" as const;
+      if (response.status < 500 && response.status !== 429) break;
+    } catch {
+      // network error or timeout: retry once
+    }
   }
+  log("error", "email.delivery_failed", { subject });
+  return "failed" as const;
 }
 export async function sendSms(to: string, text: string) {
   const url = process.env.WHATSAPP_API_URL, token = process.env.WHATSAPP_API_TOKEN;
