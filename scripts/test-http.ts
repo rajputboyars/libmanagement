@@ -200,6 +200,52 @@ async function main() {
       permission: "attendance",
     });
     assert.equal((await get(staff)).payments.length, 0);
+    // ---- fees: pending view, reversal and reminders ----
+    const feeGet = async (cookie: string, q = "", status = 200) => {
+      const r = await fetch(`${base}/api/fees${q}`, { headers: { cookie } });
+      const text = await r.text();
+      assert.equal(r.status, status, text);
+      return JSON.parse(text);
+    };
+    const feePost = async (cookie: string, action: string, data: unknown = {}, status = 200) => {
+      const r = await fetch(`${base}/api/fees`, { method: "POST", headers: { cookie, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action, data }) });
+      const text = await r.text();
+      assert.equal(r.status, status, text);
+      return JSON.parse(text);
+    };
+    const feeList = await feeGet(owner);
+    assert.equal(feeList.totals.pending, 75000);
+    assert.equal(feeList.students.length, 1);
+    assert.equal(feeList.students[0].paid, 25000);
+    await feeGet(student, "", 403);
+    await feeGet(staff, "", 403);
+    assert.equal((await feeGet(other)).students.length, 0, "another library sees none of these students");
+    assert.equal((await feeGet(owner, "?q=zzzz")).students.length, 0);
+    assert.equal((await feeGet(owner, "?filter=clear")).students.length, 0);
+    await feeGet(other, `?student=${state.students[0]._id}`, 404);
+    assert.equal((await feeGet(owner, `?student=${state.students[0]._id}`)).payments.length, 1);
+    await feePost(staff, "remind", {}, 403);
+    assert.equal((await feePost(owner, "remind")).sent, 1);
+    const remindAgain = await feePost(owner, "remind");
+    assert.deepEqual([remindAgain.sent, remindAgain.skipped], [0, 1], "one reminder per student per day");
+    assert.ok((await get(student)).notifications.some((n: { title: string }) => n.title === "Library fee reminder"));
+    // reversing a payment keeps the record and restores the balance exactly once
+    const wrongPayment = state.payments[0]._id;
+    await post(student, "payment-reverse", { paymentId: wrongPayment, reason: "Entered twice" }, 403);
+    await post(other, "payment-reverse", { paymentId: wrongPayment, reason: "Entered twice" }, 400);
+    await post(owner, "payment-reverse", { paymentId: wrongPayment, reason: "x" }, 400);
+    await post(owner, "payment-reverse", { paymentId: wrongPayment, reason: "Entered wrong amount" });
+    await post(owner, "payment-reverse", { paymentId: wrongPayment, reason: "Entered wrong amount" }, 400);
+    state = await get(owner);
+    assert.equal(state.memberships[0].paid, 0);
+    assert.equal(state.summary.revenue, 0, "reversed money is not revenue");
+    assert.equal(state.payments.length, 1, "the original payment record is kept");
+    assert.ok(state.payments[0].reversedAt && state.payments[0].reversalReason === "Entered wrong amount");
+    assert.equal((await feeGet(owner)).totals.pending, 100000);
+    await post(owner, "payments", { membershipId, amount: 25000, method: "upi", key: "corrected-payment-key" });
+    state = await get(owner);
+    assert.deepEqual([state.memberships[0].paid, state.summary.revenue, state.payments.length], [25000, 25000, 2]);
+    assert.equal((await feeGet(owner)).totals.pending, 75000);
     await post(staff, "attendance", { userId: allocation.userId });
     await post(
       staff,
@@ -251,6 +297,21 @@ async function main() {
     await post(owner, "renew", renewal);
     await post(owner, "renew", renewal);
     assert.equal((await get(owner)).memberships.length, 2);
+    // renewal keeps the seat and charges plan price minus discount
+    const renewedFirst = (await get(owner)).memberships.find((m: { previousMembershipId?: string }) => m.previousMembershipId === membershipId);
+    assert.deepEqual([renewedFirst.discount, renewedFirst.paid], [0, 100000]);
+    await post(owner, "renew", { membershipId: renewedFirst._id, method: "cash", confirmation: "RECEIVED", key: "discounted-renewal", discount: 100001 }, 400);
+    await post(owner, "renew", { membershipId: renewedFirst._id, method: "cash", confirmation: "RECEIVED", key: "discounted-renewal", discount: 20000 });
+    const { Membership: RenewM, SeatAssignment: RenewSA, Payment: RenewP } = await import("../src/lib/models");
+    if (mongoose.connection.readyState === 0) await mongoose.connect(replica.getUri());
+    type RenewDoc = { _id: unknown; discount: number; paid: number; seatId: unknown; amount: number };
+    const renewedSecond = await RenewM.findOne({ previousMembershipId: renewedFirst._id }).lean<RenewDoc>();
+    assert.deepEqual([renewedSecond!.discount, renewedSecond!.paid], [20000, 80000]);
+    const carried = await RenewSA.findOne({ membershipId: renewedSecond!._id }).lean<RenewDoc>();
+    const firstSeat = await RenewSA.findOne({ membershipId: renewedFirst._id }).lean<RenewDoc>();
+    assert.equal(String(carried!.seatId), String(firstSeat!.seatId), "the same seat carries forward");
+    assert.equal((await RenewP.findOne({ key: "discounted-renewal" }).lean<RenewDoc>())!.amount, 80000);
+    await RenewP.deleteOne({ key: "discounted-renewal" }); await RenewSA.deleteMany({ membershipId: renewedSecond!._id }); await RenewM.deleteOne({ _id: renewedSecond!._id }); // keep later checks exact
     await post(other, "payments", { ...payment, key: "cross-tenant" }, 400);
     await post(student, "focus.start");
     await post(student, "focus.complete", {}, 400);
@@ -521,6 +582,14 @@ async function main() {
     const blockedPay = await fetch(base + "/api/workspace", { method: "POST", headers: { cookie: owner, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action: "expenses", data: { title: "Tea", amount: 100, category: "Other", date: new Date().toISOString() } }) });
     assert.equal(blockedPay.status, 402);
     assert.equal((await blockedPay.json()).code, "feature");
+    // fee collection is part of the free plan; only expenses are locked
+    const freeDue = await DuesMembership.create({ libraryId: freeCtx.activeBranchId, userId: duesStudentId, start: new Date(), end: new Date(Date.now() + 9 * 86400000), amount: 30000, status: "active" });
+    await post(owner, "payments", { membershipId: String(freeDue._id), amount: 10000, method: "cash", key: "free-plan-payment" });
+    assert.equal((await DuesMembership.findById(freeDue._id))!.paid, 10000);
+    await DuesMembership.updateOne({ _id: freeDue._id }, { status: "cancelled" });
+    await post(owner, "payments", { membershipId: String(freeDue._id), amount: 10000, method: "cash", key: "cancelled-payment" }, 400);
+    const { Payment: FreeP } = await import("../src/lib/models");
+    await FreeP.deleteOne({ key: "free-plan-payment" }); await DuesMembership.deleteOne({ _id: freeDue._id }); // keep later checks exact
     assert.ok((await getJson("/api/workspace", owner)).students.length >= 1, "data is retained on the free plan");
     const orgLibs = await LibraryModel.find({ organizationId: ctx.organization._id }).select("_id").lean();
     await S.PendingStudent.insertMany(Array.from({ length: 30 }, (_, i) => ({ libraryId: orgLibs[0]._id, organizationId: ctx.organization._id, name: `Pending ${i}`, email: `pending${i}@example.invalid` })));

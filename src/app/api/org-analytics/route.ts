@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       const [students, newStudents, seats, inUse, activeMemberships, revenue, expenses, leads, converted] = await Promise.all([
         User.countDocuments({ role: "student", libraryId }), User.countDocuments({ role: "student", libraryId, createdAt: { $gte: from } }),
         Seat.countDocuments({ libraryId, operationalStatus: { $ne: "maintenance" } }), SeatAssignment.distinct("seatId", { libraryId, start: { $lte: now }, end: { $gt: now } }),
-        Membership.countDocuments({ libraryId, status: "active", end: { $gt: now } }), sum(Payment as never, { libraryId, createdAt: { $gte: from } }), sum(Expense as never, { libraryId, date: { $gte: from } }),
+        Membership.countDocuments({ libraryId, status: "active", end: { $gt: now } }), sum(Payment as never, { libraryId, createdAt: { $gte: from }, reversedAt: { $exists: false } }), sum(Expense as never, { libraryId, date: { $gte: from } }),
         AdmissionLead.countDocuments({ libraryId, createdAt: { $gte: from } }), AdmissionLead.countDocuments({ libraryId, createdAt: { $gte: from }, stage: "converted" }),
       ]);
       const lib = await Library.findById(libraryId).select("name branchName").lean<{ name: string; branchName: string }>();

@@ -7,6 +7,8 @@ import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { FocusTools, Insights, ReportSwitch, StudyPartnerPage, SubjectInput, SyllabusTracker, TodayCards } from "@/components/self-study";
 import { focusQuality } from "@/lib/self-study";
 import { getPosition } from "@/components/join";
+import { SeatMap } from "@/components/seat-map";
+import { OwnerFees } from "@/components/fees";
 import { PushToggle } from "@/components/push-toggle";
 import { Leaderboard } from "@/components/leaderboard";
 import { LibraryNotes, OwnerSharedNotes } from "@/components/shared-notes";
@@ -233,6 +235,7 @@ const ownerNav: [string, string, LucideIcon][] = [
   ["/owner/shifts", "Shifts", Clock3],
   ["/owner/plans", "Fee plans", CreditCard],
   ["/owner/memberships", "Memberships", BookOpen],
+  ["/owner/fees", "Pending fees", Wallet],
   ["/owner/payments", "Payments", Wallet],
   ["/owner/attendance", "Attendance", CheckCircle2],
   ["/owner/expenses", "Expenses", Receipt],
@@ -2236,6 +2239,7 @@ type Field = {
   type?: string;
   options?: { value: string; label: string }[];
   default?: string;
+  optional?: boolean;
 };
 const QR_REFRESH_MS = 60_000; // keep below the server QR lifetime (attendance-token.ts)
 function Owner({ path, data: d, preview, mutate, notify }: Props) {
@@ -2261,6 +2265,8 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
       value: String(r._id),
       label: String(r[key] || r.label || r._id),
     }));
+  const studentName = (userId: unknown) => String(d.students.find((x) => String(x._id) === String(userId))?.name ?? "Student");
+  const membershipLabel = (m: Row) => `${studentName(m.userId)} · ends ${String(m.end).slice(0, 10)} · ${String(m.status)}`;
   const fields: Record<string, Field[]> = {
     students: [
       { name: "name", label: "Student name" },
@@ -2313,10 +2319,12 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
       {
         name: "membershipId",
         label: "Membership",
-        options: d.memberships.map((m) => ({
-          value: String(m._id),
-          label: `${String(m._id).slice(-6)} · Due ${money(Number(m.amount) - Number(m.paid) - Number(m.discount))}`,
-        })),
+        options: d.memberships
+          .filter((m) => m.status !== "cancelled" && Number(m.amount) - Number(m.paid) - Number(m.discount) > 0)
+          .map((m) => ({
+            value: String(m._id),
+            label: `${membershipLabel(m)} · Due ${money(Number(m.amount) - Number(m.paid) - Number(m.discount))}`,
+          })),
       },
       { name: "amount", label: "Confirmed amount (₹)", type: "number" },
       {
@@ -2371,7 +2379,15 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
     {
       name: "membershipId",
       label: "Membership to renew",
-      options: options(d.memberships, "_id"),
+      options: d.memberships
+        .filter((m) => m.status === "active" || m.status === "expired")
+        .map((m) => ({ value: String(m._id), label: membershipLabel(m) })),
+    },
+    {
+      name: "discount",
+      label: "Discount (₹) — leave empty to repeat the previous discount",
+      type: "number",
+      optional: true,
     },
     {
       name: "method",
@@ -2383,14 +2399,14 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
     },
     {
       name: "confirmation",
-      label: "Type RECEIVED to confirm full plan payment",
+      label: "Type RECEIVED to confirm you collected the plan price minus the discount",
     },
   ];
   fields["membership-status"] = [
     {
       name: "membershipId",
       label: "Membership",
-      options: options(d.memberships, "_id"),
+      options: d.memberships.map((m) => ({ value: String(m._id), label: membershipLabel(m) })),
     },
     {
       name: "status",
@@ -2728,6 +2744,15 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
             )}
           </section>
         </>
+      ) : section === "fees" ? (
+        <OwnerFees canReverse={d.user?.role === "owner"} notify={notify} />
+      ) : section === "seats" && !preview ? (
+        <SeatMap
+          onAllocate={(id) => {
+            setSelectedSeat(id);
+            add("memberships");
+          }}
+        />
       ) : section === "seats" ? (
         <section className="card seat-panel">
           <div className="section-heading">
@@ -2979,6 +3004,8 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           onClose={() => setModal(false)}
           onSubmit={async (values) => {
             const data: Record<string, unknown> = { ...values };
+            // An empty renewal discount means "repeat the previous one", not zero.
+            if (action === "renew" && (data.discount === undefined || data.discount === "")) delete data.discount;
             for (const key of ["amount", "discount"])
               if (key in data) data[key] = Math.round(Number(data[key]) * 100);
             if ("days" in data) data.days = Number(data.days);
@@ -3111,7 +3138,7 @@ function RecordModal({
               ) : (
                 <input
                   autoFocus={i === 0}
-                  required
+                  required={!f.optional}
                   name={f.name}
                   type={f.type || "text"}
                   min={f.type === "number" ? 0 : undefined}

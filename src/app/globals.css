@@ -4215,3 +4215,20 @@ span.pf-cell { cursor: default; }
 .ss-partners li span { flex: 1; opacity: 0.75; }
 @media (min-width: 640px) { .ss-goal-form { grid-template-columns: 1fr 1fr 1fr auto; } .ss-partner .ss-goal-form { grid-template-columns: 1fr auto; } }
 .link-button { padding: 0; border: 0; background: none; color: var(--primary); font: inherit; text-decoration: underline; cursor: pointer; }
+
+/* Seat map states (owner) */
+.dot.sm-available, .seat.sm-available { background: #e6f4e8; border-color: #9cc9a2; color: #2f6a3a; }
+.dot.sm-booked, .seat.sm-booked { background: #fff6dd; border-color: #e6c870; color: #7a5b0d; }
+.dot.sm-assigned, .seat.sm-assigned { background: #e3edfb; border-color: #8fb0e3; color: #254f8f; }
+.dot.sm-occupied, .seat.sm-occupied { background: #1f6f5c; border-color: #1f6f5c; color: #fff; }
+.dot.sm-maintenance, .seat.sm-maintenance { background: #f3e4e4; border-color: #d4a1a1; color: #8a1f1f; }
+.seat.sm-selected { outline: 3px solid var(--accent, #1f6f5c); outline-offset: 2px; }
+.sm-grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); }
+.sm-detail { border-top: 1px solid var(--line); padding-top: 18px; display: grid; gap: 12px; }
+.sm-badge { padding: 3px 10px; border-radius: 99px; font-size: 11px; border: 1px solid; }
+.sm-badge.sm-available { background: #e6f4e8; border-color: #9cc9a2; color: #2f6a3a; }
+.sm-badge.sm-booked { background: #fff6dd; border-color: #e6c870; color: #7a5b0d; }
+.sm-badge.sm-assigned { background: #e3edfb; border-color: #8fb0e3; color: #254f8f; }
+.sm-badge.sm-occupied { background: #1f6f5c; border-color: #1f6f5c; color: #fff; }
+.sm-badge.sm-maintenance { background: #f3e4e4; border-color: #d4a1a1; color: #8a1f1f; }
+.mt-stats .dot { vertical-align: middle; }

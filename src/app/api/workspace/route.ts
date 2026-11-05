@@ -33,6 +33,7 @@ import { JoinRequest } from "@/lib/ops-models";
 import { nudgePartners } from "@/lib/partner-nudge";
 import { studentAccessFor } from "@/lib/student-access-server";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
+import { renewalTerms } from "@/lib/fees";
 import { XP, reward, activeSeconds, focusLength, focusXP } from "@/lib/rules";
 
 /** The student's chosen exam and date, for the home-screen countdown. */
@@ -215,7 +216,7 @@ export async function GET(req: NextRequest) {
     await Promise.all([
       readable("payments")
         ? Payment.aggregate([
-            { $match: scope },
+            { $match: { ...scope, reversedAt: { $exists: false } } },
             { $group: { _id: null, total: { $sum: "$amount" } } },
           ])
         : [],
@@ -582,7 +583,9 @@ export async function POST(req: NextRequest) {
           { $inc: { __v: 1 } },
           { session },
         );
-        if (action === "payments" || action === "expenses") await requireFeature(libraryId, "fees-expenses", "Fee and expense management");
+        // Collecting fees is part of the basic plan; expenses stay a paid-plan feature.
+        if (action === "payments" || action === "payment-reverse") await requireFeature(libraryId, "basic", "Fee management");
+        else if (action === "expenses") await requireFeature(libraryId, "fees-expenses", "Expense management");
         else if (action === "students") await requireStudentRoom(libraryId);
         else await assertWritable(libraryId);
         if (action === "staff") {
@@ -681,6 +684,7 @@ export async function POST(req: NextRequest) {
             libraryId,
           }).session(session);
           if (!membership) throw new Error("Membership not found");
+          if (membership.status === "cancelled") throw new Error("This membership was cancelled, so no payment can be added to it");
           if (
             data.amount >
             membership.amount - membership.discount - membership.paid
@@ -698,6 +702,20 @@ export async function POST(req: NextRequest) {
             { session },
           );
           membership.paid += data.amount;
+          await membership.save({ session });
+        } else if (action === "payment-reverse") {
+          if (!owner) throw new Error("Only the library owner can reverse a payment");
+          const data = z.object({ paymentId: objectId, reason: z.string().trim().min(3).max(200) }).parse(body.data);
+          // Marking is conditional on "not reversed yet", so two simultaneous reversals cannot both succeed.
+          record = await Payment.findOneAndUpdate(
+            { _id: data.paymentId, libraryId, reversedAt: { $exists: false } },
+            { $set: { reversedAt: new Date(), reversedBy: user._id, reversalReason: data.reason } },
+            { new: true, session },
+          );
+          if (!record) throw new Error((await Payment.exists({ _id: data.paymentId, libraryId }).session(session)) ? "This payment was already reversed" : "Payment not found");
+          const membership = await Membership.findOne({ _id: record.membershipId, libraryId }).session(session);
+          if (!membership) throw new Error("Membership not found");
+          membership.paid = Math.max(0, membership.paid - record.amount);
           await membership.save({ session });
         } else if (action === "memberships") {
           const data = z
@@ -804,6 +822,7 @@ export async function POST(req: NextRequest) {
               method: z.enum(["cash", "upi"]),
               confirmation: z.literal("RECEIVED"),
               key: z.string().min(8),
+              discount: z.number().int().min(0).optional(),
             })
             .parse(body.data);
           if (
@@ -815,18 +834,27 @@ export async function POST(req: NextRequest) {
             libraryId,
           }).session(session);
           if (!previous) throw new Error("Membership not found");
-          if (previous.amount - previous.discount - previous.paid > 0)
+          if (previous.status === "cancelled") throw new Error("A cancelled membership cannot be renewed; create a new membership instead");
+          if (previous.status === "paused") throw new Error("Resume this membership before renewing it");
+          if (previous.amount - (previous.discount ?? 0) - (previous.paid ?? 0) > 0)
             throw new Error("Clear previous dues before renewing");
           const plan = await MembershipPlan.findOne({
             _id: previous.planId,
             libraryId,
           }).session(session);
+          // The seat the student holds now: seat changes end the old assignment and start a new one under the same membership.
           const assignment = await SeatAssignment.findOne({
             membershipId: previous._id,
             libraryId,
-          }).session(session);
+          })
+            .sort({ end: -1, start: -1 })
+            .session(session);
           if (!plan || !assignment)
             throw new Error("Choose a new membership plan and seat");
+          const seat = await Seat.findOne({ _id: assignment.seatId, libraryId }).session(session);
+          if (!seat) throw new Error("The student's seat no longer exists; create a new membership instead");
+          if (seat.operationalStatus === "maintenance") throw new Error(`Seat ${seat.label} is out of service for maintenance`);
+          const terms = renewalTerms(plan, previous.discount, data.discount);
           const start = new Date(Math.max(+previous.end, Date.now())),
             end = new Date(+start + plan.days * 86400000);
           if (
@@ -856,7 +884,8 @@ export async function POST(req: NextRequest) {
                 start,
                 end,
                 amount: plan.amount,
-                paid: plan.amount,
+                discount: terms.discount,
+                paid: terms.payable,
                 previousMembershipId: previous._id,
               },
             ],
@@ -877,20 +906,22 @@ export async function POST(req: NextRequest) {
             ],
             { session },
           );
-          await Payment.create(
-            [
-              {
-                libraryId,
-                membershipId: record._id,
-                userId: previous.userId,
-                amount: plan.amount,
-                method: data.method,
-                key: data.key,
-                receipt: `SQ-${Date.now()}`,
-              },
-            ],
-            { session },
-          );
+          // A fully discounted renewal takes no money, so there is no payment to record.
+          if (terms.payable > 0)
+            await Payment.create(
+              [
+                {
+                  libraryId,
+                  membershipId: record._id,
+                  userId: previous.userId,
+                  amount: terms.payable,
+                  method: data.method,
+                  key: data.key,
+                  receipt: `SQ-${Date.now()}`,
+                },
+              ],
+              { session },
+            );
         } else if (action === "attendance") {
           const data = z.object({ userId: objectId }).parse(body.data);
           if (

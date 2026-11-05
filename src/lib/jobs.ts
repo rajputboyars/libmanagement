@@ -81,7 +81,7 @@ async function weeklyReports(now: Date) {
   let sent = 0;
   for (const o of orgs) {
     const libs = (await Library.find({ organizationId: o._id }).select("_id").lean<{ _id: Types.ObjectId }[]>()).map((l) => l._id);
-    const [students, revenue] = await Promise.all([User.countDocuments({ role: "student", libraryId: { $in: libs } }), Payment.aggregate([{ $match: { libraryId: { $in: libs }, createdAt: { $gte: since } } }, { $group: { _id: null, t: { $sum: "$amount" } } }])]);
+    const [students, revenue] = await Promise.all([User.countDocuments({ role: "student", libraryId: { $in: libs } }), Payment.aggregate([{ $match: { libraryId: { $in: libs }, createdAt: { $gte: since }, reversedAt: { $exists: false } } }, { $group: { _id: null, t: { $sum: "$amount" } } }])]);
     const r = await notifyOrg({ organizationId: o._id, key: `weekly:${o._id}:${week}`, kind: "weekly-report", title: "Your weekly library summary", message: `${students} active students. ₹${((revenue[0]?.t ?? 0) / 100).toLocaleString("en-IN")} in fee payments recorded in the last 7 days.` });
     if (r.sent) sent++;
   }

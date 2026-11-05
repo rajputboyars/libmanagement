@@ -135,6 +135,10 @@ export const Payment = model(
     method: { type: String, enum: ["cash", "upi"], required: true },
     key: { type: String, required: true },
     receipt: String,
+    // A wrong payment is never deleted: it is marked reversed (who, when, why) and stops counting towards totals.
+    reversedAt: Date,
+    reversedBy: id,
+    reversalReason: { type: String, trim: true, maxlength: 200 },
   },
   [[{ libraryId: 1, key: 1 }, { unique: true }]],
 );

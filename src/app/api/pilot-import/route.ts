@@ -43,7 +43,7 @@ export async function GET() {
   const [students, memberships, payments, assignments] = await Promise.all([
     User.find({ libraryId, role: "student", deletedAt: { $exists: false } }).select("_id").lean<Lean[]>(),
     Membership.find({ libraryId }).select("userId amount discount paid status").lean<(Lean & { userId: unknown; amount: number; discount?: number; paid?: number; status: string })[]>(),
-    Payment.aggregate([{ $match: { libraryId } }, { $group: { _id: "$membershipId", amount: { $sum: "$amount" } } }]),
+    Payment.aggregate([{ $match: { libraryId, reversedAt: { $exists: false } } }, { $group: { _id: "$membershipId", amount: { $sum: "$amount" } } }]),
     SeatAssignment.find({ libraryId, end: { $gt: new Date() } }).select("seatId start end shiftStart shiftEnd").lean<(Lean & ExistingAssignment)[]>(),
   ]);
   const report = integrityReport({
