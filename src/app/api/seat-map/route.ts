@@ -20,7 +20,7 @@ export async function GET() {
   const libraryId = user.libraryId, now = new Date();
   const [tz, seats, assignments, open] = await Promise.all([
     libraryTimeZone(libraryId),
-    Seat.find({ libraryId }).sort({ floor: 1, label: 1 }).limit(2000).select("label floor operationalStatus").lean<(Lean & { label: string; floor: string; operationalStatus?: string })[]>(),
+    Seat.find({ libraryId }).limit(2000).select("label floor operationalStatus").lean<(Lean & { label: string; floor: string; operationalStatus?: string })[]>(),
     SeatAssignment.find({ libraryId, start: { $lte: now }, end: { $gt: now } }).lean<(Lean & { seatId: unknown; userId: unknown; membershipId?: unknown; start: Date; end: Date; shiftStart?: number; shiftEnd?: number })[]>(),
     Attendance.find({ libraryId, sessions: { $elemMatch: { outAt: { $exists: false } } } }).select("userId").lean<(Lean & { userId: unknown })[]>(),
   ]);
@@ -32,6 +32,9 @@ export async function GET() {
   ]);
   const byId = <T extends Lean>(rows: T[]) => new Map(rows.map((r) => [String(r._id), r]));
   const sMap = byId(students), mMap = byId(memberships);
+  // Natural order: A2 before A10, floors alphabetically.
+  const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+  seats.sort((a, b) => collator.compare(a.floor, b.floor) || collator.compare(a.label, b.label));
   const out = seats.map((seat) => {
     const holders = assignments.filter((a) => String(a.seatId) === String(seat._id)).map((a) => {
       const st = sMap.get(String(a.userId)), m = a.membershipId ? mMap.get(String(a.membershipId)) : undefined;

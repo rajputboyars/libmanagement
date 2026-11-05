@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Armchair, Wrench } from "lucide-react";
 import { BrandLoader } from "@/components/brand-loader";
@@ -21,8 +21,10 @@ export function SeatMap({ onAllocate }: { onAllocate: (seatId: string) => void }
   const q = useQuery<Json>({ queryKey: ["workspace", "seat-map"], queryFn: () => getJson("/api/seat-map"), refetchInterval: 30000 });
   const [floor, setFloor] = useState("All floors");
   const [selected, setSelected] = useState("");
+  const detail = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (selected) detail.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [selected]);
   if (q.isLoading) return <BrandLoader compact text="Loading seats…" />;
-  if (q.isError || !q.data) return <section className="card"><h2>Could not load the seat map</h2><p>{q.error instanceof Error ? q.error.message : "Try again."}</p></section>;
+  if (q.isError || !q.data) return <section className="card"><h2>Could not load the seat map</h2><p>{q.error instanceof Error ? q.error.message : "Try again."}</p><button className="button secondary" onClick={() => q.refetch()}>Try again</button></section>;
   const seats = q.data.seats as Json[], s = q.data.summary as Json;
   const floors = [...new Set(seats.map((x) => String(x.floor)))];
   const visible = seats.filter((x) => floor === "All floors" || x.floor === floor);
@@ -36,7 +38,7 @@ export function SeatMap({ onAllocate }: { onAllocate: (seatId: string) => void }
           {floors.map((f) => <option key={f}>{f}</option>)}
         </select>
       </div>
-      <div className="mt-stats">
+      <div className="sm-stats">
         {STATES.map(([k, label]) => <div key={k}><small><i className={`dot sm-${k}`} /> {label}</small><strong>{s[k]}</strong></div>)}
       </div>
       <div className="seat-grid sm-grid">
@@ -50,7 +52,7 @@ export function SeatMap({ onAllocate }: { onAllocate: (seatId: string) => void }
       </div>
       {!seats.length && <p className="pr-hint">No seats yet. Use “Add seat” to create your first one.</p>}
       {seat && (
-        <div className="sm-detail" role="region" aria-label={`Seat ${seat.label} details`}>
+        <div className="sm-detail" ref={detail} role="region" aria-label={`Seat ${seat.label} details`}>
           <div className="section-label"><span>Seat {seat.label} · {seat.floor}</span><span className={`sm-badge sm-${seat.state}`}>{STATES.find(([k]) => k === seat.state)?.[1]}</span></div>
           {seat.holders.map((h: Json) => (
             <article className="queue-card" key={h.assignmentId}>

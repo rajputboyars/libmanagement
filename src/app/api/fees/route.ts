@@ -89,7 +89,17 @@ export async function GET(request: NextRequest) {
     User.find({ _id: { $in: userIds }, libraryId }).select("name email").lean<(Lean & { name: string; email: string })[]>(),
     Payment.aggregate([{ $match: { libraryId, userId: { $in: userIds }, reversedAt: { $exists: false } } }, { $group: { _id: "$userId", at: { $max: "$createdAt" } } }]),
   ]);
-  const t0 = agg?.totals?.[0] ?? { pending: 0, closedBalance: 0, paid: 0, owing: 0, students: 0 };
+  // Header totals always cover the whole library, whatever is typed in the search box.
+  let t0 = agg?.totals?.[0] ?? { pending: 0, closedBalance: 0, paid: 0, owing: 0, students: 0 };
+  if (ids) {
+    const [all] = await Membership.aggregate([
+      { $match: { libraryId } },
+      { $addFields: { owed: owedExpr, running: runningExpr(now) } },
+      { $group: { _id: "$userId", pending: { $sum: { $cond: ["$running", "$owed", 0] } }, closedBalance: { $sum: { $cond: [{ $and: [{ $ne: ["$status", "cancelled"] }, { $not: ["$running"] }] }, "$owed", 0] } }, paid: { $sum: { $cond: [{ $ne: ["$status", "cancelled"] }, { $ifNull: ["$paid", 0] }, 0] } } } },
+      { $group: { _id: null, pending: { $sum: "$pending" }, closedBalance: { $sum: "$closedBalance" }, paid: { $sum: "$paid" }, owing: { $sum: { $cond: [{ $gt: ["$pending", 0] }, 1, 0] } }, students: { $sum: 1 } } },
+    ]);
+    if (all) t0 = all;
+  }
   return NextResponse.json({
     filter, page, pageSize: size, total: agg?.count?.[0]?.n ?? 0,
     totals: { pending: t0.pending, closedBalance: t0.closedBalance, paid: t0.paid, owing: t0.owing, students: t0.students },

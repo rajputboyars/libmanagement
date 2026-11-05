@@ -221,6 +221,7 @@ async function main() {
     await feeGet(staff, "", 403);
     assert.equal((await feeGet(other)).students.length, 0, "another library sees none of these students");
     assert.equal((await feeGet(owner, "?q=zzzz")).students.length, 0);
+    assert.equal((await feeGet(owner, "?q=zzzz")).totals.pending, 75000, "header totals cover the whole library, not just the search");
     assert.equal((await feeGet(owner, "?filter=clear")).students.length, 0);
     await feeGet(other, `?student=${state.students[0]._id}`, 404);
     assert.equal((await feeGet(owner, `?student=${state.students[0]._id}`)).payments.length, 1);

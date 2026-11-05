@@ -4232,3 +4232,17 @@ span.pf-cell { cursor: default; }
 .sm-badge.sm-occupied { background: #1f6f5c; border-color: #1f6f5c; color: #fff; }
 .sm-badge.sm-maintenance { background: #f3e4e4; border-color: #d4a1a1; color: #8a1f1f; }
 .mt-stats .dot { vertical-align: middle; }
+
+.sm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 0 0 16px; }
+.sm-stats > div { border: 1px solid var(--line); background: var(--surface); border-radius: 11px; padding: 10px 12px; min-width: 0; }
+.sm-stats small { display: block; color: var(--text-muted); font-size: 11px; }
+.sm-stats strong { font-size: 1.25rem; }
+@media (max-width: 640px) {
+  .sm-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .sm-stats > div { padding: 8px 10px; }
+  .hide-sm { display: none; }
+}
+@media (max-width: 640px) {
+  .sq-table.fees-list table { min-width: 0; }
+  .sq-table.fees-list td, .sq-table.fees-list th { white-space: normal; padding-inline: 8px; }
+}
