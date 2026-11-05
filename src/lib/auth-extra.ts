@@ -5,7 +5,7 @@ import { db } from "./db";
 import { User } from "./models";
 import { PasswordReset } from "./ops-models";
 import { currentUser, issueSession } from "./auth";
-import { clientIp, hashToken, limitedShared, newToken, warnAuth } from "./security";
+import { clientIp, hashToken, ipLimit, limitedShared, newToken, warnAuth } from "./security";
 import { emailConfigured, sendEmail } from "./saas-notify";
 import { log } from "./log";
 
@@ -26,7 +26,7 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
         log("error", "auth.reset_email_not_configured");
         return NextResponse.json({ error: "Password reset by email is not available right now. Please contact support.", code: "email-not-configured" }, { status: 503 });
       }
-      if (await limitedShared(`forgot:ip:${ip}`, 20, 3600) || await limitedShared(`forgot:acct:${email.toLowerCase()}`, 3, 3600))
+      if (await limitedShared(`forgot:ip:${ip}`, ipLimit(ip, 20), 3600) || await limitedShared(`forgot:acct:${email.toLowerCase()}`, 3, 3600))
         return NextResponse.json({ ok: true, message: "If that account exists, a reset link has been sent." }); // same answer: no enumeration or limit leak
       const user = await User.findOne({ email: email.toLowerCase(), deletedAt: { $exists: false } }).select("_id").lean<{ _id: unknown }>();
       let sandboxToken: string | undefined;
@@ -46,7 +46,7 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
     }
     if (action === "reset") {
       const v = z.object({ token: z.string().min(20).max(100), password }).parse(await req.json());
-      if (await limitedShared(`reset:ip:${ip}`, 20, 3600)) return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+      if (await limitedShared(`reset:ip:${ip}`, ipLimit(ip, 20), 3600)) return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
       const record = await PasswordReset.findOne({ tokenHash: hashToken(v.token), usedAt: { $exists: false }, expiresAt: { $gt: new Date() } });
       if (!record) { warnAuth("reset_invalid_token", { ip }); return NextResponse.json({ error: "This reset link is invalid or has expired." }, { status: 400 }); }
       const claimed = await PasswordReset.findOneAndUpdate({ _id: record._id, usedAt: { $exists: false } }, { usedAt: new Date() });

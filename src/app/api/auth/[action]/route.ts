@@ -9,7 +9,7 @@ import { attachReferral } from "@/lib/referrals";
 import { handleAuthExtra } from "@/lib/auth-extra";
 import { createJoinRequest } from "@/lib/join-request";
 import { newLibraryCode } from "@/lib/join";
-import { LOGIN_LIMITS, accountKey, clearLimit, clientIp, ipKey, isLocked, limitedShared, warnAuth } from "@/lib/security";
+import { LOGIN_LIMITS, accountKey, clearLimit, clientIp, ipKey, ipLimit, isLocked, limitedShared, warnAuth } from "@/lib/security";
 import {
   currentUser,
   issueSession,
@@ -48,7 +48,7 @@ export async function POST(
   const ip = clientIp(req);
   if (action === "register") {
     await db().catch(() => null);
-    if (await limitedShared(`register:ip:${ip}`, 20, 3600).catch(() => false))
+    if (await limitedShared(`register:ip:${ip}`, ipLimit(ip, 20), 3600).catch(() => false))
       return NextResponse.json({ error: "Too many sign-ups from this network. Try again later." }, { status: 429 });
   }
   try {
@@ -107,7 +107,7 @@ export async function POST(
       if (newOrgId && data.referralCode) await attachReferral(newOrgId as string, data.referralCode).catch(() => null);
     } else if (action === "login") {
       const acct = accountKey(data.email), ipk = ipKey(ip);
-      if ((await isLocked(acct, LOGIN_LIMITS.perAccount)) || (await isLocked(ipk, LOGIN_LIMITS.perIp))) {
+      if ((await isLocked(acct, LOGIN_LIMITS.perAccount)) || (await isLocked(ipk, ipLimit(ip, LOGIN_LIMITS.perIp)))) {
         warnAuth("login_locked", { ip });
         return NextResponse.json({ error: "Too many failed attempts. Try again in 15 minutes or reset your password." }, { status: 429 });
       }
@@ -116,7 +116,7 @@ export async function POST(
       const ok = await bcrypt.compare(data.password, user?.passwordHash ?? (await DUMMY_HASH()));
       if (!user || !ok || user.invited) {
         await limitedShared(acct, LOGIN_LIMITS.perAccount, LOGIN_LIMITS.windowSeconds);
-        await limitedShared(ipk, LOGIN_LIMITS.perIp, LOGIN_LIMITS.windowSeconds);
+        await limitedShared(ipk, ipLimit(ip, LOGIN_LIMITS.perIp), LOGIN_LIMITS.windowSeconds);
         warnAuth("login_failed", { ip });
         return NextResponse.json({ error: "Email or password is incorrect" }, { status: 401 });
       }

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { jwtVerify } from "jose";
-import { currentUser, limited, validOrigin, secret } from "@/lib/auth";
+import { currentUser, limited, validOrigin } from "@/lib/auth";
 import {
   Library,
   User,
@@ -29,6 +28,7 @@ import {
   ExamCatalog,
 } from "@/lib/models";
 import { punchIn } from "@/lib/punch";
+import { studentPunchIn } from "@/lib/punch-flow";
 import { JoinRequest } from "@/lib/ops-models";
 import { nudgePartners } from "@/lib/partner-nudge";
 import { studentAccessFor } from "@/lib/student-access-server";
@@ -227,15 +227,16 @@ export async function GET(req: NextRequest) {
         : [],
       readable("memberships")
         ? Membership.aggregate([
-            { $match: scope },
+            // Only memberships still running can owe money here: cancelled and expired ones are closed out.
+            { $match: { ...scope, status: { $in: ["active", "paused"] }, end: { $gt: new Date() } } },
             {
               $group: {
                 _id: null,
                 total: {
                   $sum: {
-                    $subtract: [
-                      { $subtract: ["$amount", "$discount"] },
-                      "$paid",
+                    $max: [
+                      0,
+                      { $subtract: [{ $subtract: ["$amount", { $ifNull: ["$discount", 0] }] }, { $ifNull: ["$paid", 0] }] },
                     ],
                   },
                 },
@@ -346,27 +347,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     if (action === "check-in") {
-      const token = z.string().max(2000).parse(body.data?.token);
-      const { payload } = await jwtVerify(token, secret(), {
-        algorithms: ["HS256"],
-      });
-      if (
-        payload.purpose !== "attendance" ||
-        payload.libraryId !== String(libraryId) ||
-        user.role !== "student"
-      )
-        throw new Error("This check-in code is not for your library");
-      if (
-        !(await Membership.exists({
-          libraryId,
-          userId: user._id,
-          status: "active",
-          start: { $lte: new Date() },
-          end: { $gt: new Date() },
-        }))
-      )
-        throw new Error("An active library membership is required");
-      await punchIn({ libraryId, userId: user._id, method: "qr" });
+      if (user.role !== "student") throw new Error("This check-in code is not for your library");
+      const data = z.object({ token: z.string().max(2000), lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional(), accuracy: z.number().min(0).max(100000).optional() }).parse(body.data);
+      await studentPunchIn(user, data);
       return NextResponse.json({ ok: true });
     }
     if (action === "rest-day") {

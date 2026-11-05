@@ -20,7 +20,7 @@ function useTicker() {
 }
 
 /** Current phone location. Rejects with a plain-language message the user can act on. */
-function getPosition(): Promise<{ lat: number; lng: number; accuracy: number }> {
+export function getPosition(): Promise<{ lat: number; lng: number; accuracy: number }> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) return reject(new Error("This device cannot share its location. Use a phone or browser with location support."));
     navigator.geolocation.getCurrentPosition(

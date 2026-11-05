@@ -46,6 +46,8 @@ export const Library = model("Library", {
   },
   libraryCode: { type: String, uppercase: true, trim: true, unique: true, sparse: true },
   punchPolicy: { type: String, enum: ["app", "qr"], default: "app" },
+  // IANA zone used for attendance days. Libraries without one use India time.
+  timezone: { type: String, trim: true, maxlength: 60 },
   // Where the library is. When set, students can only punch in and out within PUNCH_RADIUS_M of this point.
   geofence: { lat: { type: Number, min: -90, max: 90 }, lng: { type: Number, min: -180, max: 180 } },
   organizationId: { type: id, index: true },

@@ -1,6 +1,6 @@
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
 import { StudySession } from "../src/lib/models";
@@ -227,6 +227,7 @@ async function main() {
       purpose: "attendance",
     })
       .setProtectedHeader({ alg: "HS256" })
+      .setJti(randomUUID())
       .setExpirationTime("10m")
       .sign(new TextEncoder().encode(sessionSecret));
     await post(student, "check-in", { token: checkInToken });
@@ -254,6 +255,18 @@ async function main() {
     await post(student, "focus.start");
     await post(student, "focus.complete", {}, 400);
     await mongoose.connect(replica.getUri());
+    // closed-out memberships never count as outstanding dues
+    const { Membership: DuesMembership } = await import("../src/lib/models");
+    const duesStudentId = (await get(student)).user._id;
+    assert.equal((await get(owner)).summary.due, 0);
+    await DuesMembership.create([
+      { libraryId: state.user.libraryId, userId: duesStudentId, start: new Date(Date.now() - 9 * 86400000), end: new Date(Date.now() + 9 * 86400000), amount: 50000, status: "cancelled" },
+      { libraryId: state.user.libraryId, userId: duesStudentId, start: new Date(Date.now() - 60 * 86400000), end: new Date(Date.now() - 30 * 86400000), amount: 50000, status: "expired" },
+    ]);
+    assert.equal((await get(owner)).summary.due, 0, "cancelled and expired memberships do not inflate dues");
+    await DuesMembership.create({ libraryId: state.user.libraryId, userId: duesStudentId, start: new Date(), end: new Date(Date.now() + 9 * 86400000), amount: 50000, discount: 10000, paid: 5000, status: "active" });
+    assert.equal((await get(owner)).summary.due, 35000, "a running membership still shows what is owed");
+    await DuesMembership.deleteMany({ libraryId: state.user.libraryId, userId: duesStudentId, amount: 50000 }); // keep later reconciliation checks exact
     await StudySession.updateOne(
       { userId: (await get(student)).user._id, state: "running" },
       { $set: { lastResumedAt: new Date(Date.now() - 1501000) } },
@@ -985,11 +998,13 @@ async function main() {
     await jr(libOwner, "set-policy", { punchPolicy: "qr" });
     assert.match((await pu(joiner, "in", {}, 400)).error, /scan the QR/i);
     assert.match((await pu(joiner, "in", { token: "not-a-token" }, 400)).error, /expired or is invalid/i);
-    const makeToken = async (lib: string, purpose = "attendance") => new SignJWT({ libraryId: lib, purpose }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("10m").sign(new TextEncoder().encode(sessionSecret));
+    const makeToken = async (lib: string, purpose = "attendance") => new SignJWT({ libraryId: lib, purpose }).setProtectedHeader({ alg: "HS256" }).setJti(randomUUID()).setIssuedAt().setExpirationTime("10m").sign(new TextEncoder().encode(sessionSecret));
     assert.match((await pu(joiner, "in", { token: await makeToken(String(otherCtx.activeBranchId)) }, 400)).error, /not for your library/i);
     assert.match((await pu(joiner, "in", { token: await makeToken(joinedLibId, "other") }, 400)).error, /not for your library/i);
-    await pu(joiner, "in", { token: await makeToken(joinedLibId) });
+    const oneUse = await makeToken(joinedLibId);
+    await pu(joiner, "in", { token: oneUse });
     await pu(joiner, "out"); // leaving never needs a code
+    assert.match((await pu(joiner, "in", { token: oneUse }, 400)).error, /already used/i); // a code cannot be replayed
     await jr(libOwner, "set-policy", { punchPolicy: "app" });
     await jr(libOwner, "set-policy", { punchPolicy: "qr" }); await jr(libOwner, "set-policy", { punchPolicy: "app" });
     await jr(joiner, "set-policy", { punchPolicy: "qr" }, 403);
@@ -1026,6 +1041,11 @@ async function main() {
     assert.match((await pu(joiner, "in", far, 400)).error, /out of geolocation/i);
     assert.match((await pu(joiner, "in", { ...near, accuracy: 900 }, 400)).error, /not accurate/i);
     assert.equal((await getJson("/api/punch", joiner)).inside, false, "a rejected punch records nothing");
+    // the QR check-in endpoint cannot be used to skip the location check
+    const viaCheckIn = await send("/api/workspace", { action: "check-in", data: { token: await makeToken(joinedLibId) } }, { Origin: base, cookie: joiner });
+    assert.equal(viaCheckIn.status, 400);
+    assert.match((await viaCheckIn.json()).error, /allow location/i);
+    assert.equal((await getJson("/api/punch", joiner)).inside, false);
     await pu(joiner, "in", near);
     assert.match((await pu(joiner, "out", far, 400)).error, /out of geolocation/i);
     assert.equal((await getJson("/api/punch", joiner)).inside, true, "still inside after a rejected punch-out");

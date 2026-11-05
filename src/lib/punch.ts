@@ -1,8 +1,20 @@
 import { Types } from "mongoose";
-import { Attendance } from "./models";
+import { Attendance, Library } from "./models";
 
 export const STALE_SESSION_HOURS = 16;
-export const dayKey = (d = new Date()) => d.toISOString().slice(0, 10);
+/** Attendance days follow the library's local calendar (India by default), not UTC. Older records keep the UTC day they were saved with. */
+export const DEFAULT_TIME_ZONE = "Asia/Kolkata";
+export function dayKey(d = new Date(), timeZone: string = DEFAULT_TIME_ZONE) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: DEFAULT_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  }
+}
+export async function libraryTimeZone(libraryId: unknown) {
+  const lib = await Library.findById(libraryId).select("timezone").lean<{ timezone?: string }>();
+  return lib?.timezone || DEFAULT_TIME_ZONE;
+}
 const oid = (v: unknown) => new Types.ObjectId(String(v));
 
 export type Session = { inAt: Date | string; outAt?: Date | string | null; method?: string; auto?: boolean };
@@ -43,14 +55,22 @@ export async function closeStaleSessions(filter: Record<string, unknown> = {}, n
   return res.modifiedCount;
 }
 
+/** Whether the student has an open visit (after closing forgotten ones). */
+export async function isInside(libraryId: unknown, userId: unknown, now = new Date()) {
+  const lib = oid(libraryId), user = oid(userId);
+  await closeStaleSessions({ libraryId: lib, userId: user }, now);
+  return !!(await Attendance.exists({ libraryId: lib, userId: user, sessions: { $elemMatch: { outAt: { $exists: false } } } }));
+}
+
 export async function punchIn(input: { libraryId: unknown; userId: unknown; method: "app" | "qr" | "manual"; now?: Date }) {
   const now = input.now ?? new Date();
   const libraryId = oid(input.libraryId), userId = oid(input.userId);
   await closeStaleSessions({ libraryId, userId }, now);
+  const day = dayKey(now, await libraryTimeZone(libraryId));
   if (await Attendance.exists({ libraryId, userId, sessions: { $elemMatch: { outAt: { $exists: false } } } })) return { ok: false as const, reason: "already-in" as const };
   try {
     const doc = await Attendance.findOneAndUpdate(
-      { libraryId, userId, day: dayKey(now), sessions: { $not: { $elemMatch: { outAt: { $exists: false } } } } },
+      { libraryId, userId, day, sessions: { $not: { $elemMatch: { outAt: { $exists: false } } } } },
       { $push: { sessions: { inAt: now, method: input.method } }, $setOnInsert: { checkIn: now } },
       { upsert: true, new: true },
     );
@@ -86,6 +106,9 @@ export function distanceMeters(a: Point, b: Point) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+export type Fence = { lat?: number; lng?: number } | undefined;
+export const hasFence = (f: Fence): f is Point => typeof f?.lat === "number" && typeof f?.lng === "number";
+
 export type GeoResult = { ok: true; distance: number } | { ok: false; reason: "no-location" | "inaccurate" | "outside"; distance?: number };
 /** Checks a reading from the student's phone against the library's point. */
 export function checkGeofence(fence: Point, reading?: { lat?: number; lng?: number; accuracy?: number }): GeoResult {
@@ -93,4 +116,14 @@ export function checkGeofence(fence: Point, reading?: { lat?: number; lng?: numb
   if (reading.accuracy !== undefined && reading.accuracy > MAX_ACCURACY_M) return { ok: false, reason: "inaccurate" };
   const distance = distanceMeters(fence, { lat: reading.lat, lng: reading.lng });
   return distance <= PUNCH_RADIUS_M ? { ok: true, distance } : { ok: false, reason: "outside", distance };
+}
+
+/** Students must be within PUNCH_RADIUS_M of the library to punch in or out. Coordinates are checked, never stored. */
+export function assertInside(fence: Fence, reading: { lat?: number; lng?: number; accuracy?: number }) {
+  if (!hasFence(fence)) return;
+  const r = checkGeofence(fence, reading);
+  if (r.ok) return;
+  if (r.reason === "no-location") throw new Error("Allow location access to punch in or out. Your library only accepts punches from inside the library.");
+  if (r.reason === "inaccurate") throw new Error("Your phone's location is not accurate enough. Turn on GPS or move near a window, then try again.");
+  throw new Error(`You are out of geolocation. Come within ${PUNCH_RADIUS_M} m of the library to punch (you are about ${Math.round(r.distance ?? 0)} m away).`);
 }

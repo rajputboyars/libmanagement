@@ -2,17 +2,24 @@ import { createHash, randomBytes } from "node:crypto";
 import { RateLimit } from "./ops-models";
 import { log } from "./log";
 
+/** Vercel overwrites X-Forwarded-For, so it is trusted there unless TRUST_PROXY=0 says otherwise. */
+export const proxyTrusted = () => process.env.TRUST_PROXY === "1" || (process.env.TRUST_PROXY !== "0" && process.env.VERCEL === "1");
+/** Placeholder returned when no trusted proxy tells us the caller's address. Never use it as a shared rate-limit bucket. */
+export const DIRECT_IP = "direct";
 /**
  * Client IP for rate limiting. Forwarded headers are client-controlled unless a trusted proxy sets them,
- * so they are only honoured when TRUST_PROXY=1. Otherwise all callers share one bucket (per-account limits still apply).
+ * so they are only honoured behind a trusted proxy. Otherwise this returns DIRECT_IP and per-IP limits must be skipped
+ * (or heavily relaxed), because every caller would share one bucket and a single attacker could lock everyone out.
  */
 export function clientIp(request: Request) {
-  if (process.env.TRUST_PROXY === "1") {
+  if (proxyTrusted()) {
     const forwarded = request.headers.get("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean);
-    return (forwarded && forwarded[forwarded.length - 1]) || request.headers.get("x-real-ip") || "unknown";
+    return (forwarded && forwarded[forwarded.length - 1]) || request.headers.get("x-real-ip") || DIRECT_IP;
   }
-  return "direct";
+  return DIRECT_IP;
 }
+/** Per-IP limit: unknown callers get a relaxed backstop (x20) instead of a bucket shared by every visitor. */
+export const ipLimit = (ip: string, limit: number) => (ip === DIRECT_IP ? limit * 20 : limit);
 
 /** Atomic shared counter. Returns true when the caller is over the limit. */
 export async function limitedShared(key: string, limit: number, windowSeconds: number) {

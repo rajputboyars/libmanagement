@@ -6,6 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { FocusTools, Insights, ReportSwitch, StudyPartnerPage, SubjectInput, SyllabusTracker, TodayCards } from "@/components/self-study";
 import { focusQuality } from "@/lib/self-study";
+import { getPosition } from "@/components/join";
 import { PushToggle } from "@/components/push-toggle";
 import { Leaderboard } from "@/components/leaderboard";
 import { LibraryNotes, OwnerSharedNotes } from "@/components/shared-notes";
@@ -1080,7 +1081,10 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
                 const token = new URLSearchParams(window.location.search).get(
                   "token",
                 );
-                await mutate("check-in", { token });
+                // Location is only asked for when the library has set one; the server enforces it either way.
+                const info = await fetch("/api/punch").then((r) => r.json()).catch(() => null);
+                const here = info?.geo ? await getPosition() : {};
+                await mutate("check-in", { token, ...here });
                 notify("You’re checked in. Have a great study session.");
               } catch (e) {
                 notify((e as Error).message);
@@ -2233,11 +2237,19 @@ type Field = {
   options?: { value: string; label: string }[];
   default?: string;
 };
+const QR_REFRESH_MS = 60_000; // keep below the server QR lifetime (attendance-token.ts)
 function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const [modal, setModal] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedSeat, setSelectedSeat] = useState("");
   const section = path.split("/")[2] || "overview";
+  // The desk QR code changes every minute, so the image is reloaded to match.
+  const [qrTick, setQrTick] = useState(0);
+  useEffect(() => {
+    if (section !== "attendance") return;
+    const t = setInterval(() => setQrTick((n) => n + 1), QR_REFRESH_MS);
+    return () => clearInterval(t);
+  }, [section]);
   const title =
     ownerNav.find((n) => n[0] === path)?.[1] ||
     (section === "notifications" ? "Notifications" : "Overview");
@@ -2544,7 +2556,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
       {section === "attendance" && !preview && (
         <section className="card qr-panel">
           <Image
-            src="/api/attendance-qr"
+            src={`/api/attendance-qr?t=${qrTick}`}
             width={160}
             height={160}
             alt="Scan to check in to this library"
@@ -2554,8 +2566,8 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
             <h2>A warmer welcome. A quicker check-in.</h2>
             <p>
               Students can scan this code and confirm attendance with an active
-              membership. Codes expire after 10 minutes. Reload to generate a
-              new code. Set APP_URL to your reachable site address.
+              membership. The code changes every minute, so keep this screen
+              open at the desk. Set APP_URL to your reachable site address.
             </p>
           </div>
         </section>

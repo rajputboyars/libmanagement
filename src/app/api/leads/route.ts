@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { limited, validOrigin } from "@/lib/auth";
+import { clientIp, ipLimit } from "@/lib/security";
 import { db } from "@/lib/db";
 import { Library } from "@/lib/models";
 import { AdmissionLead, PlatformLead } from "@/lib/saas-models";
@@ -15,8 +16,8 @@ const text = (max: number) => z.string().trim().max(max).default("");
 /** Public, unauthenticated enquiry forms: library admission enquiries and StudyQuest demo bookings. */
 export async function POST(request: NextRequest) {
   if (!validOrigin(request)) return fail("Invalid origin", 403);
-  const ip = (request.headers.get("x-forwarded-for") || "local").split(",")[0].trim();
-  if (limited(`lead:${ip}`, 5)) return fail("Too many requests. Please try again in a minute.", 429);
+  const ip = clientIp(request);
+  if (limited(`lead:${ip}`, ipLimit(ip, 5))) return fail("Too many requests. Please try again in a minute.", 429);
   try {
     await db();
     const body = (await request.json()) as Record<string, unknown>;
