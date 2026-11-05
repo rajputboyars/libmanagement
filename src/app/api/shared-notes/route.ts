@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { assertTeam, guardMember } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
-import { AuditLog, Notification, StaffMembership, StudentNote } from "@/lib/models";
+import { AuditLog, Notification, StudentNote } from "@/lib/models";
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
 const err = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -10,18 +11,18 @@ type NoteRow = { _id: unknown; userId: unknown; title: string; body: string; tag
 
 /** Owners always; staff with the students permission. */
 async function team(user: { _id: unknown; role: string; libraryId?: unknown }) {
-  if (user.role === "owner" && user.libraryId) return true;
-  if (user.role !== "staff" || !user.libraryId) return false;
-  const m = await StaffMembership.findOne({ userId: user._id, libraryId: user.libraryId }).lean<{ permissions: string[] }>();
-  return !!m?.permissions.includes("students");
+  try { await assertTeam(user as never, "learning", "community.moderate"); return true; } catch { return false; }
 }
 
-/** Students: notes shared in their library (hidden ones only if they wrote them). Team: every shared note, with moderation. */
 export async function GET(request: NextRequest) {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (!user.libraryId) return NextResponse.json({ team: false, notes: [] });
   const isTeam = await team(user);
+  if (!isTeam) {
+    const off = await guardMember(user, "learning");
+    if (off) return off;
+  }
   const q = (request.nextUrl.searchParams.get("q") || "").trim().slice(0, 60);
   const filter: Record<string, unknown> = { libraryId: user.libraryId, shared: true };
   if (!isTeam) filter.$or = [{ moderation: "active" }, { userId: user._id }];

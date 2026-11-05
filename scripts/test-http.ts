@@ -247,6 +247,89 @@ async function main() {
     state = await get(owner);
     assert.deepEqual([state.memberships[0].paid, state.summary.revenue, state.payments.length], [25000, 25000, 2]);
     assert.equal((await feeGet(owner)).totals.pending, 75000);
+    // ---- modules, roles and permissions ----
+    const accessGet = async (cookie: string, q = "", status = 200) => {
+      const r = await fetch(`${base}/api/access${q}`, { headers: { cookie } });
+      const text = await r.text();
+      assert.equal(r.status, status, text);
+      return JSON.parse(text);
+    };
+    const accessPost = async (cookie: string, action: string, data: unknown = {}, status = 200) => {
+      const r = await fetch(`${base}/api/access`, { method: "POST", headers: { cookie, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action, data }) });
+      const text = await r.text();
+      assert.equal(r.status, status, text);
+      return JSON.parse(text);
+    };
+    const status = async (url: string, cookie: string) => (await fetch(`${base}${url}`, { headers: { cookie } })).status;
+    // staff created before roles existed keep exactly the access they had, with no migration
+    const legacyAccess = await accessGet(staff);
+    assert.equal(legacyAccess.kind, "staff");
+    assert.ok(legacyAccess.permissions.includes("attendance.mark") && legacyAccess.permissions.includes("seats.view"));
+    assert.ok(!legacyAccess.permissions.includes("fees.view") && !legacyAccess.permissions.includes("fees.reverse") && !legacyAccess.permissions.includes("memberships.create"));
+    assert.equal((await accessGet(student)).kind, "student");
+    await accessGet(student, "?view=manage", 403);
+    await accessGet(staff, "?view=manage", 403);
+    const manage = await accessGet(owner, "?view=manage");
+    assert.deepEqual(manage.roles.map((r: { key: string }) => r.key).sort(), ["accountant", "attendance", "manager", "receptionist"]);
+    assert.ok(!manage.roles.find((r: { key: string }) => r.key === "manager").permissions.includes("fees.reverse"), "no ready-made role can reverse payments");
+    assert.ok(manage.registry.every((m: { state: { enabled: boolean } }) => m.state.enabled), "existing libraries start with everything their plan allows turned on");
+    // roles: only the owner manages them; unknown permissions are refused; names are unique per library
+    await accessPost(staff, "role-save", { name: "Sneaky", permissions: [] }, 403);
+    await accessPost(student, "role-save", { name: "Sneaky", permissions: [] }, 403);
+    await accessPost(staff, "module-set", { module: "crm", enabled: false }, 403);
+    await accessPost(owner, "role-save", { name: "Cashier", permissions: ["fees.view", "bogus.permission"] }, 400);
+    await accessPost(owner, "role-save", { name: "Cashier", description: "Takes payments", permissions: ["fees.view", "fees.create", "students.view", "memberships.view"] });
+    await accessPost(owner, "role-save", { name: "cashier", permissions: [] }, 400);
+    const cashier = (await accessGet(owner, "?view=manage")).roles.find((r: { name: string }) => r.name === "Cashier");
+    // tenant isolation: another library can neither see, edit, delete nor assign this role
+    assert.equal((await accessGet(other, "?view=manage")).roles.some((r: { name: string }) => r.name === "Cashier"), false);
+    await accessPost(other, "role-save", { id: cashier._id, name: "Hijack", permissions: [] }, 400);
+    await accessPost(other, "role-delete", { id: cashier._id }, 400);
+    await accessPost(other, "staff-assign", { email: "staff@example.invalid", roleId: cashier._id }, 400);
+    await accessPost(owner, "staff-assign", { email: "staff@example.invalid", roleId: cashier._id });
+    const cashierAccess = await accessGet(staff);
+    assert.equal(cashierAccess.roleName, "Cashier");
+    assert.ok(cashierAccess.permissions.includes("fees.create") && !cashierAccess.permissions.includes("attendance.mark"));
+    await accessPost(owner, "role-delete", { id: cashier._id }, 400); // still has someone on it
+    await feeGet(staff, "", 200);
+    await post(staff, "payments", { membershipId, amount: 1000, method: "cash", key: "cashier-payment-1" });
+    await post(staff, "attendance", { userId: state.students[0]._id }, 403); // the role has no attendance permission
+    await post(staff, "seats", { label: "Z9", floor: "Ground" }, 403);
+    const cashierPayment = (await get(owner)).payments.find((p: { amount: number }) => p.amount === 1000);
+    await post(staff, "payment-reverse", { paymentId: cashierPayment._id, reason: "not allowed" }, 403); // reversal stays with the owner
+    await post(owner, "payment-reverse", { paymentId: cashierPayment._id, reason: "test cleanup" });
+    assert.equal((await get(staff)).students.length, 1, "the role can see students");
+    assert.equal(await status("/api/punch", staff), 403, "the role has no attendance access");
+    // modules: off blocks pages and APIs but keeps every record; on brings them back
+    const paymentsBefore = (await get(owner)).payments.length;
+    await accessPost(owner, "module-set", { module: "fees", enabled: false });
+    await feeGet(owner, "", 403);
+    await feeGet(staff, "", 403);
+    const moduleBlockedPay = await post(owner, "payments", { membershipId, amount: 100, method: "cash", key: "blocked-by-module" }, 403);
+    assert.equal(moduleBlockedPay.code, "module-disabled");
+    assert.equal((await get(owner)).payments.length, 0, "a module that is off shows no records");
+    assert.equal(await status(`/api/receipts/${receiptId}`, owner), 403);
+    assert.equal((await accessGet(owner)).modules.fees.reason, "library");
+    assert.equal((await accessGet(other)).modules.fees.enabled, true, "another library is not affected");
+    await accessPost(owner, "module-set", { module: "fees", enabled: true });
+    assert.equal((await get(owner)).payments.length, paymentsBefore, "turning a module back on restores its data");
+    // a module that others depend on takes them down with it
+    await accessPost(owner, "module-set", { module: "seats", enabled: false });
+    const deps = (await accessGet(owner)).modules;
+    assert.deepEqual([deps.memberships.reason, deps.fees.reason, deps.waitlist.reason], ["dependency", "dependency", "dependency"]);
+    await feeGet(owner, "", 403);
+    assert.equal(await status("/api/seat-map", owner), 403);
+    await accessPost(owner, "module-set", { module: "seats", enabled: true });
+    await feeGet(owner, "", 200);
+    // students are held to the same switches
+    await accessPost(owner, "module-set", { module: "attendance", enabled: false });
+    assert.equal(await status("/api/punch", student), 403);
+    await accessPost(owner, "module-set", { module: "attendance", enabled: true });
+    assert.equal(await status("/api/punch", student), 200);
+    await accessPost(owner, "staff-assign", { email: "staff@example.invalid", roleId: null }); // back to a student for the checks below
+    assert.equal((await accessGet(staff)).kind, "student");
+    await post(owner, "staff", { email: "staff@example.invalid", permission: "attendance" }); // the older fixed-permission grant still works
+    assert.equal((await accessGet(staff)).kind, "staff");
     await post(staff, "attendance", { userId: allocation.userId });
     await post(
       staff,
@@ -406,6 +489,33 @@ async function main() {
     const adminUser = await User.create({ name: "Admin", email: "admin@example.invalid", passwordHash: "x", role: "super-admin" });
     const adminCookie = "sq-session=" + (await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(String(adminUser._id)).setIssuedAt().setExpirationTime("1h").sign(new TextEncoder().encode(sessionSecret)));
     const pa = (action: string, data: unknown, status = 200, cookie = adminCookie) => api("/api/prep-admin", cookie, action, data, status);
+    // ---- platform module availability (separate from the library's own switches and the plan) ----
+    const platformMods = async (cookie: string, action: string, data: unknown, status = 200) => {
+      const r = await fetch(`${base}/api/platform-modules`, { method: "POST", headers: { cookie, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action, data }) });
+      assert.equal(r.status, status, await r.clone().text());
+      return r.json();
+    };
+    const modStatus = async (url: string, cookie: string) => (await fetch(`${base}${url}`, { headers: { cookie } })).status;
+    assert.equal(await modStatus("/api/platform-modules", owner), 403);
+    assert.equal(await modStatus("/api/platform-modules", student), 403);
+    assert.equal(await modStatus("/api/platform-modules", adminCookie), 200);
+    const orgOfOwner = (await getJson("/api/org", owner)).organization._id;
+    await platformMods(owner, "org-set", { organizationId: orgOfOwner, blocked: ["rewards"] }, 403);
+    await platformMods(adminCookie, "org-set", { organizationId: orgOfOwner, blocked: ["not-a-module"] }, 400);
+    await platformMods(adminCookie, "org-set", { organizationId: orgOfOwner, blocked: ["rewards"] });
+    const blockedMods = (await getJson("/api/access", owner)).modules;
+    assert.deepEqual([blockedMods.rewards.enabled, blockedMods.rewards.reason], [false, "platform"]);
+    assert.equal((await getJson("/api/access", other)).modules.rewards.enabled, true, "only that organization is blocked");
+    assert.equal(await modStatus("/api/rewards", owner), 403);
+    await fetch(`${base}/api/access`, { method: "POST", headers: { cookie: owner, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action: "module-set", data: { module: "rewards", enabled: true } }) });
+    assert.equal((await getJson("/api/access", owner)).modules.rewards.enabled, false, "a library cannot override the platform");
+    await platformMods(adminCookie, "org-set", { organizationId: orgOfOwner, blocked: [] });
+    assert.equal((await getJson("/api/access", owner)).modules.rewards.enabled, true);
+    await platformMods(adminCookie, "global-set", { blocked: ["events"] });
+    assert.equal((await getJson("/api/access", other)).modules.events.reason, "platform");
+    await platformMods(adminCookie, "global-set", { blocked: [] });
+    // platform admin is not library staff: library routes do not accept it
+    for (const url of ["/api/fees", "/api/seat-map", "/api/access?view=manage"]) assert.notEqual(await modStatus(url, adminCookie), 200, url);
     const pp = (cookie: string, action: string, data: unknown = {}, status = 200) => api("/api/prep", cookie, action, data, status);
     await pa("question-import", { examKey: "ssc", rows: [], source: { name: "x", license: "original" } }, 422);
     await pa("date-save", { examKey: "ssc", title: "x" }, 403, student);
@@ -584,6 +694,10 @@ async function main() {
     assert.equal(blockedPay.status, 402);
     assert.equal((await blockedPay.json()).code, "feature");
     // fee collection is part of the free plan; only expenses are locked
+    const freeModules = (await accessGet(owner)).modules;
+    assert.deepEqual([freeModules.fees.enabled, freeModules.expenses.reason, freeModules.crm.reason], [true, "plan", "plan"]);
+    await accessPost(owner, "module-set", { module: "expenses", enabled: true });
+    assert.equal((await accessGet(owner)).modules.expenses.enabled, false, "the owner cannot switch on what the plan does not include");
     const freeDue = await DuesMembership.create({ libraryId: freeCtx.activeBranchId, userId: duesStudentId, start: new Date(), end: new Date(Date.now() + 9 * 86400000), amount: 30000, status: "active" });
     await post(owner, "payments", { membershipId: String(freeDue._id), amount: 10000, method: "cash", key: "free-plan-payment" });
     assert.equal((await DuesMembership.findById(freeDue._id))!.paid, 10000);

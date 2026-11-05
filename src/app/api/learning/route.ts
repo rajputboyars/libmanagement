@@ -1,6 +1,7 @@
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { guardMember } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import {
   LearningAudit,
@@ -65,6 +66,7 @@ export async function GET() {
   { const blocked = await studentFeatureBlocked(user, "learning"); if (blocked) return blocked; }
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (user.role !== "student") return NextResponse.json({ error: "Student access required" }, { status: 403 });
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   const source = await sourceData(user._id);
   const titles = new Map(source.nodes.map((node) => [String(node._id), String(node.title)]));
   const revisions = source.revisionRows.map((row) => ({
@@ -96,6 +98,7 @@ export async function POST(request: NextRequest) {
   { const blocked = await studentFeatureBlocked(user, "learning"); if (blocked) return blocked; }
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (user.role !== "student") return NextResponse.json({ error: "Student access required" }, { status: 403 });
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   if (limited(`learning:${user._id}`, 40)) return NextResponse.json({ error: "Please slow down" }, { status: 429 });
   try {
     const body = z.object({ action: z.enum(["revision-complete", "revision-snooze", "revision-reschedule", "insight-save", "insight-narrative"]), data: z.unknown().default({}) }).parse(await request.json());

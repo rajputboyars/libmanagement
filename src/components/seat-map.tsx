@@ -17,7 +17,7 @@ const hhmm = (m?: number) => (m === undefined ? "" : `${String(Math.floor(m / 60
 const day = (v: string | Date) => new Date(v).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
 /** Live seat layout for the owner: which seats are free, held, or have a student inside right now. */
-export function SeatMap({ onAllocate }: { onAllocate: (seatId: string) => void }) {
+export function SeatMap({ onAllocate }: { onAllocate?: (seatId: string) => void }) {
   const q = useQuery<Json>({ queryKey: ["workspace", "seat-map"], queryFn: () => getJson("/api/seat-map"), refetchInterval: 30000 });
   const [floor, setFloor] = useState("All floors");
   const [selected, setSelected] = useState("");
@@ -69,7 +69,7 @@ export function SeatMap({ onAllocate }: { onAllocate: (seatId: string) => void }
           ))}
           {!seat.holders.length && seat.state !== "maintenance" && <p className="pr-hint">Nobody holds this seat today.</p>}
           {seat.state === "maintenance" && <p className="pr-hint">This seat is under repair and cannot be allocated.</p>}
-          {seat.state !== "maintenance" && <button className="button" onClick={() => onAllocate(seat._id)}>{seat.holders.length ? "Allocate another shift" : "Allocate this seat"}</button>}
+          {onAllocate && seat.state !== "maintenance" && <button className="button" onClick={() => onAllocate(seat._id)}>{seat.holders.length ? "Allocate another shift" : "Allocate this seat"}</button>}
         </div>
       )}
     </section>

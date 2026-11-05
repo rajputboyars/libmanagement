@@ -2,7 +2,8 @@ import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
-import { AuditLog, Library, Notification, Seat, SeatAssignment, SeatChangeRequest, Shift, StaffMembership, User } from "@/lib/models";
+import { assertMember, accessResponse, assertTeam, guardMember } from "@/lib/access";
+import { AuditLog, Library, Notification, Seat, SeatAssignment, SeatChangeRequest, Shift, User } from "@/lib/models";
 import { assertWritable } from "@/lib/saas-server";
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
@@ -11,13 +12,8 @@ type Lean = Record<string, unknown> & { _id: unknown };
 
 /** Owners always; staff with the memberships or students permission. */
 async function team(user: { _id: unknown; role: string; libraryId?: unknown }) {
-  if (user.role === "owner" && user.libraryId) return true;
-  if (user.role !== "staff" || !user.libraryId) return false;
-  const m = await StaffMembership.findOne({ userId: user._id, libraryId: user.libraryId }).lean<{ permissions: string[] }>();
-  return !!m?.permissions.some((p) => p === "memberships" || p === "students");
+  try { await assertTeam(user as never, "seats", "seats.approve"); return true; } catch { return false; }
 }
-
-/** The student's seat assignment that is running now, or the next one if none has started yet. */
 async function currentAssignment(userId: unknown, libraryId: unknown, now = new Date()) {
   return SeatAssignment.findOne({ userId, libraryId, end: { $gt: now } })
     .sort({ start: 1 })
@@ -29,6 +25,10 @@ export async function GET() {
   if (!user) return err("Sign in required", 401);
   if (!user.libraryId) return NextResponse.json({ team: false, requests: [] });
   const isTeam = await team(user);
+  if (!isTeam) {
+    const off = await guardMember(user, "seats");
+    if (off) return off;
+  }
   const filter = isTeam ? { libraryId: user.libraryId, status: "pending" } : { libraryId: user.libraryId, userId: user._id };
   const rows = await SeatChangeRequest.find(filter)
     .sort({ createdAt: -1 })
@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
     const action = z.enum(["request", "cancel", "approve", "reject"]).parse(body.action);
 
     if (action === "request" || action === "cancel") {
+      await assertMember(user, "seats");
       if (user.role !== "student") return err("Only students can request a seat change", 403);
       if (action === "cancel") {
         const res = await SeatChangeRequest.updateOne({ userId: user._id, status: "pending" }, { $set: { status: "cancelled", decidedAt: new Date() } });
@@ -202,6 +203,8 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ ok: true });
   } catch (e) {
+    const denied = accessResponse(e);
+    if (denied) return denied;
     if (e instanceof z.ZodError) return err(e.issues[0]?.message ?? "Invalid request");
     return err(e instanceof Error ? e.message : "Could not save");
   }

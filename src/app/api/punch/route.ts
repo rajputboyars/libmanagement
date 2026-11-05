@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
-import { Attendance, Library, Seat, SeatAssignment, StaffMembership, User } from "@/lib/models";
+import { Attendance, Library, Seat, SeatAssignment, User } from "@/lib/models";
 import { PUNCH_RADIUS_M, assertInside, dayKey, hasFence, libraryTimeZone, openSession, punchOut, sessionMinutes, closeStaleSessions, type Fence, type Session } from "@/lib/punch";
 import { activeMembership, studentPunchIn } from "@/lib/punch-flow";
+import { accessResponse, assertMember, guardMember, guardTeam } from "@/lib/access";
 import { PlanError, assertWritable, audit, ensureOrganizationForLibrary } from "@/lib/saas-server";
 
 const err = (message: string, status = 400, code?: string) => NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
 type Lean = Record<string, unknown> & { _id: unknown };
 type Day = Lean & { day: string; sessions?: Session[]; checkIn?: Date; checkOut?: Date };
 
-async function team(user: { _id: unknown; role: string; libraryId?: unknown }) {
-  if (user.role === "owner" && user.libraryId) return true;
-  if (user.role !== "staff" || !user.libraryId) return false;
-  const m = await StaffMembership.findOne({ userId: user._id, libraryId: user.libraryId }).lean<{ permissions: string[] }>();
-  return !!m?.permissions.includes("attendance");
-}
 const shape = (d: Day, now: Date) => ({ day: d.day, sessions: (d.sessions ?? (d.checkIn ? [{ inAt: d.checkIn, outAt: d.checkOut }] : [])).map((s) => ({ inAt: s.inAt, outAt: s.outAt ?? null, method: s.method ?? "app", auto: !!s.auto })), minutes: sessionMinutes(d.sessions ?? (d.checkIn ? [{ inAt: d.checkIn, outAt: d.checkOut }] : []), now) });
 
 export async function GET(request: NextRequest) {
@@ -26,6 +21,8 @@ export async function GET(request: NextRequest) {
 
   if (user.role === "student") {
     if (!user.libraryId) return NextResponse.json({ linked: false });
+    const off = await guardMember(user, "attendance");
+    if (off) return off;
     await closeStaleSessions({ userId: user._id, libraryId: user.libraryId }, now);
     const tz = await libraryTimeZone(user.libraryId);
     const [library, membership, days] = await Promise.all([
@@ -40,7 +37,8 @@ export async function GET(request: NextRequest) {
   }
 
   // Library team: who is inside now and the log for a day.
-  if (!(await team(user))) return err("Library team access required", 403);
+  const denied = await guardTeam(user, "attendance", "attendance.view");
+  if (denied) return denied;
   const libraryId = user.libraryId!;
   const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get("day") ?? "") ? params.get("day")! : dayKey(now, await libraryTimeZone(libraryId));
   await closeStaleSessions({ libraryId }, now);
@@ -73,7 +71,8 @@ export async function POST(request: NextRequest) {
     const now = new Date();
 
     if (body.action === "manual-out") {
-      if (!(await team(user))) return err("Library team access required", 403);
+      const denied = await guardTeam(user, "attendance", "attendance.mark");
+      if (denied) return denied;
       const target = body.data.userId;
       if (!target || !(await User.exists({ _id: target, libraryId: user.libraryId, role: "student" }))) throw new Error("Student not found");
       const r = await punchOut({ libraryId: user.libraryId, userId: target, now });
@@ -86,6 +85,7 @@ export async function POST(request: NextRequest) {
 
     if (user.role !== "student") return err("Student access required", 403);
     if (!user.libraryId) throw new Error("Join a library first: enter your Library ID.");
+    await assertMember(user, "attendance");
     if (body.action === "in") {
       const r = await studentPunchIn(user, body.data, now);
       if (r.alreadyIn) throw new Error("You are already punched in. Punch out when you leave.");
@@ -100,6 +100,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, at: now, minutes: session ? sessionMinutes([session]) : 0 });
   } catch (error) {
     if (error instanceof PlanError) return err(error.message, 402, error.code);
+    const accessDenied = accessResponse(error);
+    if (accessDenied) return accessDenied;
     return err(error instanceof z.ZodError ? "Check your entries" : error instanceof Error ? error.message : "Unable to record", error instanceof z.ZodError ? 422 : 400);
   }
 }

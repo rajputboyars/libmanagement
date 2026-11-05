@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { guardMember } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { DailyPlan, DailyReflection, Notification, SelfGoal, StudyPartner, StudySession, SyllabusNode, TestAttempt, TopicProgress, User } from "@/lib/models";
 import { enrolledExam } from "@/lib/prep-server";
@@ -74,6 +75,7 @@ export async function GET(request: NextRequest) {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Self-study tools are for students", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   const view = request.nextUrl.searchParams.get("view") || "today";
   const now = new Date();
   const day = libraryClock(now).date;
@@ -146,6 +148,7 @@ export async function POST(request: NextRequest) {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Self-study tools are for students", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   if (limited(`self-study:${user._id}`, 60)) return err("Please slow down", 429);
   try {
     const body = await request.json();

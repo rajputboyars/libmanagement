@@ -1,3 +1,4 @@
+import { moduleStates } from "./access";
 import type { Types } from "mongoose";
 import { Flashcard, Library, Membership, Notification, Payment, RevisionSchedule, User } from "./models";
 import { BillingInvoice, BillingPayment, BillingWebhookEvent, NotificationDelivery, Organization } from "./saas-models";
@@ -22,7 +23,11 @@ async function membershipExpiry(now: Date) {
 async function feeDueReminders(now: Date) {
   const rows = await Membership.find({ status: { $in: ["active", "paused"] }, $expr: { $gt: [{ $subtract: [{ $subtract: ["$amount", { $ifNull: ["$discount", 0] }] }, { $ifNull: ["$paid", 0] }] }, 0] } }).select("userId libraryId amount discount paid end").limit(2000).lean<{ _id: Types.ObjectId; userId: Types.ObjectId; libraryId: Types.ObjectId; amount: number; discount?: number; paid?: number }[]>();
   let sent = 0;
+  const feesOn = new Map<string, boolean>(); // libraries that turned fees off (or are not allowed them) get no fee reminders
   for (const m of rows) {
+    const lib = String(m.libraryId);
+    if (!feesOn.has(lib)) feesOn.set(lib, await moduleStates(m.libraryId as never).then((x) => x.fees.enabled, () => false));
+    if (!feesOn.get(lib)) continue;
     const due = m.amount - (m.discount ?? 0) - (m.paid ?? 0);
     const key = `feedue:${m._id}:${weekKey(now)}`;
     const fresh = await NotificationDelivery.updateOne({ key }, { $setOnInsert: { userId: m.userId, channel: "in-app", kind: "fee-due", status: "sent", attempts: 1 } }, { upsert: true });

@@ -46,6 +46,8 @@ export const Library = model("Library", {
   },
   libraryCode: { type: String, uppercase: true, trim: true, unique: true, sparse: true },
   punchPolicy: { type: String, enum: ["app", "qr"], default: "app" },
+  // Modules the owner turned off. Data is never touched; an empty list means everything the plan allows is on.
+  disabledModules: [{ type: String, maxlength: 30 }],
   // IANA zone used for attendance days. Libraries without one use India time.
   timezone: { type: String, trim: true, maxlength: 60 },
   // Where the library is. When set, students can only punch in and out within PUNCH_RADIUS_M of this point.
@@ -250,8 +252,22 @@ export const AuditLog = model("AuditLog", {
 });
 export const StaffMembership = model(
   "StaffMembership",
-  { ...tenant, userId: id, permissions: [String] },
+  // `permissions` holds the older fixed words (attendance, students, payments, expenses); `roleId` points at a custom or preset role.
+  { ...tenant, userId: id, permissions: [String], roleId: id },
   [[{ libraryId: 1, userId: 1 }, { unique: true }]],
+);
+export const LibraryRole = model(
+  "LibraryRole",
+  {
+    ...tenant,
+    key: { type: String, required: true, lowercase: true, trim: true, maxlength: 40 },
+    name: { type: String, required: true, trim: true, maxlength: 40 },
+    description: { type: String, default: "", trim: true, maxlength: 200 },
+    permissions: [{ type: String, maxlength: 40 }],
+    preset: { type: Boolean, default: false },
+    createdBy: id,
+  },
+  [[{ libraryId: 1, key: 1 }, { unique: true }]],
 );
 export const StudyGoal = model(
   "StudyGoal",

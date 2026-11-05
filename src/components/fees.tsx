@@ -7,7 +7,7 @@ import { BrandLoader } from "@/components/brand-loader";
 import { fmtDate, getJson, inr, post, type Json } from "./prep-api";
 
 /** Student-wise fees: who owes what, payment history, recording a payment, reversing a wrong one, and reminders. */
-export function OwnerFees({ canReverse, notify }: { canReverse: boolean; notify: (message: string) => void }) {
+export function OwnerFees({ canReverse, canRecord, notify }: { canReverse: boolean; canRecord: boolean; notify: (message: string) => void }) {
   const qc = useQueryClient();
   const [filter, setFilter] = useState("pending");
   const [search, setSearch] = useState("");
@@ -38,11 +38,11 @@ export function OwnerFees({ canReverse, notify }: { canReverse: boolean; notify:
           <option value="clear">Fully paid</option>
           <option value="all">Everyone with a membership</option>
         </select>
-        <button className="button secondary" disabled={!d || !d.totals.owing} onClick={() => run(async () => {
+        {canRecord && <button className="button secondary" disabled={!d || !d.totals.owing} onClick={() => run(async () => {
           if (!confirm(`Send a fee reminder to ${d!.totals.owing} student${d!.totals.owing === 1 ? "" : "s"} with pending fees? Each student gets at most one a day.`)) return "Reminders not sent.";
           const r = await post("/api/fees", "remind", {});
           return `Reminders sent: ${r.sent}${r.skipped ? ` (${r.skipped} already reminded today)` : ""}.`;
-        })}><BellRing size={16} /> Remind everyone with dues</button>
+        })}><BellRing size={16} /> Remind everyone with dues</button>}
       </div>
       {list.isLoading && <BrandLoader compact text="Loading fees…" />}
       {list.isError && !d && <div className="cm-note danger" role="alert">Could not load fees: {list.error instanceof Error ? list.error.message : "Try again."} <button className="button secondary" onClick={() => list.refetch()}>Try again</button></div>}
@@ -67,13 +67,13 @@ export function OwnerFees({ canReverse, notify }: { canReverse: boolean; notify:
       {!d.students.length && <p className="pr-hint">{filter === "pending" ? "Nobody has pending fees. 🎉" : "No students match."}</p>}
       {pages > 1 && <div className="lifecycle-toolbar"><button className="button secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page} of {pages}</span><button className="button secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button></div>}
       </>}
-      {open && <StudentFees key={open} userId={open} canReverse={canReverse} run={run} />}
+      {open && <StudentFees key={open} userId={open} canReverse={canReverse} canRecord={canRecord} run={run} />}
       <p className="pr-hint">Pending counts only memberships that are still running. Cancelled memberships are not billed; ended ones with a balance are listed separately.</p>
     </>
   );
 }
 
-function StudentFees({ userId, canReverse, run }: { userId: string; canReverse: boolean; run: (work: () => Promise<string>) => Promise<void> }) {
+function StudentFees({ userId, canReverse, canRecord, run }: { userId: string; canReverse: boolean; canRecord: boolean; run: (work: () => Promise<string>) => Promise<void> }) {
   const q = useQuery<Json>({ queryKey: ["workspace", "fees", "student", userId], queryFn: () => getJson(`/api/fees?student=${userId}`) });
   const top = useRef<HTMLElement>(null);
   useEffect(() => { top.current?.scrollIntoView({ block: "start", behavior: "smooth" }); }, [q.isSuccess]);
@@ -95,7 +95,7 @@ function StudentFees({ userId, canReverse, run }: { userId: string; canReverse: 
   return (
     <section className="card" ref={top} aria-label={`Fees for ${d.student.name}`}>
       <div className="section-label"><span>{d.student.name}</span><span>Pending {inr(d.totals.pending)} · Paid {inr(d.totals.paid)}</span></div>
-      {owing.length > 0 && (
+      {canRecord && owing.length > 0 && (
         <form className="mt-form" onSubmit={record}>
           <label>Membership<select name="membershipId">{owing.map((m) => <option key={m._id} value={m._id}>{m.plan ?? "Membership"} · ends {fmtDate(m.end)} · due {inr(m.amount - (m.discount ?? 0) - (m.paid ?? 0))}</option>)}</select></label>
           <label>Amount received (₹)<input name="amount" type="number" min="1" step="1" required /></label>

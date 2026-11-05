@@ -15,6 +15,8 @@ export const Organization = model(
     referralCode: { type: String, unique: true, sparse: true, uppercase: true },
     referredByCode: { type: String, uppercase: true },
     onboardingStatus: { type: String, enum: ["pending", "complete"], default: "pending" },
+    // Modules the platform owner has made unavailable to this organization (separate from what the library turns off).
+    blockedModules: [{ type: String, maxlength: 30 }],
     billingEmail: { type: String, default: "", lowercase: true, trim: true },
     gstin: { type: String, default: "", trim: true, maxlength: 20 },
   },
@@ -320,6 +322,8 @@ export const PlatformSettings = model("PlatformSettings", {
   premiumStudentFeatures: { type: [String], default: [] },
   // Trial run: while true, every student feature is free for everyone (premium rules are ignored).
   freeTrial: { type: Boolean, default: true },
+  // Modules the platform has switched off for every library.
+  blockedModules: { type: [String], default: [] },
 });
 export const VerificationCode = model(
   "VerificationCode",

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { guardTeam } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { Library, Membership, MembershipPlan, Payment, Seat, SeatAssignment, Shift, StudentProfile, User } from "@/lib/models";
 import { ImportBatch, PasswordReset } from "@/lib/ops-models";
@@ -19,6 +20,9 @@ async function owner() {
   const user = await currentUser();
   if (!user) return { error: err("Sign in required", 401) };
   if (user.role !== "owner" || !user.libraryId) return { error: err("Owner access required", 403) };
+  // The register import creates memberships, seats and payments, so it needs those modules on.
+  const denied = await guardTeam(user, "fees", "fees.create");
+  if (denied) return { error: denied };
   return { user };
 }
 

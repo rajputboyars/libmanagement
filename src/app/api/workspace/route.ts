@@ -34,6 +34,9 @@ import { nudgePartners } from "@/lib/partner-nudge";
 import { studentAccessFor } from "@/lib/student-access-server";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
 import { renewalTerms } from "@/lib/fees";
+import { AccessError, accessFor, assertMember, assertTeam, can, moduleOn } from "@/lib/access";
+import type { ModuleKey } from "@/lib/modules";
+import type { PermissionKey } from "@/lib/permissions";
 import { XP, reward, activeSeconds, focusLength, focusXP } from "@/lib/rules";
 
 /** The student's chosen exam and date, for the home-screen countdown. */
@@ -92,21 +95,21 @@ export async function GET(req: NextRequest) {
   if (!user)
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const owner = ["owner", "staff"].includes(user.role);
-  const staffRecord =
-    user.role === "staff"
-      ? await StaffMembership.findOne({
-          userId: user._id,
-          libraryId: user.libraryId,
-        })
-      : null;
-  const permissions: string[] = staffRecord?.permissions || [];
-  const readable = (key: string) =>
-    user.role !== "staff" ||
-    ["seats", "shifts", "plans", "notifications"].includes(key) ||
-    permissions.includes(key) ||
-    (key === "memberships" && permissions.includes("payments")) ||
-    (key === "students" &&
-      (permissions.includes("attendance") || permissions.includes("payments")));
+  const access = await accessFor(user);
+  // What each list needs: its module must be on for the library, and staff need the matching permission.
+  const READ: Record<string, [ModuleKey | null, PermissionKey]> = {
+    seats: ["seats", "seats.view"], shifts: ["seats", "seats.view"], plans: ["memberships", "plans.view"], memberships: ["memberships", "memberships.view"],
+    payments: ["fees", "fees.view"], expenses: ["expenses", "expenses.view"], attendance: ["attendance", "attendance.view"],
+    complaints: ["feedback", "feedback.view"], students: [null, "students.view"],
+  };
+  const readable = (key: string) => {
+    if (key === "notifications") return true;
+    const rule = READ[key];
+    if (!rule) return false;
+    if (access.kind === "none") return false;
+    if (rule[0] && !moduleOn(access, rule[0])) return false;
+    return user.role !== "staff" || can(access, rule[1]);
+  };
   const scope = owner ? { libraryId: user.libraryId } : { userId: user._id };
   const resource = req.nextUrl.searchParams.get("resource");
   if (resource) {
@@ -196,7 +199,7 @@ export async function GET(req: NextRequest) {
   }).lean();
   const libraries =
     user.role === "super-admin" ? await Library.find().limit(100).lean() : [];
-  const assignments = await SeatAssignment.find(
+  const assignments = !readable("seats") && !readable("memberships") && owner ? [] : await SeatAssignment.find(
     owner ? { libraryId: user.libraryId } : { userId: user._id },
   )
     .limit(200)
@@ -295,8 +298,8 @@ export async function POST(req: NextRequest) {
     const owner = user.role === "owner";
     const libraryId = user.libraryId;
     if (action === "library-hours" || action === "holiday-add" || action === "holiday-remove") {
-      if (!owner || !libraryId)
-        return NextResponse.json({ error: "Only the library owner can change timings" }, { status: 403 });
+      if (!libraryId) return NextResponse.json({ error: "Only the library team can change timings" }, { status: 403 });
+      await assertTeam(user, null, "settings.manage");
       await assertWritable(libraryId);
       if (action === "library-hours") {
         const hours = z
@@ -349,6 +352,7 @@ export async function POST(req: NextRequest) {
     }
     if (action === "check-in") {
       if (user.role !== "student") throw new Error("This check-in code is not for your library");
+      await assertMember(user, "attendance");
       const data = z.object({ token: z.string().max(2000), lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional(), accuracy: z.number().min(0).max(100000).optional() }).parse(body.data);
       await studentPunchIn(user, data);
       return NextResponse.json({ ok: true });
@@ -557,22 +561,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, focus: result });
     }
     if (action === "complaints" && libraryId) {
+      await assertMember(user, "feedback");
       const data = schemas.complaints.parse(body.data);
       await Complaint.create({ ...data, libraryId, userId: user._id });
       return NextResponse.json({ ok: true });
     }
-    const staffPermission =
-      user.role === "staff"
-        ? await StaffMembership.findOne({ userId: user._id, libraryId })
-        : null;
-    if (
-      (!owner && !staffPermission?.permissions.includes(action)) ||
-      !libraryId
-    )
-      return NextResponse.json(
-        { error: "Owner permission required" },
-        { status: 403 },
-      );
+    // Every team action names the module it belongs to and the permission it needs. Unknown actions are for owners only.
+    const ACTIONS: Record<string, [ModuleKey | null, PermissionKey | "owner"]> = {
+      seats: ["seats", "seats.create"], shifts: ["seats", "seats.create"],
+      plans: ["memberships", "memberships.create"], memberships: ["memberships", "memberships.create"],
+      "membership-status": ["memberships", "memberships.update"], renew: ["memberships", "memberships.update"],
+      payments: ["fees", "fees.create"], "payment-reverse": ["fees", "fees.reverse"], expenses: ["expenses", "expenses.create"],
+      attendance: ["attendance", "attendance.mark"], resolve: ["feedback", "feedback.respond"],
+      notifications: [null, "notifications.create"], students: [null, "students.create"], staff: [null, "owner"],
+    };
+    const rule = ACTIONS[action];
+    if (!libraryId || (!rule && !owner)) return NextResponse.json({ error: "Owner permission required" }, { status: 403 });
+    if (rule) {
+      if (rule[1] === "owner" && !owner) throw new AccessError("Only the library owner can do this", "forbidden");
+      await assertTeam(user, rule[0], rule[1] === "owner" ? null : rule[1]);
+    }
     const session = await mongoose.startSession();
     try {
       await session.withTransaction(async () => {
@@ -624,6 +632,8 @@ export async function POST(req: NextRequest) {
             throw new Error(
               "An active student membership cannot become a staff account",
             );
+          if (await StaffMembership.exists({ libraryId, userId: member._id, roleId: { $exists: true } }).session(session))
+            throw new Error("This person has a role. Change their access under Team & roles.");
           member.role = data.permission === "none" ? "student" : "staff";
           member.libraryId = libraryId;
           await member.save({ session });
@@ -961,9 +971,9 @@ export async function POST(req: NextRequest) {
                 !/mongo|connection|server|buffer/i.test(error.message)
               ? error.message
               : "Unable to save. Check the database connection.",
-        ...(error instanceof PlanError ? { code: error.code } : {}),
+        ...(error instanceof PlanError || error instanceof AccessError ? { code: error.code } : {}),
       },
-      { status: error instanceof PlanError ? 402 : 400 },
+      { status: error instanceof PlanError ? 402 : error instanceof AccessError ? error.status : 400 },
     );
   }
 }

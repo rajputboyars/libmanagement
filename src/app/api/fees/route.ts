@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
-import { AuditLog, MembershipPlan, Membership, Notification, Payment, StaffMembership, User } from "@/lib/models";
+import { assertTeam, accessResponse } from "@/lib/access";
+import { AuditLog, MembershipPlan, Membership, Notification, Payment, User } from "@/lib/models";
 import { NotificationDelivery } from "@/lib/saas-models";
 import { isRunning, owedExpr, runningExpr, feeTotals } from "@/lib/fees";
 import { dayKey, libraryTimeZone } from "@/lib/punch";
@@ -13,20 +14,22 @@ type Lean = Record<string, unknown> & { _id: unknown };
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
 const escapeRe = (q: string) => q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Fee views are for the owner and for staff who were given the payments permission. */
-async function feeTeam() {
+/** Fee views need the fees module and the matching permission (owners hold every permission). */
+async function feeTeam(permission: "fees.view" | "fees.create") {
   const user = await currentUser();
   if (!user || !user.libraryId) return { error: err("Sign in required", 401) };
-  if (user.role === "owner") return { user, libraryId: user.libraryId, owner: true };
-  if (user.role === "staff") {
-    const m = await StaffMembership.findOne({ userId: user._id, libraryId: user.libraryId }).lean<{ permissions: string[] }>();
-    if (m?.permissions.includes("payments")) return { user, libraryId: user.libraryId, owner: false };
+  try {
+    const a = await assertTeam(user, "fees", permission);
+    return { user, libraryId: user.libraryId, owner: a.kind === "owner" };
+  } catch (e) {
+    const r = accessResponse(e);
+    if (r) return { error: r };
+    throw e;
   }
-  return { error: err("Fee access required", 403) };
 }
 
 export async function GET(request: NextRequest) {
-  const t = await feeTeam();
+  const t = await feeTeam("fees.view");
   if ("error" in t) return t.error;
   const { libraryId } = t;
   const params = request.nextUrl.searchParams;
@@ -113,7 +116,7 @@ export async function GET(request: NextRequest) {
 /** Fee reminders go out as ordinary in-app notifications (which also reach phones with web push). */
 export async function POST(request: NextRequest) {
   if (!validOrigin(request)) return err("Invalid origin", 403);
-  const t = await feeTeam();
+  const t = await feeTeam("fees.create");
   if ("error" in t) return t.error;
   const { user, libraryId } = t;
   if (limited(`fees:${user._id}`, 20)) return err("Please slow down", 429);

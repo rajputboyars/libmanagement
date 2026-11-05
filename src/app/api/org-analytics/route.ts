@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
+import { guardTeam } from "@/lib/access";
 import { Expense, Library, Membership, Payment, Seat, SeatAssignment, User } from "@/lib/models";
 import { AdmissionLead } from "@/lib/saas-models";
 import { rate } from "@/lib/saas";
@@ -11,7 +12,9 @@ const sum = async (Model: typeof Payment, match: object) => (await Model.aggrega
 export async function GET(request: NextRequest) {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
-  if (!["owner", "staff"].includes(user.role) || !user.libraryId) return NextResponse.json({ error: "Library team access required" }, { status: 403 });
+  if (!user.libraryId) return NextResponse.json({ error: "Library team access required" }, { status: 403 });
+  const denied = await guardTeam(user, "analytics", "analytics.view");
+  if (denied) return denied;
   try {
     const access = await accessForLibrary(user.libraryId);
     if (!access) return NextResponse.json({ error: "Organization not found" }, { status: 404 });

@@ -1,13 +1,13 @@
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { accessResponse, assertMember, assertTeam, guardMember, guardTeam } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { AuditLog, CommunityBlock, CommunityLink, CommunityProfile, CommunityReport, Notification, SeatAssignment, StudentExam, SuccessPost } from "@/lib/models";
 import { AGE_BANDS, MENTORSHIP, MILESTONE_TYPES, REPORT_REASONS, VISIBILITY, buddyScore, containsContactInfo, headline, pairKey, type MilestoneType } from "@/lib/community";
 import { blockedBetween, canViewPost, mayInteract, verifiedStats, type ExamDoc, type PostDoc, type ProfileDoc } from "@/lib/community-server";
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
-const team = (role: string) => role === "owner" || role === "staff";
 const safeText = (max: number, min = 0) => z.string().trim().min(min).max(max).refine((v) => !containsContactInfo(v), "Remove emails, links, handles and phone numbers");
 
 async function aliasMap(ids: unknown[]) {
@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
   const libraryId = user.libraryId;
 
   if (view === "moderation") {
-    if (!team(user.role)) return NextResponse.json({ error: "Library team access required" }, { status: 403 });
+    const denied = await guardTeam(user, "community", "community.moderate");
+    if (denied) return denied;
     const [reports, consents, suspended] = await Promise.all([
       CommunityReport.find({ libraryId, status: "open" }).sort({ createdAt: 1 }).limit(50).lean(),
       CommunityProfile.find({ libraryId, consentStatus: "pending" }).select("+guardianContact userId alias guardianName createdAt").limit(50).lean(),
@@ -39,6 +40,8 @@ export async function GET(request: NextRequest) {
     });
   }
   if (user.role !== "student") return NextResponse.json({ error: "Student access required" }, { status: 403 });
+  const off = await guardMember(user, "community");
+  if (off) return off;
   const profile = await CommunityProfile.findOne({ userId: user._id }).lean<ProfileDoc>();
   const active = mayInteract(profile);
 
@@ -101,7 +104,7 @@ export async function POST(request: NextRequest) {
     let record: unknown;
 
     if (body.action.startsWith("mod-")) {
-      if (!team(user.role)) throw new Error("Library team access required");
+      await assertTeam(user, "community", "community.moderate");
       if (body.action === "mod-report") {
         const v = z.object({ id: objectId, decision: z.enum(["dismiss", "remove-post", "suspend-member"]), note: z.string().trim().max(300).default("") }).parse(body.data);
         const report = await CommunityReport.findOne({ _id: v.id, libraryId, status: "open" });
@@ -136,6 +139,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (user.role !== "student") throw new Error("Student access required");
+    await assertMember(user, "community");
     const mine = await CommunityProfile.findOne({ userId: user._id });
 
     if (body.action === "profile-save") {
@@ -238,6 +242,8 @@ export async function POST(request: NextRequest) {
     } else throw new Error("Unsupported action");
     return NextResponse.json({ ok: true, record });
   } catch (error) {
+    const denied = accessResponse(error);
+    if (denied) return denied;
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update community" }, { status: error instanceof z.ZodError ? 422 : 400 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
+import { guardMember } from "@/lib/access";
 import { Payment, Library, User } from "@/lib/models";
 const escape = (value: unknown) =>
   String(value ?? "").replace(
@@ -16,6 +17,8 @@ export async function GET(
   const user = await currentUser();
   if (!user)
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  const off = await guardMember(user, "fees");
+  if (off) return off;
   const { id } = await ctx.params;
   if (!/^[a-f\d]{24}$/i.test(id))
     return NextResponse.json({ error: "Receipt not found" }, { status: 404 });

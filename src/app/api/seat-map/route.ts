@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
-import { Attendance, Membership, Seat, SeatAssignment, StaffMembership, User } from "@/lib/models";
+import { assertTeam, can, accessResponse } from "@/lib/access";
+import { Attendance, Membership, Seat, SeatAssignment, User } from "@/lib/models";
 import { libraryTimeZone } from "@/lib/punch";
 import { isRunning, owed } from "@/lib/fees";
 import { localMinutes, onShift, seatState, type SeatState } from "@/lib/seat-map";
@@ -11,11 +12,14 @@ type Lean = Record<string, unknown> & { _id: unknown };
 export async function GET() {
   const user = await currentUser();
   if (!user || !user.libraryId || !["owner", "staff"].includes(user.role)) return NextResponse.json({ error: "Library team access required" }, { status: 403 });
-  let showMoney = user.role === "owner";
-  if (user.role === "staff") {
-    const m = await StaffMembership.findOne({ userId: user._id, libraryId: user.libraryId }).lean<{ permissions: string[] }>();
-    if (!m || !["students", "attendance", "payments"].some((p) => m.permissions.includes(p))) return NextResponse.json({ error: "Library team access required" }, { status: 403 });
-    showMoney = m.permissions.includes("payments");
+  let showMoney = false;
+  try {
+    const a = await assertTeam(user, "seats", "seats.view");
+    showMoney = can(a, "fees.view") || can(a, "memberships.view");
+  } catch (e) {
+    const r = accessResponse(e);
+    if (r) return r;
+    throw e;
   }
   const libraryId = user.libraryId, now = new Date();
   const [tz, seats, assignments, open] = await Promise.all([

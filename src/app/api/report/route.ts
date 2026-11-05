@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { guardMember } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { clientIp, ipLimit } from "@/lib/security";
 import { db } from "@/lib/db";
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest) {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Weekly reports are for students", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   const blocked = await studentFeatureBlocked(user, "weekly-report");
   if (blocked) return blocked;
   return NextResponse.json({ report: await buildWeeklyReport(user._id) });
@@ -34,6 +36,7 @@ export async function POST(request: NextRequest) {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Weekly reports are for students", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   if (limited(`report-share:${user._id}`, 10)) return err("Please slow down", 429);
   const blocked = await studentFeatureBlocked(user, "weekly-report");
   if (blocked) return blocked;

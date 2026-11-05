@@ -2,6 +2,7 @@ import { studentFeatureBlocked } from "@/lib/student-access-server";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { accessFor, accessResponse, assertMember, assertTeam, can, guardMember, moduleOn } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { AuditLog, CoinTransaction, Reward, RewardRedemption } from "@/lib/models";
 
@@ -16,8 +17,10 @@ export async function GET(request: NextRequest) {
   { const blocked = await studentFeatureBlocked(user, "rewards"); if (blocked) return blocked; }
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (!user.libraryId) return NextResponse.json({ rewards: [], redemptions: [], balance: 0, transactions: [] });
+  const access = await accessFor(user);
+  if (access.kind === "none" || !moduleOn(access, "rewards")) return (await guardMember(user, "rewards")) ?? NextResponse.json({ error: "Rewards are not available" }, { status: 403 });
   const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
-  const owner = ["owner", "staff"].includes(user.role);
+  const owner = access.kind === "owner" || (access.kind === "staff" && can(access, "rewards.view"));
   const [rewards, redemptions, transactions, coinBalance] = await Promise.all([
     Reward.find({ libraryId: user.libraryId, ...(owner ? {} : { active: true }) }).sort({ active: -1, createdAt: -1 }).limit(100).lean(),
     RewardRedemption.find(owner ? { libraryId: user.libraryId } : { userId: user._id }).sort({ createdAt: -1 }).skip((page - 1) * 20).limit(20).lean(),
@@ -35,9 +38,10 @@ export async function POST(request: NextRequest) {
   if (!user.libraryId) return NextResponse.json({ error: "Join a library first" }, { status: 400 });
   if (limited(`rewards:${user._id}`, 30)) return NextResponse.json({ error: "Please slow down" }, { status: 429 });
   try {
+    if (user.role === "student") await assertMember(user, "rewards");
     const body = z.object({ action: z.enum(["reward-save", "redeem", "redemption-status"]), data: z.unknown() }).parse(await request.json());
     if (body.action === "reward-save") {
-      if (!["owner", "staff"].includes(user.role)) throw new Error("Library team access required");
+      await assertTeam(user, "rewards", "rewards.manage");
       const value = z.object({ id: objectId.optional(), name: z.string().trim().min(2).max(80), description: z.string().trim().max(300).default(""), kind: z.enum(["snack", "stationery", "time-credit", "recognition", "other"]), coinCost: z.number().int().min(1).max(100000), stock: z.number().int().min(0).max(10000), budgetCoins: z.number().int().min(0).max(10000000), active: z.boolean().default(true) }).parse(body.data);
       const prohibited = /cash|money transfer|withdraw|lottery|raffle|bet|gambl/i;
       if (prohibited.test(`${value.name} ${value.description}`)) throw new Error("Cash, transfers and chance-based rewards are not supported");
@@ -71,7 +75,7 @@ export async function POST(request: NextRequest) {
       } finally { await session.endSession(); }
       return NextResponse.json({ ok: true, record: redemption });
     }
-    if (!["owner", "staff"].includes(user.role)) throw new Error("Library team access required");
+    await assertTeam(user, "rewards", "rewards.manage");
     const value = z.object({ redemptionId: objectId, status: z.enum(["fulfilled", "cancelled"]) }).parse(body.data);
     const session = await mongoose.startSession();
     let record;
@@ -92,6 +96,8 @@ export async function POST(request: NextRequest) {
     } finally { await session.endSession(); }
     return NextResponse.json({ ok: true, record });
   } catch (error) {
+    const denied = accessResponse(error);
+    if (denied) return denied;
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update rewards" }, { status: error instanceof z.ZodError ? 422 : 400 });
   }
 }

@@ -8,6 +8,10 @@ import { FocusTools, Insights, ReportSwitch, StudyPartnerPage, SubjectInput, Syl
 import { focusQuality } from "@/lib/self-study";
 import { getPosition } from "@/components/join";
 import { SeatMap } from "@/components/seat-map";
+import { AccessNotice, filterNav, navBlocked } from "@/components/access";
+import { OwnerModules, OwnerTeam } from "@/components/team-modules";
+import { PlatformModules } from "@/components/platform-modules";
+import { getJson } from "@/components/prep-api";
 import { OwnerFees } from "@/components/fees";
 import { PushToggle } from "@/components/push-toggle";
 import { Leaderboard } from "@/components/leaderboard";
@@ -256,6 +260,8 @@ const ownerNav: [string, string, LucideIcon][] = [
   ["/owner/events", "Events", CalendarDays],
   ["/owner/maintenance", "Maintenance", Wrench],
   ["/owner/moderation", "Community safety", ShieldCheck],
+  ["/owner/team", "Team & roles", Users],
+  ["/owner/modules", "Modules", ListChecks],
   ["/owner/security", "Account & privacy", ShieldCheck],
   ["/owner/settings", "Settings", Settings],
 ];
@@ -326,7 +332,14 @@ export function Experience({ path }: { path: string }) {
     await queryClient.invalidateQueries({ queryKey: ["workspace"] });
     return result;
   }
-  const nav = owner
+  // What this person may open: library modules (on/off) and, for staff, their role. The server enforces the same rules on every request.
+  const accessQ = useQuery<Record<string, unknown>>({
+    queryKey: ["workspace", "access"],
+    queryFn: () => getJson("/api/access"),
+    enabled: role === "owner" || role === "staff" || role === "student",
+    staleTime: 20000,
+  });
+  const rawNav = owner
     ? ownerNav
     : admin
       ? ([
@@ -338,11 +351,14 @@ export function Experience({ path }: { path: string }) {
           ["/super-admin/syllabus", "Syllabus", BookOpen],
           ["/super-admin/question-bank", "Question bank", ListChecks],
           ["/super-admin/features", "Feature access", ShieldCheck],
+          ["/super-admin/modules", "Module availability", ListChecks],
           ["/super-admin/student-features", "Student features", Users],
           ["/super-admin/accounts", "Accounts", Users],
           ["/super-admin/plans", "Plans", CreditCard],
         ] as typeof ownerNav)
       : studentNav;
+  const nav = admin ? rawNav : filterNav(rawNav, accessQ.data, role);
+  const pathBlocked = admin ? null : navBlocked(path, accessQ.data, role);
   const allowed =
     preview ||
     (!owner && !admin && d.user?.role === "student") ||
@@ -431,7 +447,7 @@ export function Experience({ path }: { path: string }) {
   const importPath = path === "/owner/import";
   const securityPath = path === "/app/security" || path === "/owner/security";
   const saasAdminPath = path === "/super-admin/business" || path === "/super-admin/plans";
-  const platformPath = ["/super-admin/features", "/super-admin/student-features", "/super-admin/accounts"].includes(path);
+  const platformPath = ["/super-admin/features", "/super-admin/student-features", "/super-admin/accounts", "/super-admin/modules"].includes(path);
   const prepPath = path === "/app/prep";
   const reportPath = path === "/app/report";
   const leaderboardPath = path === "/app/leaderboard";
@@ -675,6 +691,8 @@ export function Experience({ path }: { path: string }) {
             </div>
           ) : isLoading ? (
             <BrandLoader compact text="Loading your workspace…" />
+          ) : pathBlocked ? (
+            <AccessNotice blocked={pathBlocked} home={owner ? "/owner" : "/app"} />
           ) : lockedFeature ? (
             <div className="premium-lock">
               <span className="premium-lock-icon" aria-hidden="true">🔒</span>
@@ -729,6 +747,8 @@ export function Experience({ path }: { path: string }) {
           ) : platformPath ? (
             path === "/super-admin/features" ? (
               <PlatformFeatures notify={setToast} />
+            ) : path === "/super-admin/modules" ? (
+              <PlatformModules notify={setToast} />
             ) : path === "/super-admin/student-features" ? (
               <PlatformStudentRules notify={setToast} />
             ) : (
@@ -2247,6 +2267,10 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const [search, setSearch] = useState("");
   const [selectedSeat, setSelectedSeat] = useState("");
   const section = path.split("/")[2] || "overview";
+  // Buttons that change things are shown only to people allowed to use them (the server checks again on every request).
+  const accessNow = useQuery<Record<string, unknown>>({ queryKey: ["workspace", "access"], queryFn: () => getJson("/api/access"), staleTime: 20000 });
+  const canDo = (permission: string) => preview || !accessNow.data || accessNow.data.kind === "owner" || ((accessNow.data.permissions as string[]) ?? []).includes(permission);
+  const CREATE: Record<string, string> = { seats: "seats.create", shifts: "seats.create", plans: "memberships.create", memberships: "memberships.create", payments: "fees.create", expenses: "expenses.create", attendance: "attendance.mark", notifications: "notifications.create", students: "students.create" };
   // The desk QR code changes every minute, so the image is reloaded to match.
   const [qrTick, setQrTick] = useState(0);
   useEffect(() => {
@@ -2550,7 +2574,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
                     : "Keep the little details in order. Make room for the big things."}
           </p>
         </div>
-        {fields[section] && (
+        {fields[section] && canDo(CREATE[section] ?? "") && (
           <button className="button" onClick={() => add()}>
             <Plus size={17} />
             {section === "payments"
@@ -2562,7 +2586,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
                   : `Add ${section === "memberships" ? "membership" : section === "students" ? "student" : section === "seats" ? "seat" : section === "shifts" ? "shift" : section === "plans" ? "plan" : "expense"}`}
           </button>
         )}
-        {section === "overview" && (
+        {section === "overview" && canDo("students.create") && (
           <button className="button" onClick={() => add("students")}>
             <Plus size={17} />
             Add a student
@@ -2588,7 +2612,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           </div>
         </section>
       )}
-      {section === "memberships" && (
+      {section === "memberships" && canDo("memberships.update") && (
         <div className="lifecycle-toolbar">
           <button className="button secondary" onClick={() => add("renew")}>
             Renew with confirmed payment
@@ -2744,14 +2768,18 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
             )}
           </section>
         </>
+      ) : section === "team" ? (
+        <OwnerTeam notify={notify} />
+      ) : section === "modules" ? (
+        <OwnerModules notify={notify} />
       ) : section === "fees" ? (
-        <OwnerFees canReverse={d.user?.role === "owner"} notify={notify} />
+        <OwnerFees canReverse={canDo("fees.reverse")} canRecord={canDo("fees.create")} notify={notify} />
       ) : section === "seats" && !preview ? (
         <SeatMap
-          onAllocate={(id) => {
+          onAllocate={canDo("memberships.create") ? (id) => {
             setSelectedSeat(id);
             add("memberships");
-          }}
+          } : undefined}
         />
       ) : section === "seats" ? (
         <section className="card seat-panel">
@@ -2821,9 +2849,11 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           <section className="card">
             <h2>Your library workspace</h2>
             <div className="lifecycle-toolbar">
-              <button className="button secondary" onClick={() => add("staff")}>
-                Grant staff access
-              </button>
+              {d.user?.role === "owner" && (
+                <Link className="button secondary" href="/owner/team">
+                  Team &amp; roles
+                </Link>
+              )}
             </div>
             <p className="muted">
               Library ID: {String(d.user?.libraryId || "Not connected")}

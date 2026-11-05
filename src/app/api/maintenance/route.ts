@@ -1,12 +1,15 @@
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { accessFor, accessResponse, assertMember, can, guardMember, moduleOn, type Access } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { AuditLog, MaintenanceIssue, Notification, Seat, SeatAssignment, User } from "@/lib/models";
 import { ISSUE_CATEGORIES, ISSUE_PRIORITIES, ISSUE_STATUSES, MAX_REPAIR_COST_PAISE, canTransition, isActiveIssue, seatShouldBeOffline, type IssueStatus } from "@/lib/maintenance";
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
-const team = (role: string) => role === "owner" || role === "staff";
+/** Full view for the owner and for staff who may manage maintenance; students see only their own reports. */
+const canManage = (a: Access) => a.kind === "owner" || (a.kind === "staff" && can(a, "maintenance.manage"));
+const canView = (a: Access) => canManage(a) || (a.kind === "staff" && can(a, "maintenance.view"));
 
 export async function GET(request: NextRequest) {
   const user = await currentUser();
@@ -15,7 +18,9 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const page = Math.max(1, Number(params.get("page") || 1));
   const status = params.get("status");
-  const manage = team(user.role);
+  const access = await accessFor(user);
+  if (access.kind === "none" || !moduleOn(access, "maintenance")) return (await guardMember(user, "maintenance")) ?? NextResponse.json({ error: "Maintenance is not available" }, { status: 403 });
+  const manage = canView(access);
   const filter: Record<string, unknown> = { libraryId: user.libraryId };
   if (!manage) filter.reporterId = user._id;
   if (status === "active") filter.status = { $in: ["open", "assigned", "in-progress"] };
@@ -55,7 +60,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = z.object({ action: z.enum(["issue-report", "issue-update"]), data: z.unknown() }).parse(await request.json());
     const libraryId = user.libraryId;
-    const manage = team(user.role);
+    const access = await accessFor(user);
+    await assertMember(user, "maintenance");
+    const manage = canManage(access);
     if (body.action === "issue-report") {
       if (!manage && user.role !== "student") throw new Error("Access denied");
       const value = z.object({
@@ -123,6 +130,8 @@ export async function POST(request: NextRequest) {
     } finally { await session.endSession(); }
     return NextResponse.json({ ok: true, record, affectedAssignments });
   } catch (error) {
+    const denied = accessResponse(error);
+    if (denied) return denied;
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update maintenance" }, { status: error instanceof z.ZodError ? 422 : 400 });
   }
 }

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
-import { StaffMembership, User } from "@/lib/models";
+import { User } from "@/lib/models";
+import { guardTeam } from "@/lib/access";
 import { AdmissionLead, FollowUpTask } from "@/lib/saas-models";
 import { canMoveLead, leadKey, rate } from "@/lib/saas";
 import { PlanError, audit, requireFeature, ensureOrganizationForLibrary } from "@/lib/saas-server";
@@ -11,19 +12,16 @@ const err = (message: string, status = 400, code?: string) => NextResponse.json(
 const STAGES = ["new", "contacted", "visit-scheduled", "converted", "lost"] as const;
 type Lean = Record<string, unknown> & { _id: unknown };
 
-async function guard() {
+async function guard(permission: "crm.view" | "crm.manage") {
   const user = await currentUser();
   if (!user) return { error: err("Sign in required", 401) };
-  if (!["owner", "staff"].includes(user.role) || !user.libraryId) return { error: err("Library team access required", 403) };
-  if (user.role === "staff") {
-    const m = await StaffMembership.findOne({ userId: user._id, libraryId: user.libraryId }).lean<{ permissions: string[] }>();
-    if (!m?.permissions.includes("students")) return { error: err("You need the students permission for admissions", 403) };
-  }
+  const denied = await guardTeam(user, "crm", permission);
+  if (denied) return { error: denied };
   return { user };
 }
 
 export async function GET(request: NextRequest) {
-  const g = await guard();
+  const g = await guard("crm.view");
   if ("error" in g) return g.error;
   const { user } = g;
   const libraryId = user.libraryId!;
@@ -46,7 +44,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   if (!validOrigin(request)) return err("Invalid origin", 403);
-  const g = await guard();
+  const g = await guard("crm.manage");
   if ("error" in g) return g.error;
   const { user } = g;
   const libraryId = user.libraryId!;

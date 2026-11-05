@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { accessFor, accessResponse, assertModule, assertTeam, can, moduleOn, moduleStates } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { offerExpiry } from "@/lib/waitlist";
 import { Library, LibraryVisitRequest, MembershipPlan, Notification, Seat, SeatAssignment, SeatWaitlist, Shift } from "@/lib/models";
@@ -45,7 +46,9 @@ export async function GET(request: NextRequest) {
   if (facility) query.facilities = facility;
   const libraries = await Library.find(query).sort({ name: 1 }).skip(slug ? 0 : (page - 1) * 12).limit(slug ? 1 : 12).lean();
   const enriched = await Promise.all(libraries.map((library) => publicLibrary(library as unknown as Record<string, unknown>)));
-  const filtered = maxFee ? enriched.filter((library) => library.feeFrom !== null && Number(library.feeFrom) <= maxFee) : enriched;
+  // A library that turned off (or was denied) the public listing does not appear, whatever its listing switch says.
+  const shown = (await Promise.all(enriched.map(async (l) => ((await moduleStates(l._id as never).then((m) => m.discovery.enabled, () => false)) ? l : null)))).filter((l): l is typeof enriched[number] => !!l);
+  const filtered = maxFee ? shown.filter((library) => library.feeFrom !== null && Number(library.feeFrom) <= maxFee) : enriched;
   const user = await currentUser();
   if (user?.role === "student") await expireStaleOffers({ userId: user._id });
   if (user?.libraryId && ["owner", "staff"].includes(user.role)) await expireStaleOffers({ libraryId: user.libraryId });
@@ -53,11 +56,14 @@ export async function GET(request: NextRequest) {
     LibraryVisitRequest.find({ userId: user._id }).sort({ createdAt: -1 }).limit(30).lean(),
     SeatWaitlist.find({ userId: user._id }).sort({ createdAt: -1 }).limit(30).lean(),
   ]) : [[], []];
-  const management = user?.libraryId && ["owner", "staff"].includes(user.role) ? await Promise.all([
-    Library.findById(user.libraryId).lean(),
-    SeatWaitlist.find({ libraryId: user.libraryId, status: { $in: ["waiting", "offered", "accepted"] } }).sort({ createdAt: 1 }).limit(100).lean(),
-    LibraryVisitRequest.find({ libraryId: user.libraryId, status: { $in: ["pending", "approved"] } }).sort({ preferredAt: 1 }).limit(100).lean(),
-    Seat.find({ libraryId: user.libraryId, operationalStatus: { $ne: "maintenance" } }).sort({ label: 1 }).limit(500).lean(),
+  const team = user?.libraryId && ["owner", "staff"].includes(user.role) ? await accessFor(user) : null;
+  const sees = (m: "discovery" | "waitlist", p: "discovery.view" | "waitlist.view") => !!team && moduleOn(team, m) && can(team, p);
+  const [seeListing, seeWait] = [sees("discovery", "discovery.view"), sees("waitlist", "waitlist.view")];
+  const management = team && user?.libraryId ? await Promise.all([
+    seeListing ? Library.findById(user.libraryId).lean() : null,
+    seeWait ? SeatWaitlist.find({ libraryId: user.libraryId, status: { $in: ["waiting", "offered", "accepted"] } }).sort({ createdAt: 1 }).limit(100).lean() : [],
+    seeListing ? LibraryVisitRequest.find({ libraryId: user.libraryId, status: { $in: ["pending", "approved"] } }).sort({ preferredAt: 1 }).limit(100).lean() : [],
+    seeWait ? Seat.find({ libraryId: user.libraryId, operationalStatus: { $ne: "maintenance" } }).sort({ label: 1 }).limit(500).lean() : [],
   ]) : [null, [], [], []];
   return NextResponse.json({ libraries: filtered, detail: slug ? filtered[0] || null : null, page, visits: requests[0], waitlist: requests[1], management: { library: management[0], waitlist: management[1], visits: management[2], seats: management[3] } });
 }
@@ -73,12 +79,14 @@ export async function POST(request: NextRequest) {
     await expireStaleOffers(user.role === "student" ? { userId: user._id } : user.libraryId ? { libraryId: user.libraryId } : { _id: null });
     if (body.action === "listing-save") {
       if (user.role !== "owner" || !user.libraryId) throw new Error("Owner access required");
+      await assertTeam(user, "discovery", null);
       const value = z.object({ publicSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).min(3).max(60), listingVisible: z.boolean(), city: z.string().trim().min(2).max(80), publicDescription: z.string().trim().max(700), facilities: z.array(z.enum(["wifi", "air-conditioning", "power-backup", "lockers", "drinking-water", "quiet-zone", "accessible-entry"])).max(7) }).parse(body.data);
       record = await Library.findOneAndUpdate({ _id: user.libraryId, ownerId: user._id }, value, { new: true, runValidators: true });
     } else if (body.action === "visit-request") {
       if (user.role !== "student") throw new Error("Student access required");
       const value = z.object({ libraryId: objectId, preferredAt: z.iso.datetime(), message: z.string().trim().max(300).default("") }).parse(body.data);
       if (new Date(value.preferredAt) < new Date()) throw new Error("Choose a future visit time");
+      await assertModule(value.libraryId, "discovery");
       if (!await Library.exists({ _id: value.libraryId, listingVisible: true })) throw new Error("Library listing not found");
       if (await LibraryVisitRequest.exists({ libraryId: value.libraryId, userId: user._id, status: { $in: ["pending", "approved"] } })) throw new Error("You already have an active visit request");
       record = await LibraryVisitRequest.create({ ...value, userId: user._id });
@@ -90,6 +98,7 @@ export async function POST(request: NextRequest) {
         MembershipPlan.exists({ _id: value.planId, libraryId: value.libraryId }), value.preferredSeatId ? Seat.exists({ _id: value.preferredSeatId, libraryId: value.libraryId, operationalStatus: { $ne: "maintenance" } }) : true,
       ]);
       if (!library || !shift || !plan || !seat) throw new Error("Invalid waitlist preference");
+      await assertModule(value.libraryId, "waitlist");
       if (await SeatWaitlist.exists({ libraryId: value.libraryId, userId: user._id, shiftId: value.shiftId, planId: value.planId, status: { $in: ["waiting", "offered", "accepted", "confirmed"] } })) throw new Error("You are already in this queue");
       record = await SeatWaitlist.create({ ...value, userId: user._id });
     } else if (body.action === "waitlist-cancel") {
@@ -98,6 +107,8 @@ export async function POST(request: NextRequest) {
       if (!record) throw new Error("Active waitlist entry not found");
     } else if (body.action === "waitlist-accept") {
       const value = z.object({ id: objectId }).parse(body.data);
+      const entry = await SeatWaitlist.findOne({ _id: value.id, userId: user._id }).select("libraryId").lean<{ libraryId: unknown }>();
+      if (entry) await assertModule(entry.libraryId as never, "waitlist");
       record = await SeatWaitlist.findOneAndUpdate({ _id: value.id, userId: user._id, status: "offered", offerExpiresAt: { $gt: new Date() } }, { status: "accepted", acceptedAt: new Date() }, { new: true });
       if (!record) throw new Error("Offer is unavailable or expired");
     } else if (body.action === "visit-cancel") {
@@ -105,12 +116,12 @@ export async function POST(request: NextRequest) {
       record = await LibraryVisitRequest.findOneAndUpdate({ _id: value.id, userId: user._id, status: { $in: ["pending", "approved"] } }, { status: "cancelled" }, { new: true });
       if (!record) throw new Error("Active visit request not found");
     } else if (body.action === "visit-status") {
-      if (!["owner", "staff"].includes(user.role) || !user.libraryId) throw new Error("Library team access required");
+      await assertTeam(user, "discovery", "discovery.manage");
       const value = z.object({ id: objectId, status: z.enum(["approved", "declined", "visited"]) }).parse(body.data);
       record = await LibraryVisitRequest.findOneAndUpdate({ _id: value.id, libraryId: user.libraryId, status: { $in: ["pending", "approved"] } }, { status: value.status }, { new: true });
       if (!record) throw new Error("Visit request not found");
     } else {
-      if (!["owner", "staff"].includes(user.role) || !user.libraryId) throw new Error("Library team access required");
+      await assertTeam(user, "waitlist", "waitlist.manage");
       if (body.action === "waitlist-offer") {
         const value = z.object({ id: objectId, seatId: objectId }).parse(body.data);
         const entry = await SeatWaitlist.findOne({ _id: value.id, libraryId: user.libraryId, status: "waiting" });
@@ -132,6 +143,8 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ ok: true, record });
   } catch (error) {
+    const denied = accessResponse(error);
+    if (denied) return denied;
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update discovery" }, { status: error instanceof z.ZodError ? 422 : 400 });
   }
 }

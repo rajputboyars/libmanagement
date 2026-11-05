@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { limited, validOrigin } from "@/lib/auth";
 import { clientIp, ipLimit } from "@/lib/security";
+import { moduleStates } from "@/lib/access";
 import { db } from "@/lib/db";
 import { Library } from "@/lib/models";
 import { AdmissionLead, PlatformLead } from "@/lib/saas-models";
@@ -32,6 +33,8 @@ export async function POST(request: NextRequest) {
     const library = await Library.findOne({ publicSlug: v.library, listingVisible: true }).select("_id organizationId").lean<{ _id: unknown; organizationId?: unknown }>();
     if (!library) return fail("This library is not accepting online enquiries", 404);
     const access = await accessForLibrary(library._id as never);
+    const crmOn = await moduleStates(library._id as never).then((m) => m.crm.enabled && m.discovery.enabled, () => false);
+    if (!crmOn) return fail("This library is not accepting online enquiries", 404);
     if (!access || access.org.status === "suspended" || !access.entitlements.features.includes("crm")) return fail("This library is not accepting online enquiries", 404);
     const key = leadKey(v.phone, v.email);
     if (!key) return fail("Enter a phone number (10 digits) or an email");

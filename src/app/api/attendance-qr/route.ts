@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
 import { currentUser, secret } from "@/lib/auth";
+import { guardTeam } from "@/lib/access";
 import { signAttendanceToken } from "@/lib/attendance-token";
 import { PlanError, requireFeature } from "@/lib/saas-server";
 export async function GET(req: NextRequest) {
   const user = await currentUser();
-  if (!user || user.role !== "owner" || !user.libraryId)
+  if (!user || !user.libraryId)
     return NextResponse.json(
-      { error: "Owner permission required" },
+      { error: "Library team access required" },
       { status: 403 },
     );
+  const denied = await guardTeam(user, "attendance", "attendance.qr");
+  if (denied) return denied;
   try {
     await requireFeature(user.libraryId, "qr-attendance", "QR attendance");
   } catch (error) {
