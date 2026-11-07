@@ -1,5 +1,6 @@
 "use client";
 
+import { AttendanceBoard } from "./v2/owner-ops";
 import { BrandLoader } from "@/components/brand-loader";
 import { useEffect, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -218,27 +219,8 @@ export function OwnerJoinRequests({ notify }: { notify: (m: string) => void }) {
 
 // ───────────────────────── Owner: live presence ─────────────────────────
 export function OwnerPresence({ notify }: { notify: (m: string) => void }) {
-  const qc = useQueryClient();
-  const now = useTicker();
-  const [day, setDay] = useState(new Date().toISOString().slice(0, 10));
-  const q = useQuery<Json>({ queryKey: ["punch", "live", day], queryFn: () => getJson(`/api/punch?day=${day}`), refetchInterval: 30000 });
-  if (q.isLoading) return <Skeleton />;
-  if (q.isError || !q.data) return <Empty title="Could not load" text={q.error instanceof Error ? q.error.message : "Try again."} />;
-  const d = q.data;
-  return (
-    <>
-      <header className="p2-heading"><div><span className="eyebrow">Attendance</span><h1>Who is in the library right now.</h1><p>Students punch in and out from their app. Every visit is recorded here and in the student&apos;s own history.</p></div></header>
-      <div className="mt-stats"><div><small>Inside now</small><strong>{d.inside.length}</strong></div><div><small>Students on {dateText(d.day)}</small><strong>{d.totals.students}</strong></div><div><small>Total time</small><strong>{dur(d.totals.minutes)}</strong></div><div><small>Missed punch-outs</small><strong>{d.totals.autoClosed}</strong></div></div>
-      <div className="section-label"><span>Inside now</span></div>
-      <div className="mt-list">{(d.inside as Json[]).map((s) => (
-        <article className="queue-card" key={s.userId}><div><Users /><span><strong>{s.name}{s.seat ? ` · Seat ${s.seat}` : ""}</strong><small>In since {time(s.since)} ({since(s.since, now)})</small></span></div>
-          <button className="button secondary" onClick={async () => { if (!confirm(`Punch ${s.name} out now?`)) return; try { await post("/api/punch", "manual-out", { userId: s.userId }); notify(`${s.name} punched out.`); await qc.invalidateQueries({ queryKey: ["punch"] }); } catch (e) { notify(e instanceof Error ? e.message : "Unable to punch out"); } }}>Punch out</button></article>))}
-        {!d.inside.length && <Empty title="Nobody is inside" text="Students appear here as soon as they punch in." />}</div>
-      <div className="section-label"><span>Visit log</span><input className="pr-select" type="date" value={day} max={new Date().toISOString().slice(0, 10)} onChange={(e) => e.target.value && setDay(e.target.value)} aria-label="Day" /></div>
-      <div className="sq-table" role="region" aria-label="Visit log" tabIndex={0}><table><thead><tr><th>Student</th><th>Seat</th><th>Visits</th><th>Total</th></tr></thead>
-        <tbody>{(d.log as Json[]).map((r) => <tr key={r.userId}><td>{r.name}</td><td>{r.seat ?? "—"}</td><td>{(r.sessions as Json[]).map((s) => `${time(s.inAt)}–${s.outAt ? time(s.outAt) : "now"}${s.auto ? " ⚠ no punch-out" : ""}`).join(", ")}</td><td>{dur(r.minutes)}</td></tr>)}</tbody></table></div>
-      {!d.log.length && <Empty title="No visits recorded" text="Nothing was recorded for this day." />}
-      <p className="pr-hint"><ShieldCheck size={12} /> Visits left open for 16 hours are closed automatically and counted as zero time so they are never guessed.</p>
-    </>
-  );
+  // Same /api/punch view as before, presented by the shared attendance board. Punch-out stays a staff action the server checks.
+  const access = useQuery<Json>({ queryKey: ["workspace", "access"], queryFn: () => getJson("/api/access"), staleTime: 20000 });
+  const canDo = (p: string) => !access.data || access.data.kind === "owner" || ((access.data.permissions as string[]) ?? []).includes(p);
+  return <AttendanceBoard mode="presence" canDo={canDo} notify={notify} />;
 }

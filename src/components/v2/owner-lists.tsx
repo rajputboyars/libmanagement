@@ -29,7 +29,7 @@ function useListing(resource: string, page: number, search: string, enabled: boo
   });
 }
 
-function SearchBox({ value, onChange, label, placeholder }: { value: string; onChange: (v: string) => void; label: string; placeholder: string }) {
+export function SearchBox({ value, onChange, label, placeholder }: { value: string; onChange: (v: string) => void; label: string; placeholder: string }) {
   return (
     <label className="sq-v2-search">
       <Search size={17} aria-hidden="true" />
@@ -38,7 +38,7 @@ function SearchBox({ value, onChange, label, placeholder }: { value: string; onC
   );
 }
 
-function Pager({ page, total, loading, onPage }: { page: number; total: number; loading: boolean; onPage: (p: number) => void }) {
+export function Pager({ page, total, loading, onPage }: { page: number; total: number; loading: boolean; onPage: (p: number) => void }) {
   if (total <= PAGE_SIZE) return null;
   const from = (page - 1) * PAGE_SIZE + 1;
   return (

@@ -1,6 +1,5 @@
 "use client";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
@@ -83,6 +82,9 @@ import { ClipboardCheck, Hourglass, IndianRupee, Radio, UserCog, UserPlus } from
 import type { LucideIcon } from "lucide-react";
 import { OwnerDashboard } from "@/components/v2/owner-dashboard";
 import { OwnerPayments, OwnerStudents } from "@/components/v2/owner-lists";
+import { AttendanceBoard, OwnerExpenses, OwnerMemberships, OwnerPlans } from "@/components/v2/owner-ops";
+import { OwnerSettings } from "@/components/v2/owner-settings";
+import { StatCard } from "@/components/v2/primitives";
 import { Btn, PageHead } from "@/components/v2/primitives";
 import { AdminShell, OwnerShell, StudentShell } from "@/components/v2/shell";
 import {
@@ -1520,109 +1522,58 @@ function OwnerReports({ data: d }: { data: Data }) {
   const seats = d.summary?.seats || d.seats.length;
   const list = (rows: [string, number][], empty: string) =>
     rows.length ? (
-      rows.map(([label, amount]) => (
-        <div className="list-row" key={label}>
-          <strong style={{ textTransform: "capitalize" }}>{label}</strong>
-          <span style={{ marginLeft: "auto" }}>{money(amount)}</span>
-        </div>
-      ))
+      <ul className="sq-v2-feed">
+        {rows.map(([label, amount]) => (
+          <li key={label}>
+            <span style={{ textTransform: "capitalize" }}><strong>{label}</strong></span>
+            <strong className="sq-v2-num">{money(amount)}</strong>
+          </li>
+        ))}
+      </ul>
     ) : (
-      <p className="muted">{empty}</p>
+      <p className="sq-v2-muted">{empty}</p>
     );
   return (
     <>
-      <div className="stats-grid">
-        <Stat
-          icon={Wallet}
-          color="mint"
-          label="Money in"
-          value={money(revenue)}
-          detail="All confirmed payments"
-        />
-        <Stat
-          icon={Receipt}
-          color="amber"
-          label="Money out"
-          value={money(expenses)}
-          detail="All recorded expenses"
-        />
-        <Stat
-          icon={ChartNoAxesCombined}
-          color="violet"
-          label="Net profit"
-          value={money(revenue - expenses)}
-          detail="Money in minus money out"
-        />
-        <Stat
-          icon={CreditCard}
-          color="peach"
-          label="Fees still due"
-          value={money(due)}
-          detail="Unpaid membership balance"
-        />
+      <PageHead title="Reports" sub="Money in, money out and who is studying. Charts use your latest 100 payments and expenses." />
+      <div className="sq-v2-statgrid">
+        <StatCard label="Money in" value={money(revenue)} sub="All confirmed payments" />
+        <StatCard label="Money out" value={money(expenses)} sub="All recorded expenses" />
+        <StatCard label="Net profit" value={money(revenue - expenses)} sub="Money in minus money out" tone={revenue - expenses < 0 ? "down" : "up"} />
+        <StatCard label="Fees still due" value={money(due)} sub="Unpaid membership balance" tone={due > 0 ? "down" : undefined} />
       </div>
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <h2>Last 6 months</h2>
-            <p>
-              Money in (green) and money out (orange) each month, from your
-              latest 100 payments and expenses.
-            </p>
-          </div>
-          <ChartNoAxesCombined size={20} />
-        </div>
+      <section className="sq-v2-panel" style={{ marginBottom: 14 }} aria-label="Last 6 months">
+        <h2 className="sq-v2-h2">Last 6 months</h2>
+        <p className="sq-v2-muted">Money in (green) and money out (amber) each month.</p>
         <div className="chart">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={months}>
               <XAxis dataKey="name" axisLine={false} tickLine={false} />
               <Tooltip formatter={(v) => money(Number(v) * 100)} />
-              <Bar dataKey="Revenue" fill="#438d75" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="Revenue" fill="#217a60" radius={[6, 6, 0, 0]} />
               <Bar dataKey="Expenses" fill="#d9925b" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </section>
-      <div className="dashboard-grid">
-        <section className="card">
-          <h2>Where money goes</h2>
-          <p className="muted">Expenses by category.</p>
+      <div className="sq-v2-grid2">
+        <section className="sq-v2-panel" aria-label="Where money goes">
+          <h2 className="sq-v2-h2">Where money goes</h2>
+          <p className="sq-v2-muted">Expenses by category.</p>
           {list(byCategory, "No expenses recorded yet.")}
         </section>
-        <section className="card">
-          <h2>How students pay</h2>
-          <p className="muted">Payments by method.</p>
+        <section className="sq-v2-panel" aria-label="How students pay">
+          <h2 className="sq-v2-h2">How students pay</h2>
+          <p className="sq-v2-muted">Payments by method.</p>
           {list(byMethod, "No payments recorded yet.")}
         </section>
       </div>
-      <div className="stats-grid">
-        <Stat
-          icon={Armchair}
-          color="mint"
-          label="Seats in use now"
-          value={`${seatsTaken} / ${seats}`}
-          detail={
-            seats
-              ? `${Math.round((seatsTaken / seats) * 100)}% filled`
-              : "Add seats to start"
-          }
-        />
-        <Stat
-          icon={CheckCircle2}
-          color="violet"
-          label="Visits this week"
-          value={String(visits)}
-          detail="Check-ins in the last 7 days"
-        />
+      <h2 className="sq-v2-h2" style={{ marginTop: 20 }}>Library activity</h2>
+      <div className="sq-v2-statgrid">
+        <StatCard label="Seats in use now" value={`${seatsTaken} / ${seats}`} progress={seats ? (seatsTaken / seats) * 100 : 0} sub={seats ? `${Math.round((seatsTaken / seats) * 100)}% filled` : "Add seats to start"} />
+        <StatCard label="Visits this week" value={visits} sub="Check-ins in the last 7 days" />
         {[...statusCounts].slice(0, 2).map(([status, count]) => (
-          <Stat
-            key={status}
-            icon={BookOpen}
-            color="peach"
-            label={`${status[0].toUpperCase()}${status.slice(1)} memberships`}
-            value={String(count)}
-            detail="From your latest 100"
-          />
+          <StatCard key={status} label={`${status[0].toUpperCase()}${status.slice(1)} memberships`} value={count} sub="From your latest 100" />
         ))}
       </div>
     </>
@@ -2121,23 +2072,17 @@ type Field = {
 };
 const QR_REFRESH_MS = 60_000; // keep below the server QR lifetime (attendance-token.ts)
 // Sections that render their own v2 page header.
-const V2_SECTIONS = ["overview", "students", "payments", "seats", "fees"];
+const V2_SECTIONS = ["overview", "students", "payments", "seats", "fees", "memberships", "plans", "expenses", "attendance", "reports", "team", "modules", "settings"];
 function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const [modal, setModal] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedSeat, setSelectedSeat] = useState("");
+  const [selectedMembership, setSelectedMembership] = useState("");
   const section = path.split("/")[2] || "overview";
   // Buttons that change things are shown only to people allowed to use them (the server checks again on every request).
   const accessNow = useQuery<Record<string, unknown>>({ queryKey: ["workspace", "access"], queryFn: () => getJson("/api/access"), staleTime: 20000 });
   const canDo = (permission: string) => preview || !accessNow.data || accessNow.data.kind === "owner" || ((accessNow.data.permissions as string[]) ?? []).includes(permission);
   const CREATE: Record<string, string> = { seats: "seats.create", shifts: "seats.create", plans: "memberships.create", memberships: "memberships.create", payments: "fees.create", expenses: "expenses.create", attendance: "attendance.mark", notifications: "notifications.create", students: "students.create" };
-  // The desk QR code changes every minute, so the image is reloaded to match.
-  const [qrTick, setQrTick] = useState(0);
-  useEffect(() => {
-    if (section !== "attendance") return;
-    const t = setInterval(() => setQrTick((n) => n + 1), QR_REFRESH_MS);
-    return () => clearInterval(t);
-  }, [section]);
   const title =
     ownerNav.find((n) => n[0] === path)?.[1] ||
     (section === "notifications" ? "Notifications" : "Overview");
@@ -2260,6 +2205,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
     {
       name: "membershipId",
       label: "Membership to renew",
+      default: selectedMembership,
       options: d.memberships
         .filter((m) => m.status === "active" || m.status === "expired")
         .map((m) => ({ value: String(m._id), label: membershipLabel(m) })),
@@ -2287,6 +2233,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
     {
       name: "membershipId",
       label: "Membership",
+      default: selectedMembership,
       options: d.memberships.map((m) => ({ value: String(m._id), label: membershipLabel(m) })),
     },
     {
@@ -2300,7 +2247,8 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
     },
   ];
   const [action, setAction] = useState(section);
-  const add = (a = section) => {
+  const add = (a = section, preset = "") => {
+    setSelectedMembership(preset);
     setAction(a);
     setModal(true);
   };
@@ -2466,38 +2414,6 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
         )}
       </div>
       )}
-      {section === "attendance" && !preview && (
-        <section className="card qr-panel">
-          <Image
-            src={`/api/attendance-qr?t=${qrTick}`}
-            width={160}
-            height={160}
-            alt="Scan to check in to this library"
-            unoptimized
-          />
-          <div>
-            <h2>A warmer welcome. A quicker check-in.</h2>
-            <p>
-              Students can scan this code and confirm attendance with an active
-              membership. The code changes every minute, so keep this screen
-              open at the desk. Set APP_URL to your reachable site address.
-            </p>
-          </div>
-        </section>
-      )}
-      {section === "memberships" && canDo("memberships.update") && (
-        <div className="lifecycle-toolbar">
-          <button className="button secondary" onClick={() => add("renew")}>
-            Renew with confirmed payment
-          </button>
-          <button
-            className="button secondary"
-            onClick={() => add("membership-status")}
-          >
-            Pause / resume / cancel
-          </button>
-        </div>
-      )}
       {section === "reports" ? (
         <OwnerReports data={d} />
       ) : section === "notifications" ? (
@@ -2526,6 +2442,14 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
         <OwnerStudents d={d} preview={preview} canDo={canDo} onAdd={add} showMemberships={canDo("memberships.view") && !navBlocked("/owner/memberships", accessNow.data, String(d.user?.role))} />
       ) : section === "payments" ? (
         <OwnerPayments d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "memberships" ? (
+        <OwnerMemberships d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "plans" ? (
+        <OwnerPlans d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "expenses" ? (
+        <OwnerExpenses d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "attendance" ? (
+        <AttendanceBoard mode="attendance" canDo={canDo} notify={notify} onCheckIn={() => add("attendance")} qrRefreshMs={preview ? undefined : QR_REFRESH_MS} />
       ) : section === "team" ? (
         <OwnerTeam notify={notify} />
       ) : section === "modules" ? (
@@ -2603,61 +2527,14 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           </div>
         </section>
       ) : section === "settings" ? (
-        <>
-          <section className="card">
-            <h2>Your library workspace</h2>
-            <div className="lifecycle-toolbar">
-              {d.user?.role === "owner" && (
-                <Link className="button secondary" href="/owner/team">
-                  Team &amp; roles
-                </Link>
-              )}
-            </div>
-            <p className="muted">
-              Library ID: {String(d.user?.libraryId || "Not connected")}
-            </p>
-            <div className="list-row">
-              <ShieldCheck />
-              <div>
-                <strong>Tenant isolation enabled</strong>
-                <p>
-                  All library records are scoped to your authenticated library.
-                </p>
-              </div>
-            </div>
-            <div className="list-row">
-              <MessageSquare />
-              <div>
-                <strong>In-app messaging</strong>
-                <p>
-                  Announcements are delivered inside StudyQuest. No WhatsApp
-                  provider is configured.
-                </p>
-              </div>
-            </div>
-            <button className="button" onClick={() => add("notifications")}>
-              Create announcement
-            </button>
-            <h2 style={{ marginTop: 28 }}>Recent audit history</h2>
-            {(d.audit || []).map((a) => (
-              <div className="list-row" key={String(a._id)}>
-                <ShieldCheck size={16} />
-                <strong>{a.action}</strong>
-                <span className="muted">
-                  {new Date(String(a.createdAt)).toLocaleString()}
-                </span>
-              </div>
-            ))}
-          </section>
-          {!preview && String(d.user?.role) === "owner" && (
-            <LibraryHoursEditor
-              library={d.library}
-              mutate={mutate}
-              notify={notify}
-            />
-          )}
-          {!preview && <PushToggle notify={notify} />}
-        </>
+        <OwnerSettings
+          d={d}
+          isOwner={String(d.user?.role) === "owner"}
+          canDo={canDo}
+          onAnnounce={() => add("notifications")}
+          hours={!preview && String(d.user?.role) === "owner" ? <LibraryHoursEditor library={d.library} mutate={mutate} notify={notify} /> : undefined}
+          push={!preview ? <PushToggle notify={notify} /> : undefined}
+        />
       ) : (
         <section className="card table-card">
           <div className="table-toolbar">

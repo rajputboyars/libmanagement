@@ -16,3 +16,7 @@ export const initials = (name: string) =>
     .map((p) => p[0])
     .join("")
     .toUpperCase() || "?";
+/** Minutes as "2h 05m" / "45m". */
+export const dur = (minutes: number) => (minutes >= 60 ? `${Math.floor(minutes / 60)}h ${String(Math.round(minutes % 60)).padStart(2, "0")}m` : `${Math.round(minutes)}m`);
+/** Whole days from now until a date (negative once it has passed). */
+export const daysUntil = (d: Date | string | number) => Math.ceil((+new Date(d) - Date.now()) / 86400000);
