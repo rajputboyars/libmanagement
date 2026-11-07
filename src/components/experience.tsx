@@ -61,11 +61,7 @@ import {
   Check,
   Play,
   Pause,
-  Menu,
   X,
-  Sun,
-  Moon,
-  LogOut,
   ShieldCheck,
   Leaf,
   CalendarDays,
@@ -84,6 +80,7 @@ import {
   ListChecks,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { AdminShell, OwnerShell, StudentShell } from "@/components/v2/shell";
 import {
   FOCUS_LENGTHS,
   breakMinutes,
@@ -268,7 +265,6 @@ const ownerNav: [string, string, LucideIcon][] = [
 export function Experience({ path }: { path: string }) {
   const router = useRouter();
   const { dark, toggle } = useUI();
-  const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState("");
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery<Data>({
@@ -374,6 +370,13 @@ export function Experience({ path }: { path: string }) {
     ? "/owner/notifications"
     : "/app/notifications";
   const unread = d.notifications.some((n) => !n.read);
+  const Shell = owner ? OwnerShell : admin ? AdminShell : StudentShell;
+  const signOut = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    await clearClientCaches();
+    router.push("/login");
+    router.refresh();
+  };
   if (path === "/login" || path === "/register")
     return <Auth register={path === "/register"} />;
   if (path === "/discover") return <LibraryDiscovery />;
@@ -478,185 +481,58 @@ export function Experience({ path }: { path: string }) {
     "/super-admin/syllabus",
   ].includes(path);
   return (
-    <div className="workspace">
-      <aside className={`sidebar ${menu ? "open" : ""}`}>
-        <Link className="brand" href="/">
-          <span className="brand-mark">✳</span>StudyQuest
-          <span className="brand-dot">.</span>
-        </Link>
-        <button
-          className="mobile-close icon-btn"
-          onClick={() => setMenu(false)}
-          aria-label="Close navigation"
-        >
-          <X />
-        </button>
-        <Link
-          className="workspace-switch"
-          href={profileHref}
-          onClick={() => setMenu(false)}
-          aria-label={owner ? "Open library profile" : "Open my profile"}
-        >
-          <span className="workspace-icon">{owner ? "L" : "S"}</span>
-          <div>
-            <strong>
-              {owner
-                ? "Library workspace"
-                : admin
-                  ? "Platform administration"
-                  : "My study space"}
-            </strong>
-            <small>
-              {owner
-                ? "Build a thriving community"
-                : "A little better, every day"}
-            </small>
-          </div>
-          <ChevronRight size={15} />
-        </Link>
-        {owner && !preview && <BranchSwitcher />}
-        {owner && !preview && String(d.user?.role) === "owner" && (
-          <LibraryIdChip notify={setToast} />
-        )}
-        <div className="nav-label">{owner ? "WORKSPACE" : "YOUR JOURNEY"}</div>
-        <nav>
-          {nav.map(([href, label, Icon]) => (
-            <Link
-              key={href}
-              className={path === href ? "nav-item active" : "nav-item"}
-              href={href}
-              onClick={() => setMenu(false)}
-            >
-              <Icon size={19} />
-              {label}
-              {label === "My quests" && <span className="nav-count">✦</span>}
-              {lockedPaths.has(href) && (
-                <span className="nav-lock" title="Premium: clear your fees to unlock" aria-label="locked">
-                  🔒
-                </span>
+    <>
+      <Shell
+        path={path}
+        nav={nav}
+        lockedPaths={lockedPaths}
+        title={title}
+        workspaceName={
+          owner
+            ? "Library workspace"
+            : admin
+              ? "Platform administration"
+              : "My study space"
+        }
+        workspaceSub={
+          owner ? "Build a thriving community" : "A little better, every day"
+        }
+        profileHref={profileHref}
+        notificationsHref={admin ? undefined : notificationsHref}
+        unread={unread}
+        dark={dark}
+        onToggleTheme={toggle}
+        userName={preview ? "Alex Morgan" : String(d.user?.name ?? "")}
+        userSub={preview ? "Preview account" : String(d.user?.role ?? "")}
+        onSignOut={signOut}
+        extra={
+          owner && !preview ? (
+            <>
+              <BranchSwitcher />
+              {String(d.user?.role) === "owner" && (
+                <LibraryIdChip notify={setToast} />
               )}
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          {owner ? (
+            </>
+          ) : undefined
+        }
+        promo={
+          admin ? undefined : (
             <div className="grow-card">
               <Leaf size={23} />
-              <strong>Fill every seat.</strong>
-              <p>Share your Library ID so students can join and punch in.</p>
-              <Link href="/owner/join-requests" onClick={() => setMenu(false)}>
-                Invite students <ArrowUpRight size={15} />
+              <strong>{owner ? "Fill every seat." : "Small steps. Big things."}</strong>
+              <p>
+                {owner
+                  ? "Share your Library ID so students can join and punch in."
+                  : "Your next chapter starts with today’s focus."}
+              </p>
+              <Link href={owner ? "/owner/join-requests" : "/app/focus"}>
+                {owner ? "Invite students" : "Find your focus"}{" "}
+                <ArrowUpRight size={15} />
               </Link>
             </div>
-          ) : (
-            !admin && (
-              <div className="grow-card">
-                <Leaf size={23} />
-                <strong>Small steps. Big things.</strong>
-                <p>Your next chapter starts with today’s focus.</p>
-                <Link href="/app/focus" onClick={() => setMenu(false)}>
-                  Find your focus <ArrowUpRight size={15} />
-                </Link>
-              </div>
-            )
-          )}
-          {!admin && (
-            <Link
-              className="nav-item"
-              href={profileHref}
-              onClick={() => setMenu(false)}
-            >
-              <Settings size={19} />
-              Settings
-            </Link>
-          )}
-          <Link
-            className="nav-item"
-            href={
-              owner
-                ? "/guide?for=owner"
-                : admin
-                  ? "/features"
-                  : "/guide?for=student"
-            }
-          >
-            <HelpCircle size={19} />
-            Help & resources
-          </Link>
-          <div className="profile-row">
-            <span className="avatar">
-              {preview ? "A" : String(d.user?.name || "S").slice(0, 1)}
-            </span>
-            <div>
-              <strong>{preview ? "Alex Morgan" : String(d.user?.name)}</strong>
-              <small>
-                {preview ? "Preview account" : String(d.user?.role)}
-              </small>
-            </div>
-            <button
-              className="icon-btn"
-              aria-label="Sign out"
-              onClick={async () => {
-                await fetch("/api/auth/logout", { method: "POST" });
-                await clearClientCaches();
-                router.push("/login");
-                router.refresh();
-              }}
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-        </div>
-      </aside>
-      <div className="main-wrap">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <button
-              className="icon-btn menu-toggle"
-              onClick={() => setMenu(true)}
-              aria-label="Open navigation"
-            >
-              <Menu />
-            </button>
-            <span>{owner ? "Workspace" : "My study space"}</span>
-            <ChevronRight size={14} />
-            <strong>{title}</strong>
-          </div>
-          <div className="top-actions">
-            <span className="today">
-              <CalendarDays size={15} />
-              {new Date().toLocaleDateString("en-IN", {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              })}
-            </span>
-            <button
-              className="icon-btn"
-              aria-label="Toggle color theme"
-              onClick={toggle}
-            >
-              {dark ? <Sun size={19} /> : <Moon size={19} />}
-            </button>
-            {!admin && (
-              <Link
-                className="icon-btn bell"
-                aria-label={unread ? "Notifications (unread)" : "Notifications"}
-                href={notificationsHref}
-              >
-                <Bell size={20} />
-                {unread && <i />}
-              </Link>
-            )}
-            <Link
-              className="avatar small"
-              href={profileHref}
-              aria-label={owner ? "Open library profile" : "Open my profile"}
-            >
-              {preview ? "A" : String(d.user?.name || "S")[0]}
-            </Link>
-          </div>
-        </header>
+          )
+        }
+      >
         <main className="main-content">
           {owner && !preview && <RememberLibraryName />}
           {owner && !preview && path !== "/owner/onboarding" && <PlanBanner />}
@@ -906,29 +782,7 @@ export function Experience({ path }: { path: string }) {
             {preview ? "Preview mode" : "Your personal study space"}
           </span>
         </footer>
-      </div>
-      <nav className="bottom-nav">
-        {nav.slice(0, 4).map(([href, label, Icon]) => (
-          <Link
-            key={href}
-            href={href}
-            className={path === href ? "active" : ""}
-          >
-            <Icon size={21} />
-            <span>{label}</span>
-          </Link>
-        ))}
-        <button
-          type="button"
-          className={menu ? "active" : ""}
-          onClick={() => setMenu(true)}
-          aria-label="Open full menu"
-          aria-expanded={menu}
-        >
-          <Menu size={21} />
-          <span>More</span>
-        </button>
-      </nav>
+      </Shell>
       {toast && (
         <div role="status" className="toast">
           <CheckCircle2 size={18} />
@@ -942,7 +796,7 @@ export function Experience({ path }: { path: string }) {
           </button>
         </div>
       )}
-    </div>
+    </>
   );
 }
 type Props = {

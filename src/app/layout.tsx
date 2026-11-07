@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./maintenance-discovery.css";
+import "./sq-v2.css";
 import "@fontsource-variable/plus-jakarta-sans";
+import "@fontsource-variable/fraunces";
 import { Providers } from "@/components/providers";
 import { PwaRegister } from "@/components/pwa";
 const siteUrl = process.env.APP_URL || "http://127.0.0.1:3000";
