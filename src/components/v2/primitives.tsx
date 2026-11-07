@@ -60,6 +60,7 @@ export function StatCard({
   tone,
   onClick,
   href,
+  progress,
 }: {
   label: string;
   value: ReactNode;
@@ -67,11 +68,18 @@ export function StatCard({
   tone?: "up" | "down";
   onClick?: () => void;
   href?: string;
+  /** Optional 0–100 meter under the figure (e.g. seat occupancy). */
+  progress?: number;
 }) {
   const body = (
     <>
       <span>{label}</span>
       <strong>{value}</strong>
+      {progress !== undefined && (
+        <i className="sq-v2-meter" role="img" aria-label={`${Math.round(progress)} percent`}>
+          <b style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
+        </i>
+      )}
       {sub && <small>{sub}</small>}
     </>
   );
@@ -244,5 +252,13 @@ export function Skeleton({ lines = 1, style }: { lines?: number; style?: CSSProp
         <span key={i} className="sq-v2-skel" style={{ width: i === lines - 1 && lines > 1 ? "60%" : "100%" }} />
       ))}
     </div>
+  );
+}
+
+export function Badge({ tone = "neutral", children }: { tone?: "ok" | "warn" | "bad" | "neutral"; children: ReactNode }) {
+  return (
+    <span className="sq-v2-badge" data-tone={tone}>
+      {children}
+    </span>
   );
 }

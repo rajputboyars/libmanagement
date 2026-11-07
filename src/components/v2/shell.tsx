@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { ResponsiveDialog } from "./dialog";
 import { LayoutProvider, useMeasuredLayout, type LayoutMode } from "./layout";
-import { MOBILE_PRIMARY_COUNT, PRIMARY_NAV, RAIL_PRIMARY_COUNT, pickPrimary, type Role } from "./nav-config";
+import { MOBILE_PRIMARY_COUNT, NAV_GROUPS, PRIMARY_NAV, RAIL_PRIMARY_COUNT, groupNav, pickPrimary, type Role } from "./nav-config";
 
 export type NavItem = [string, string, LucideIcon];
 
@@ -55,17 +55,25 @@ function MoreScreen({ open, onClose, p, mode, primary }: { open: boolean; onClos
   return (
     <ResponsiveDialog open={open} onClose={onClose} title="More" description={p.workspaceName} full>
       {p.extra && <div className="sq-v2-extra">{p.extra}</div>}
-      <div className="sq-v2-tiles" aria-label={`More pages (${mode})`}>
-        {shown.map((item) => {
-          const Icon = item[2];
-          return (
-            <Link key={item[0]} href={item[0]} className="sq-v2-tile" aria-current={p.path === item[0] ? "page" : undefined} onClick={onClose}>
-              <Icon size={22} aria-hidden="true" />
-              {item[1]}
-              {p.lockedPaths?.has(item[0]) && <span aria-label="locked">🔒</span>}
-            </Link>
-          );
-        })}
+      {groupNav(shown, NAV_GROUPS[p.role]).map((g) => (
+        <section key={g.label || "top"} aria-label={g.label || "Pages"} style={{ marginBottom: 14 }}>
+          {g.label && <div className="sq-v2-label" style={{ paddingInline: 2 }}>{g.label.toUpperCase()}</div>}
+          <div className="sq-v2-tiles">
+            {g.items.map((item) => {
+              const Icon = item[2];
+              return (
+                <Link key={item[0]} href={item[0]} className="sq-v2-tile" aria-current={p.path === item[0] ? "page" : undefined} onClick={onClose}>
+                  <Icon size={22} aria-hidden="true" />
+                  {item[1]}
+                  {p.lockedPaths?.has(item[0]) && <span aria-label="locked">🔒</span>}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+      <div className="sq-v2-label" style={{ paddingInline: 2 }}>ACCOUNT</div>
+      <div className="sq-v2-tiles" aria-label={`Account (${mode})`}>
         {p.showSettings && !p.nav.some((n) => n[0] === p.profileHref) && (
           <Link href={p.profileHref} className="sq-v2-tile" onClick={onClose}>
             <Settings size={22} aria-hidden="true" />
@@ -112,8 +120,13 @@ export function AppShell(p: CoreProps) {
               </Link>
               {p.extra && <div className="sq-v2-extra">{p.extra}</div>}
               <nav aria-label={p.workspaceName}>
-                {p.nav.map((item) => (
-                  <NavLink key={item[0]} item={item} path={p.path} locked={p.lockedPaths?.has(item[0])} />
+                {groupNav(p.nav, NAV_GROUPS[p.role]).map((g) => (
+                  <div key={g.label || "top"} role="group" aria-label={g.label || undefined}>
+                    {g.label && <div className="sq-v2-label">{g.label.toUpperCase()}</div>}
+                    {g.items.map((item) => (
+                      <NavLink key={item[0]} item={item} path={p.path} locked={p.lockedPaths?.has(item[0])} />
+                    ))}
+                  </div>
                 ))}
               </nav>
               <div className="sq-v2-grow" />

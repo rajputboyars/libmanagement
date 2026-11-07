@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { modeForWidth } from "../src/components/v2/layout";
-import { MOBILE_PRIMARY_COUNT, PRIMARY_NAV, pickPrimary } from "../src/components/v2/nav-config";
+import { MOBILE_PRIMARY_COUNT, NAV_GROUPS, PRIMARY_NAV, groupNav, pickPrimary } from "../src/components/v2/nav-config";
 
 type Item = [string, string, null];
 const mk = (...h: string[]): Item[] => h.map((x) => [x, x, null]);
@@ -26,4 +26,16 @@ test("layout breakpoints", () => {
   assert.equal(modeForWidth(1024), "tablet");
   assert.equal(modeForWidth(1100), "desktop");
   assert.equal(modeForWidth(1440), "desktop");
+});
+
+test("groupNav only shows allowed routes, in group order, and keeps unlisted routes under Other", () => {
+  const nav = mk("/owner", "/owner/payments", "/owner/students", "/owner/brand-new");
+  const g = groupNav(nav, NAV_GROUPS.owner);
+  assert.deepEqual(g.map((x) => x.label), ["", "People", "Money", "Other"]);
+  assert.deepEqual(g.flatMap((x) => x.items.map((i) => i[0])).sort(), nav.map((n) => n[0]).sort());
+  assert.ok(!g.flatMap((x) => x.items.map((i) => i[0])).includes("/owner/fees"));
+});
+
+test("groupNav without groups returns one unlabeled group", () => {
+  assert.deepEqual(groupNav(mk("/a", "/b")).map((x) => [x.label, x.items.length]), [["", 2]]);
 });

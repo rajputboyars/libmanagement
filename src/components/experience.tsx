@@ -79,7 +79,11 @@ import {
   Target,
   ListChecks,
 } from "lucide-react";
+import { ClipboardCheck, Hourglass, IndianRupee, Radio, UserCog, UserPlus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { OwnerDashboard } from "@/components/v2/owner-dashboard";
+import { OwnerPayments, OwnerStudents } from "@/components/v2/owner-lists";
+import { Btn, PageHead } from "@/components/v2/primitives";
 import { AdminShell, OwnerShell, StudentShell } from "@/components/v2/shell";
 import {
   FOCUS_LENGTHS,
@@ -232,21 +236,21 @@ const studentNav: [string, string, LucideIcon][] = [
 const ownerNav: [string, string, LucideIcon][] = [
   ["/owner", "Overview", LayoutDashboard],
   ["/owner/students", "Students", Users],
-  ["/owner/seats", "Seat map", Armchair],
+  ["/owner/seats", "Seats", Armchair],
   ["/owner/shifts", "Shifts", Clock3],
-  ["/owner/plans", "Fee plans", CreditCard],
+  ["/owner/plans", "Plans", CreditCard],
   ["/owner/memberships", "Memberships", BookOpen],
-  ["/owner/fees", "Pending fees", Wallet],
-  ["/owner/payments", "Payments", Wallet],
-  ["/owner/attendance", "Attendance", CheckCircle2],
+  ["/owner/fees", "Fees", Wallet],
+  ["/owner/payments", "Payments", IndianRupee],
+  ["/owner/attendance", "Attendance", ClipboardCheck],
   ["/owner/expenses", "Expenses", Receipt],
   ["/owner/reports", "Reports", ChartNoAxesCombined],
   ["/owner/complaints", "Complaints", MessageSquare],
   ["/owner/rewards", "Rewards", Trophy],
   ["/owner/discovery", "Public listing", Building2],
-  ["/owner/join-requests", "Join requests", Users],
-  ["/owner/presence", "Live presence", CheckCircle2],
-  ["/owner/waitlist", "Waitlist", Users],
+  ["/owner/join-requests", "Join requests", UserPlus],
+  ["/owner/presence", "Live presence", Radio],
+  ["/owner/waitlist", "Waitlist", Hourglass],
   ["/owner/crm", "Admissions", Users],
   ["/owner/branches", "Branches", Building2],
   ["/owner/billing", "Billing", CreditCard],
@@ -257,7 +261,7 @@ const ownerNav: [string, string, LucideIcon][] = [
   ["/owner/events", "Events", CalendarDays],
   ["/owner/maintenance", "Maintenance", Wrench],
   ["/owner/moderation", "Community safety", ShieldCheck],
-  ["/owner/team", "Team & roles", Users],
+  ["/owner/team", "Team", UserCog],
   ["/owner/modules", "Modules", ListChecks],
   ["/owner/security", "Account & privacy", ShieldCheck],
   ["/owner/settings", "Settings", Settings],
@@ -2116,6 +2120,8 @@ type Field = {
   optional?: boolean;
 };
 const QR_REFRESH_MS = 60_000; // keep below the server QR lifetime (attendance-token.ts)
+// Sections that render their own v2 page header.
+const V2_SECTIONS = ["overview", "students", "payments", "seats", "fees"];
 function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const [modal, setModal] = useState(false);
   const [search, setSearch] = useState("");
@@ -2135,9 +2141,6 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const title =
     ownerNav.find((n) => n[0] === path)?.[1] ||
     (section === "notifications" ? "Notifications" : "Overview");
-  const total = d.summary?.revenue || 0,
-    cost = d.summary?.expenses || 0,
-    due = d.summary?.due || 0;
   const options = (rows: Row[], key = "name") =>
     rows.map((r) => ({
       value: String(r._id),
@@ -2409,6 +2412,21 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const floors = [...new Set(seats.map((s) => String(s.floor)))];
   return (
     <>
+      {section === "seats" && (
+        <PageHead
+          title="Seats"
+          sub="A place for every student. A clear view of every seat."
+          actions={canDo("seats.create") ? <Btn onClick={() => add("seats")}><Plus size={17} /> Add seat</Btn> : undefined}
+        />
+      )}
+      {section === "fees" && (
+        <PageHead
+          title="Fees"
+          sub="Who owes what, and every payment received."
+          actions={canDo("fees.create") ? <Btn onClick={() => add("payments")}><Plus size={17} /> Record payment</Btn> : undefined}
+        />
+      )}
+      {!V2_SECTIONS.includes(section) && (
       <div className="page-heading">
         <div>
           <div className="eyebrow">A BETTER SPACE TO GROW</div>
@@ -2447,6 +2465,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           </button>
         )}
       </div>
+      )}
       {section === "attendance" && !preview && (
         <section className="card qr-panel">
           <Image
@@ -2502,126 +2521,11 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           )}
         </section>
       ) : section === "overview" ? (
-        <>
-          <div className="stats-grid">
-            <Stat
-              icon={Wallet}
-              color="mint"
-              label="Confirmed revenue"
-              value={money(total)}
-              detail="From recorded payments only"
-            />
-            <Stat
-              icon={Users}
-              color="violet"
-              label="Active community"
-              value={String(d.summary?.students || 0)}
-              detail="Registered library students"
-            />
-            <Stat
-              icon={Armchair}
-              color="peach"
-              label="Study spaces"
-              value={String(d.summary?.seats || 0)}
-              detail="Across all library floors"
-            />
-            <Stat
-              icon={Receipt}
-              color="amber"
-              label="Outstanding dues"
-              value={money(due)}
-              detail="Membership balance remaining"
-            />
-          </div>
-          <div className="dashboard-grid">
-            <section className="card">
-              <div className="section-heading">
-                <div>
-                  <h2>A healthier library</h2>
-                  <p>Your revenue and expenses at a glance.</p>
-                </div>
-                <ChartNoAxesCombined size={20} />
-              </div>
-              <div className="chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={[
-                      { name: "Revenue", amount: total / 100 },
-                      { name: "Expenses", amount: cost / 100 },
-                      { name: "Profit", amount: (total - cost) / 100 },
-                    ]}
-                  >
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                    <Tooltip />
-                    <Bar
-                      dataKey="amount"
-                      fill="#438d75"
-                      radius={[6, 6, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="report-bottom">
-                Net profit <strong>{money(total - cost)}</strong>
-              </div>
-            </section>
-            <section className="card">
-              <h2>Your next steps</h2>
-              <p className="muted">Build a space that works for everyone.</p>
-              {[
-                ["Configure your shifts", "shifts", Clock3],
-                ["Set up your seat map", "seats", Armchair],
-                ["Create a membership plan", "plans", CreditCard],
-                ["Connect registered students", "students", Users],
-              ].map(([text, route, Icon]) => {
-                const I = Icon as LucideIcon;
-                return (
-                  <Link
-                    className="list-row"
-                    href={`/owner/${route}`}
-                    key={String(route)}
-                  >
-                    <span className="icon-tile mint">
-                      <I size={19} />
-                    </span>
-                    <strong>{String(text)}</strong>
-                    <ChevronRight size={17} />
-                  </Link>
-                );
-              })}
-            </section>
-          </div>
-          <section className="card">
-            <div className="section-heading">
-              <div>
-                <h2>Library announcements</h2>
-                <p>Keep your community in the loop.</p>
-              </div>
-              <button
-                className="button secondary"
-                onClick={() => add("notifications")}
-              >
-                <Plus size={16} />
-                Create announcement
-              </button>
-            </div>
-            {d.notifications.length ? (
-              d.notifications.map((n) => (
-                <div className="list-row" key={String(n._id)}>
-                  <Bell />
-                  <div>
-                    <strong>{n.title}</strong>
-                    <p>{n.message}</p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="muted">
-                No announcements yet. Create one to share an update in the app.
-              </p>
-            )}
-          </section>
-        </>
+        <OwnerDashboard d={d} preview={preview} role={String(d.user?.role)} access={accessNow.data} canDo={canDo} onAdd={add} />
+      ) : section === "students" ? (
+        <OwnerStudents d={d} preview={preview} canDo={canDo} onAdd={add} showMemberships={canDo("memberships.view") && !navBlocked("/owner/memberships", accessNow.data, String(d.user?.role))} />
+      ) : section === "payments" ? (
+        <OwnerPayments d={d} preview={preview} canDo={canDo} onAdd={add} />
       ) : section === "team" ? (
         <OwnerTeam notify={notify} />
       ) : section === "modules" ? (

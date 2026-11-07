@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { BellRing } from "lucide-react";
 import { BrandLoader } from "@/components/brand-loader";
 import { fmtDate, getJson, inr, post, type Json } from "./prep-api";
+import { DataTable } from "./v2/data-table";
+import { Badge, Chips, EmptyState } from "./v2/primitives";
 
 /** Student-wise fees: who owes what, payment history, recording a payment, reversing a wrong one, and reminders. */
 export function OwnerFees({ canReverse, canRecord, notify }: { canReverse: boolean; canRecord: boolean; notify: (message: string) => void }) {
@@ -12,7 +15,10 @@ export function OwnerFees({ canReverse, canRecord, notify }: { canReverse: boole
   const [filter, setFilter] = useState("pending");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [open, setOpen] = useState("");
+  // A student can be opened directly with /owner/fees?student=<id> (used by the student summary); a click overrides it.
+  const wanted = useSearchParams().get("student") ?? "";
+  const [chosen, setOpen] = useState<string | null>(null);
+  const open = chosen ?? wanted;
   const list = useQuery<Json>({
     queryKey: ["workspace", "fees", filter, search, page],
     queryFn: () => getJson(`/api/fees?filter=${filter}&page=${page}&q=${encodeURIComponent(search)}`),
@@ -32,12 +38,8 @@ export function OwnerFees({ canReverse, canRecord, notify }: { canReverse: boole
         <div><small>Unsettled on ended memberships</small><strong>{inr(d.totals.closedBalance)}</strong></div>
       </div>}
       <div className="lifecycle-toolbar">
-        <input className="pr-select" type="search" placeholder="Search name or email" value={search} aria-label="Search students" onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
-        <select className="pr-select" aria-label="Show" value={filter} onChange={(e) => { setFilter(e.target.value); setPage(1); }}>
-          <option value="pending">With pending fees</option>
-          <option value="clear">Fully paid</option>
-          <option value="all">Everyone with a membership</option>
-        </select>
+        <input className="pr-select sq-v2-input" style={{ maxWidth: 320 }} type="search" placeholder="Search name or email" value={search} aria-label="Search students" onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+<Chips label="Show" value={filter} onChange={(v) => { setFilter(v); setPage(1); }} items={[{ id: "pending", label: "With pending fees" }, { id: "clear", label: "Fully paid" }, { id: "all", label: "Everyone" }]} />
         {canRecord && <button className="button secondary" disabled={!d || !d.totals.owing} onClick={() => run(async () => {
           if (!confirm(`Send a fee reminder to ${d!.totals.owing} student${d!.totals.owing === 1 ? "" : "s"} with pending fees? Each student gets at most one a day.`)) return "Reminders not sent.";
           const r = await post("/api/fees", "remind", {});
@@ -47,24 +49,21 @@ export function OwnerFees({ canReverse, canRecord, notify }: { canReverse: boole
       {list.isLoading && <BrandLoader compact text="Loading fees…" />}
       {list.isError && !d && <div className="cm-note danger" role="alert">Could not load fees: {list.error instanceof Error ? list.error.message : "Try again."} <button className="button secondary" onClick={() => list.refetch()}>Try again</button></div>}
       {d && <>
-      <div className="sq-table fees-list" role="region" aria-label="Student fees" tabIndex={0}>
-        <table>
-          <thead><tr><th>Student</th><th>Pending</th><th>Paid</th><th className="hide-sm">Valid until</th><th className="hide-sm">Last payment</th><th /></tr></thead>
-          <tbody>
-            {(d.students as Json[]).map((s) => (
-              <tr key={s.userId}>
-                <td><strong>{s.name}</strong><br /><small>{s.email}</small></td>
-                <td>{s.pending > 0 ? <strong>{inr(s.pending)}</strong> : "Paid"}{s.closedBalance > 0 && <><br /><small>+ {inr(s.closedBalance)} on ended memberships</small></>}</td>
-                <td>{inr(s.paid)}</td>
-                <td className="hide-sm">{s.validUntil ? fmtDate(s.validUntil) : "—"}</td>
-                <td className="hide-sm">{s.lastPaymentAt ? fmtDate(s.lastPaymentAt) : "—"}</td>
-                <td><button className="button secondary" onClick={() => setOpen(open === s.userId ? "" : s.userId)}>{open === s.userId ? "Close" : "Details"}</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!d.students.length && <p className="pr-hint">{filter === "pending" ? "Nobody has pending fees. 🎉" : "No students match."}</p>}
+      <DataTable
+        caption="Student fees"
+        rows={d.students as Json[]}
+        rowKey={(s) => s.userId}
+        onRowClick={(s) => setOpen(open === s.userId ? "" : s.userId)}
+        columns={[
+          { key: "name", header: "Student", primary: true, render: (s) => <span><strong>{s.name}</strong><br /><small>{s.email}</small></span> },
+          { key: "pending", header: "Pending", render: (s) => <>{s.pending > 0 ? <Badge tone="warn">{inr(s.pending)}</Badge> : <Badge tone="ok">Paid</Badge>}{s.closedBalance > 0 && <><br /><small>+ {inr(s.closedBalance)} on ended memberships</small></>}</> },
+          { key: "paid", header: "Paid", render: (s) => inr(s.paid) },
+          { key: "valid", header: "Valid until", render: (s) => (s.validUntil ? fmtDate(s.validUntil) : "—") },
+          { key: "last", header: "Last payment", render: (s) => (s.lastPaymentAt ? fmtDate(s.lastPaymentAt) : "—") },
+          { key: "open", header: "", hideOnCard: true, render: (s) => <span className="sq-v2-more">{open === s.userId ? "Close" : "Details"}</span> },
+        ]}
+        empty={<EmptyState icon={BellRing} title={filter === "pending" ? "Nobody has pending fees" : "No students match"} text={filter === "pending" ? "Every running membership is paid up." : "Try another filter or search."} />}
+      />
       {pages > 1 && <div className="lifecycle-toolbar"><button className="button secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page} of {pages}</span><button className="button secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button></div>}
       </>}
       {open && <StudentFees key={open} userId={open} canReverse={canReverse} canRecord={canRecord} run={run} />}

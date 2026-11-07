@@ -24,3 +24,40 @@ export function pickPrimary<T extends [string, string, unknown]>(nav: T[], candi
   for (const item of nav) if (picked.length < count && !picked.includes(item)) picked.push(item);
   return picked.slice(0, count);
 }
+
+export type NavGroup = { label: string; hrefs: string[] };
+/**
+ * Information architecture per role. Groups only reorder and label the already-filtered nav:
+ * an href that is missing from the nav (module off, no permission) simply does not appear, and any nav item
+ * not listed here still shows up under "Other", so a new route can never be hidden by this config.
+ */
+export const NAV_GROUPS: Partial<Record<Role, NavGroup[]>> = {
+  owner: [
+    { label: "", hrefs: ["/owner"] },
+    { label: "People", hrefs: ["/owner/students", "/owner/join-requests", "/owner/waitlist", "/owner/crm"] },
+    { label: "Library", hrefs: ["/owner/seats", "/owner/shifts", "/owner/attendance", "/owner/presence", "/owner/maintenance"] },
+    { label: "Money", hrefs: ["/owner/fees", "/owner/payments", "/owner/memberships", "/owner/plans", "/owner/expenses", "/owner/reports"] },
+    { label: "Community", hrefs: ["/owner/complaints", "/owner/feedback", "/owner/events", "/owner/rewards", "/owner/discovery", "/owner/moderation"] },
+    { label: "Manage", hrefs: ["/owner/team", "/owner/modules", "/owner/branches", "/owner/billing", "/owner/import", "/owner/onboarding", "/owner/support", "/owner/security", "/owner/settings"] },
+  ],
+};
+
+export function groupNav<T extends [string, string, unknown]>(nav: T[], groups?: NavGroup[]): { label: string; items: T[] }[] {
+  if (!groups) return [{ label: "", items: nav }];
+  const byHref = new Map<string, T>(nav.map((n) => [n[0], n]));
+  const used = new Set<string>();
+  const out = groups
+    .map((g) => ({
+      label: g.label,
+      items: g.hrefs.flatMap((h) => {
+        const hit = byHref.get(h);
+        if (!hit) return [];
+        used.add(h);
+        return [hit];
+      }),
+    }))
+    .filter((g) => g.items.length);
+  const rest = nav.filter((n) => !used.has(n[0]));
+  if (rest.length) out.push({ label: out.length ? "Other" : "", items: rest });
+  return out;
+}
