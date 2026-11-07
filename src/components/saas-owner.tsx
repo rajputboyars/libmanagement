@@ -1,6 +1,5 @@
 "use client";
 
-import { BrandLoader } from "@/components/brand-loader";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -8,10 +7,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AlertTriangle, Building2, Check, CheckCircle2, CreditCard, Download, Gift, LifeBuoy } from "lucide-react";
 import { fmtDate, getJson, inr, post, type Json } from "./prep-api";
+import { useCan } from "./v2/can";
+import { EmptyState, ErrorState, Skeleton as V2Skeleton } from "./v2/primitives";
 
-const Empty = ({ title, text }: { title: string; text: string }) => <div className="mt-empty"><h2>{title}</h2><p>{text}</p></div>;
-const Skeleton = () => <BrandLoader compact text="Loading…" />;
-const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="mt-empty"><AlertTriangle /><h2>Could not load</h2><p>{error instanceof Error ? error.message : "Check your connection."}</p><button className="button" onClick={retry}>Try again</button></div>;
+const Empty = ({ title, text }: { title: string; text: string }) => <EmptyState icon={Building2} title={title} text={text || undefined} />;
+const Skeleton = () => <V2Skeleton lines={5} />;
+const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <ErrorState text={error instanceof Error ? error.message : "Check your connection."} onRetry={retry} />;
 const label = (v: string) => v.replace(/[-_]/g, " ");
 
 function useAct(notify: (m: string) => void, keys: string[]) {
@@ -179,6 +180,7 @@ export function OwnerBranches({ notify }: { notify: (m: string) => void }) {
 // ───────────────────────── CRM ─────────────────────────
 export function OwnerCrm({ notify }: { notify: (m: string) => void }) {
   const act = useAct(notify, ["crm"]);
+  const manage = useCan()("crm.manage");
   const [stage, setStage] = useState("new");
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState("");
@@ -196,9 +198,9 @@ export function OwnerCrm({ notify }: { notify: (m: string) => void }) {
   const shown = leads.filter((l) => l.stage === stage);
   return (
     <>
-      <header className="p2-heading"><div><span className="eyebrow">Admissions</span><h1>Turn enquiries into students.</h1><p>Leads from your public library page land here. Contact details are only used when the enquirer consented.</p></div><button className="button" onClick={() => setAdding(!adding)}>{adding ? "Close" : "Add lead"}</button></header>
+      <header className="p2-heading"><div><span className="eyebrow">Admissions</span><h1>Turn enquiries into students.</h1><p>Leads from your public library page land here. Contact details are only used when the enquirer consented.</p></div>{manage && <button className="button" onClick={() => setAdding(!adding)}>{adding ? "Close" : "Add lead"}</button>}</header>
       <div className="mt-stats"><div><small>Leads ({d.stats.windowDays}d)</small><strong>{d.stats.total}</strong></div><div><small>Converted</small><strong>{d.stats.converted}</strong></div><div><small>Conversion</small><strong>{d.stats.conversionPct ?? "—"}{d.stats.conversionPct !== null ? "%" : ""}</strong></div><div><small>Overdue tasks</small><strong>{d.overdue}</strong></div></div>
-      {adding && <form className="mt-form" onSubmit={async (ev) => { ev.preventDefault(); const f = new FormData(ev.currentTarget); const form = ev.currentTarget; if (await act("/api/crm", "lead-create", { name: f.get("name"), phone: f.get("phone") || "", email: f.get("email") || "", message: f.get("message") || "", source: f.get("source"), consentContact: f.get("consent") === "on" }, "Lead added.")) { form.reset(); setAdding(false); } }}>
+      {manage && adding && <form className="mt-form" onSubmit={async (ev) => { ev.preventDefault(); const f = new FormData(ev.currentTarget); const form = ev.currentTarget; if (await act("/api/crm", "lead-create", { name: f.get("name"), phone: f.get("phone") || "", email: f.get("email") || "", message: f.get("message") || "", source: f.get("source"), consentContact: f.get("consent") === "on" }, "Lead added.")) { form.reset(); setAdding(false); } }}>
         <label>Name<input name="name" required minLength={2} /></label><label>Phone<input name="phone" inputMode="tel" /></label><label>Email<input name="email" type="email" /></label>
         <label>Source<select name="source">{["walk-in", "referral", "social", "campaign", "other"].map((s) => <option key={s}>{s}</option>)}</select></label><label className="wide">Notes<input name="message" maxLength={500} /></label>
         <label className="mt-check wide"><input type="checkbox" name="consent" />They agreed to be contacted about admission</label><button className="button">Save lead</button></form>}
@@ -207,10 +209,10 @@ export function OwnerCrm({ notify }: { notify: (m: string) => void }) {
         <section key={s} className={`sq-col ${s === stage ? "show" : ""}`} aria-label={label(s)}><h2>{label(s)} <span>{leads.filter((l) => l.stage === s).length}</span></h2>
           {leads.filter((l) => l.stage === s).map((l) => (
             <article className="queue-card" key={l._id}><div><span><strong>{l.name}</strong><small>{l.phone && l.consentContact ? <a href={`tel:${l.phone}`}>{l.phone}</a> : l.phone ? `${l.phone} · no consent to call` : l.email || "No contact"} · {l.source}{l.enquiryCount > 1 ? ` · ${l.enquiryCount} enquiries` : ""}</small>{l.message && <small>“{l.message}”</small>}{l.visitAt && <small>Visit {new Date(l.visitAt).toLocaleString("en-IN")}</small>}{l.lostReason && <small>Lost: {l.lostReason}</small>}</span></div>
-              <div className="queue-actions">{(NEXT[l.stage] ?? []).map((to) => <button key={to} className={to === "converted" ? "button" : "button secondary"} onClick={() => move(l, to)}>{label(to)}</button>)}</div>
-              <div className="queue-actions"><select className="pr-select" aria-label="Assigned to" value={l.assignedTo ?? ""} onChange={(ev) => act("/api/crm", "lead-assign", { id: l._id, userId: ev.target.value }, "Assigned.")}>{(d.staff as Json[]).map((u) => <option key={u._id} value={u._id}>{u.name}</option>)}</select>
-                <button className="button secondary" onClick={() => setOpen(open === l._id ? "" : l._id)}>{open === l._id ? "Hide" : "Follow-up"}</button></div>
-              {open === l._id && <form className="queue-actions" onSubmit={async (ev) => { ev.preventDefault(); const f = new FormData(ev.currentTarget); const dt = new Date(String(f.get("due"))); if (await act("/api/crm", "task-create", { leadId: l._id, dueAt: dt.toISOString(), note: f.get("note") || "" }, "Follow-up scheduled.")) setOpen(""); }}><input name="due" type="datetime-local" required className="pr-select" aria-label="Due" /><input name="note" className="pr-select" placeholder="Call back…" maxLength={200} /><button className="button secondary">Add task</button></form>}
+              {manage && <div className="queue-actions">{(NEXT[l.stage] ?? []).map((to) => <button key={to} className={to === "converted" ? "button" : "button secondary"} onClick={() => move(l, to)}>{label(to)}</button>)}</div>}
+              {manage && <div className="queue-actions"><select className="pr-select" aria-label="Assigned to" value={l.assignedTo ?? ""} onChange={(ev) => act("/api/crm", "lead-assign", { id: l._id, userId: ev.target.value }, "Assigned.")}>{(d.staff as Json[]).map((u) => <option key={u._id} value={u._id}>{u.name}</option>)}</select>
+                <button className="button secondary" onClick={() => setOpen(open === l._id ? "" : l._id)}>{open === l._id ? "Hide" : "Follow-up"}</button></div>}
+              {manage && open === l._id && <form className="queue-actions" onSubmit={async (ev) => { ev.preventDefault(); const f = new FormData(ev.currentTarget); const dt = new Date(String(f.get("due"))); if (await act("/api/crm", "task-create", { leadId: l._id, dueAt: dt.toISOString(), note: f.get("note") || "" }, "Follow-up scheduled.")) setOpen(""); }}><input name="due" type="datetime-local" required className="pr-select" aria-label="Due" /><input name="note" className="pr-select" placeholder="Call back…" maxLength={200} /><button className="button secondary">Add task</button></form>}
               {(l.history as Json[]).length > 1 && open === l._id && <ol className="mt-history">{(l.history as Json[]).slice(-5).map((h, i) => <li key={i}><strong>{label(h.stage)}</strong><span>{new Date(h.at).toLocaleString("en-IN")}</span>{h.note && <em>{h.note}</em>}</li>)}</ol>}
             </article>))}
           {!shown.length && s === stage && <Empty title="Nothing here" text="Leads in this stage will appear here." />}

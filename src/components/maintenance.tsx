@@ -3,6 +3,7 @@
 import { BrandLoader } from "@/components/brand-loader";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
+import { useCan } from "./v2/can";
 import { AlertTriangle, CheckCircle2, ChevronDown, Wrench } from "lucide-react";
 import { ISSUE_CATEGORIES, ISSUE_PRIORITIES, canTransition, isActiveIssue, type IssueStatus } from "@/lib/maintenance";
 
@@ -20,6 +21,7 @@ const label = (value: string) => value.replace("-", " ");
 
 export function Maintenance({ owner, notify }: { owner: boolean; notify: (message: string) => void }) {
   const queryClient = useQueryClient();
+  const can = useCan();
   const [filter, setFilter] = useState("active");
   const [page, setPage] = useState(1);
   const { data, isLoading, isError } = useQuery<Data>({
@@ -63,7 +65,7 @@ export function Maintenance({ owner, notify }: { owner: boolean; notify: (messag
           <div><small>Repair spend</small><strong>{inr(data.summary.repairCostPaise)}</strong></div>
         </div>
       )}
-      <ReportForm data={data} owner={owner} act={act} />
+      {(!owner || can("maintenance.manage")) && <ReportForm data={data} owner={owner} act={act} />}
       <div className="mt-filter" role="tablist" aria-label="Filter issues">
         {["active", "resolved", "cancelled"].map((item) => (
           <button key={item} role="tab" aria-selected={filter === item} className={filter === item ? "active" : ""} onClick={() => { setFilter(item); setPage(1); }}>{item === "active" ? "Active" : label(item)}</button>
@@ -104,7 +106,10 @@ function ReportForm({ data, owner, act }: { data: Data; owner: boolean; act: (a:
   );
 }
 
-function IssueCard({ issue, data, owner, act }: { issue: Issue; data: Data; owner: boolean; act: (a: string, v: unknown, s: string) => Promise<boolean> }) {
+function IssueCard({ issue, data, owner: isOwnerView, act }: { issue: Issue; data: Data; owner: boolean; act: (a: string, v: unknown, s: string) => Promise<boolean> }) {
+  const can = useCan();
+  // Owner-side controls only for people who may manage maintenance (the server checks again).
+  const owner = isOwnerView && can("maintenance.manage");
   const [open, setOpen] = useState(false);
   const seat = data.seats.find((item) => item._id === issue.seatId);
   const next = (["assigned", "in-progress", "resolved", "cancelled"] as IssueStatus[]).filter((status) => canTransition(issue.status, status));

@@ -82,10 +82,11 @@ import { ClipboardCheck, Hourglass, IndianRupee, Radio, UserCog, UserPlus } from
 import type { LucideIcon } from "lucide-react";
 import { OwnerDashboard } from "@/components/v2/owner-dashboard";
 import { OwnerPayments, OwnerStudents } from "@/components/v2/owner-lists";
-import { AttendanceBoard, OwnerExpenses, OwnerMemberships, OwnerPlans } from "@/components/v2/owner-ops";
+import { AttendanceBoard, OwnerComplaints, OwnerExpenses, OwnerMemberships, OwnerPlans, OwnerShifts } from "@/components/v2/owner-ops";
 import { OwnerSettings } from "@/components/v2/owner-settings";
 import { StatCard } from "@/components/v2/primitives";
 import { Btn, PageHead } from "@/components/v2/primitives";
+import { CanProvider } from "@/components/v2/can";
 import { AdminShell, OwnerShell, StudentShell } from "@/components/v2/shell";
 import {
   FOCUS_LENGTHS,
@@ -376,6 +377,8 @@ export function Experience({ path }: { path: string }) {
     ? "/owner/notifications"
     : "/app/notifications";
   const unread = d.notifications.some((n) => !n.read);
+  // Permission check for owner/staff screens (the server enforces the same rules on every request).
+  const canOwner = (permission: string) => preview || !accessQ.data || accessQ.data.kind === "owner" || ((accessQ.data.permissions as string[]) ?? []).includes(permission);
   const Shell = owner ? OwnerShell : admin ? AdminShell : StudentShell;
   const signOut = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -539,7 +542,8 @@ export function Experience({ path }: { path: string }) {
           )
         }
       >
-        <main className="main-content">
+        <CanProvider value={canOwner}>
+        <main className={owner ? "main-content sq-v2-legacy" : "main-content"}>
           {owner && !preview && <RememberLibraryName />}
           {owner && !preview && path !== "/owner/onboarding" && <PlanBanner />}
           {!owner &&
@@ -781,6 +785,7 @@ export function Experience({ path }: { path: string }) {
             />
           )}
         </main>
+        </CanProvider>
         <footer className="app-footer">
           <span>Made for a little more focus, and a lot more you.</span>
           <span>
@@ -2072,7 +2077,7 @@ type Field = {
 };
 const QR_REFRESH_MS = 60_000; // keep below the server QR lifetime (attendance-token.ts)
 // Sections that render their own v2 page header.
-const V2_SECTIONS = ["overview", "students", "payments", "seats", "fees", "memberships", "plans", "expenses", "attendance", "reports", "team", "modules", "settings"];
+const V2_SECTIONS = ["overview", "students", "payments", "seats", "fees", "memberships", "plans", "shifts", "complaints", "expenses", "attendance", "reports", "team", "modules", "settings"];
 function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const [modal, setModal] = useState(false);
   const [search, setSearch] = useState("");
@@ -2444,12 +2449,16 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
         <OwnerPayments d={d} preview={preview} canDo={canDo} onAdd={add} />
       ) : section === "memberships" ? (
         <OwnerMemberships d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "shifts" ? (
+        <OwnerShifts d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "complaints" ? (
+        <OwnerComplaints d={d} preview={preview} canDo={canDo} onResolve={async (id) => { try { await mutate("resolve", { id }); notify("Complaint resolved"); } catch (e) { notify((e as Error).message); } }} />
       ) : section === "plans" ? (
         <OwnerPlans d={d} preview={preview} canDo={canDo} onAdd={add} />
       ) : section === "expenses" ? (
         <OwnerExpenses d={d} preview={preview} canDo={canDo} onAdd={add} />
       ) : section === "attendance" ? (
-        <AttendanceBoard mode="attendance" canDo={canDo} notify={notify} onCheckIn={() => add("attendance")} qrRefreshMs={preview ? undefined : QR_REFRESH_MS} />
+        <AttendanceBoard mode="attendance" canDo={canDo} notify={notify} onCheckIn={() => add("attendance")} qrRefreshMs={preview ? undefined : QR_REFRESH_MS} canQr={!preview && !!accessNow.data && (accessNow.data.kind === "owner" || ((accessNow.data.permissions as string[]) ?? []).includes("attendance.qr"))} />
       ) : section === "team" ? (
         <OwnerTeam notify={notify} />
       ) : section === "modules" ? (

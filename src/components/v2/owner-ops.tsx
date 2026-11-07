@@ -234,7 +234,8 @@ const WORKSPACE_NOTE = 100;
 
 // ───────────────────────── Attendance & presence ─────────────────────────
 /** Day board: who is inside, the day's visit log, search and date choice. Uses the same /api/punch view as before. */
-export function AttendanceBoard({ mode, canDo, notify, onCheckIn, qrRefreshMs }: { mode: "attendance" | "presence"; canDo: Can; notify: (m: string) => void; onCheckIn?: () => void; qrRefreshMs?: number }) {
+/** `canQr` must be true only once the permission is positively known; the QR image request is skipped otherwise (the server would answer 403). */
+export function AttendanceBoard({ mode, canDo, notify, onCheckIn, qrRefreshMs, canQr = false }: { mode: "attendance" | "presence"; canDo: Can; notify: (m: string) => void; onCheckIn?: () => void; qrRefreshMs?: number; canQr?: boolean }) {
   const qc = useQueryClient();
   const today = istDay();
   const [day, setDay] = useState(today);
@@ -271,7 +272,7 @@ export function AttendanceBoard({ mode, canDo, notify, onCheckIn, qrRefreshMs }:
         sub="Students punch in and out from their app or by scanning the desk code. Every visit is recorded here."
         actions={mode === "attendance" && onCheckIn && canDo("attendance.mark") ? <Btn onClick={onCheckIn}><ClipboardCheck size={17} /> Check in student</Btn> : undefined}
       />
-      {mode === "attendance" && canDo("attendance.qr") && (
+      {mode === "attendance" && canQr && (
         <section className="sq-v2-panel sq-v2-qr" aria-label="Desk check-in code">
           <Image src={`/api/attendance-qr?t=${qrTick}`} width={140} height={140} alt="Scan to check in to this library" unoptimized />
           <div>
@@ -329,3 +330,69 @@ export function AttendanceBoard({ mode, canDo, notify, onCheckIn, qrRefreshMs }:
   );
 }
 
+
+// ───────────────────────── Shifts ─────────────────────────
+const clock12 = (minutes: number) => {
+  const h = Math.floor(minutes / 60) % 24, m = minutes % 60;
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+};
+export function OwnerShifts({ d, preview, canDo, onAdd }: { d: Json; preview: boolean; canDo: Can; onAdd: (action: string) => void }) {
+  const rec = useRecords("shifts", d.shifts ?? [], preview, "");
+  const shifts: Row[] = rec.complete ? (d.shifts ?? []) : (rec.query.data?.records ?? []);
+  const add = canDo("seats.create") ? <Btn onClick={() => onAdd("shifts")}><Plus size={17} /> Add shift</Btn> : undefined;
+  const columns: Column<Row>[] = [
+    { key: "name", header: "Shift", primary: true, render: (s) => <strong>{s.name}</strong> },
+    { key: "time", header: "Hours", render: (s) => `${clock12(Number(s.start))} – ${clock12(Number(s.end))}` },
+    { key: "length", header: "Length", render: (s) => dur(((Number(s.end) - Number(s.start) + 1440) % 1440) || 1440) },
+  ];
+  return (
+    <>
+      <PageHead title="Shifts" sub="The time slots seats are assigned for. A seat can be held by different students in different shifts." actions={add} />
+      {!rec.complete && rec.query.isError ? <ErrorState title="Could not load shifts" onRetry={() => void rec.query.refetch()} /> : (
+        <DataTable caption="Shifts" columns={columns} rows={shifts} rowKey={(s) => String(s._id)} loading={!rec.complete && rec.query.isLoading}
+          empty={<EmptyState icon={CalendarClock} title="No shifts yet" text="Add a shift, for example Morning 6:00 am to 2:00 pm, before assigning seats." action={add} />} />
+      )}
+    </>
+  );
+}
+
+// ───────────────────────── Complaints ─────────────────────────
+export function OwnerComplaints({ d, preview, canDo, onResolve }: { d: Json; preview: boolean; canDo: Can; onResolve: (id: string) => Promise<void> }) {
+  const [filter, setFilter] = useState("open");
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState("");
+  const [local, setLocal] = useState(1);
+  const all: Row[] = useMemo(() => d.complaints ?? [], [d.complaints]);
+  const rec = useRecords("complaints", all, preview, "");
+  const students: Row[] = d.students ?? [];
+  const rows0: Row[] = rec.complete ? all : (rec.query.data?.records ?? []);
+  const rows = rec.complete ? rows0.filter((c) => filter === "all" || (filter === "open" ? c.status !== "resolved" : c.status === "resolved")).filter((c) => !search || `${c.title} ${c.message}`.toLowerCase().includes(search.toLowerCase())) : rows0;
+  const pageRows = rec.complete ? rows.slice((local - 1) * PAGE_SIZE, local * PAGE_SIZE) : rows;
+  const total = rec.complete ? rows.length : (rec.query.data?.total ?? 0);
+  const who = (id: unknown) => (byId(students, id)?.name as string) ?? "";
+  const respond = canDo("feedback.respond");
+  const resolve = async (id: string) => { setBusy(id); try { await onResolve(id); } finally { setBusy(""); } };
+  const columns: Column<Row>[] = [
+    { key: "title", header: "Subject", primary: true, render: (c) => <span><strong>{c.title}</strong>{who(c.userId) && <small style={{ display: "block", color: "var(--sq-body)" }}>{who(c.userId)}</small>}</span> },
+    { key: "message", header: "Message", render: (c) => <span className="sq-v2-clamp">{c.message}</span> },
+    { key: "date", header: "Raised", render: (c) => (c.createdAt ? shortDate(c.createdAt) : "—") },
+    { key: "status", header: "Status", render: (c) => <Badge tone={c.status === "resolved" ? "ok" : "warn"}>{c.status === "resolved" ? "Resolved" : "Open"}</Badge> },
+    ...(respond ? [{ key: "act", header: "", hideOnCard: false, render: (c: Row) => c.status === "resolved" ? null : <Btn kind="outline" disabled={busy === String(c._id)} onClick={() => void resolve(String(c._id))}>Mark resolved</Btn> }] : []),
+  ];
+  return (
+    <>
+      <PageHead title="Complaints" sub="Concerns raised by students. Mark one resolved once it has been dealt with." />
+      {rec.complete && (
+        <div className="sq-v2-toolbar">
+          <Chips label="Complaint status" value={filter} onChange={(v) => { setFilter(v); setLocal(1); }} items={[{ id: "open", label: `Open ${all.filter((c) => c.status !== "resolved").length}` }, { id: "resolved", label: `Resolved ${all.filter((c) => c.status === "resolved").length}` }, { id: "all", label: "All" }]} />
+          <SearchBox value={search} onChange={(v) => { setSearch(v); setLocal(1); }} label="Search complaints" placeholder="Search subject or message" />
+        </div>
+      )}
+      {!rec.complete && rec.query.isError ? <ErrorState title="Could not load complaints" onRetry={() => void rec.query.refetch()} /> : (
+        <DataTable caption="Complaints" columns={columns} rows={pageRows} rowKey={(c) => String(c._id)} loading={!rec.complete && rec.query.isLoading}
+          empty={<EmptyState icon={ClipboardCheck} title={filter === "open" && !search ? "No open complaints" : "No matching complaints"} text={filter === "open" && !search ? "Complaints from students will appear here." : "Try another filter or search."} />} />
+      )}
+      <Pager page={rec.complete ? local : rec.page} total={total} loading={!rec.complete && rec.query.isFetching} onPage={rec.complete ? setLocal : rec.setPage} />
+    </>
+  );
+}
