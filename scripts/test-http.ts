@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
+import { dayKey } from "../src/lib/punch";
 import { StudySession } from "../src/lib/models";
 import { SignJWT } from "jose";
 async function main() {
@@ -1172,7 +1173,7 @@ async function main() {
     await pu(joiner, "manual-out", { userId: String(joinerUser!._id) }, 403);
     // stale open visits are closed and flagged, never counted
     const { Attendance: AttendanceDoc } = await import("../src/lib/models");
-    await AttendanceDoc.updateOne({ userId: joinerUser!._id, day: new Date().toISOString().slice(0, 10) }, { $push: { sessions: { inAt: new Date(Date.now() - 20 * 3600000), method: "app" } } });
+    await AttendanceDoc.updateOne({ userId: joinerUser!._id, day: dayKey() }, { $push: { sessions: { inAt: new Date(Date.now() - 20 * 3600000), method: "app" } } });
     const afterStale = await getJson("/api/punch", joiner);
     assert.equal(afterStale.inside, false, "a visit open for 20 hours is closed automatically");
     assert.ok(afterStale.today.sessions.some((s: { auto: boolean }) => s.auto));
@@ -1206,7 +1207,7 @@ async function main() {
     assert.equal((await fetch(`${base}/api/punch?day=2026-01-01`, { headers: { cookie: joiner } })).status, 200); // students get their own view, not the library's
     assert.equal((await getJson("/api/punch?day=2026-01-01", joiner)).log, undefined);
     // forgotten punch-outs are closed by the scheduled job too
-    await AttendanceDoc.updateOne({ userId: joinerUser!._id, day: new Date().toISOString().slice(0, 10) }, { $push: { sessions: { inAt: new Date(Date.now() - 30 * 3600000), method: "app" } } });
+    await AttendanceDoc.updateOne({ userId: joinerUser!._id, day: dayKey() }, { $push: { sessions: { inAt: new Date(Date.now() - 30 * 3600000), method: "app" } } });
     const jobRun = (await sa("jobs-run", {})).record.results["stale-punches"];
     assert.ok(jobRun.closed >= 1, "the stale-punches job closes forgotten visits");
 
