@@ -4,7 +4,8 @@ import { z } from "zod";
 import { db } from "./db";
 import { User } from "./models";
 import { PasswordReset } from "./ops-models";
-import { currentUser, issueSession } from "./auth";
+import { currentUser, issueChallenge, issueSession } from "./auth";
+import { verifySecondFactor } from "./two-factor-server";
 import { clientIp, hashToken, ipLimit, limitedShared, newToken, warnAuth } from "./security";
 import { emailConfigured, sendEmail } from "./saas-notify";
 import { log } from "./log";
@@ -55,6 +56,8 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
       await PasswordReset.updateMany({ userId: record.userId, usedAt: { $exists: false } }, { usedAt: new Date() });
       if (!user) return NextResponse.json({ error: "Account not found" }, { status: 400 });
       log("info", "auth.password_reset", { userId: String(user._id) });
+      // A reset link proves access to the mailbox, not to the authenticator: accounts with two-step sign-in still need the second factor.
+      if (user.twoFactorEnabled) return NextResponse.json({ ok: true, twoFactorRequired: true, challenge: await issueChallenge(String(user._id), user.sessionVersion ?? 0) });
       const response = NextResponse.json({ ok: true, role: user.role });
       cookie(response, await issueSession(String(user._id), user.sessionVersion));
       return response;
@@ -68,10 +71,15 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
       log("info", "auth.logout_all", { userId: String(user._id), version: updated?.sessionVersion });
       return response;
     }
-    const v = z.object({ current: z.string().min(1).max(100), password }).parse(await req.json());
+    const v = z.object({ current: z.string().min(1).max(100), password, code: z.string().trim().max(20).optional(), recoveryCode: z.string().trim().max(30).optional() }).parse(await req.json());
     if (await limitedShared(`chpw:${user._id}`, 5, 900)) return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
     const full = await User.findById(user._id).select("+passwordHash");
     if (!full || !(await bcrypt.compare(v.current, full.passwordHash))) return NextResponse.json({ error: "Your current password is not correct" }, { status: 400 });
+    if (full.twoFactorEnabled) {
+      if (!v.code && !v.recoveryCode) return NextResponse.json({ error: "Enter a code from your authenticator app to change your password.", twoFactorRequired: true }, { status: 400 });
+      const second = await verifySecondFactor(String(full._id), v, ip);
+      if (!second.ok) return NextResponse.json({ error: second.error }, { status: second.status });
+    }
     full.passwordHash = await bcrypt.hash(v.password, 12);
     full.sessionVersion = (full.sessionVersion ?? 0) + 1; // signs out every other device
     await full.save();

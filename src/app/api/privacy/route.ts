@@ -1,4 +1,6 @@
 import bcrypt from "bcryptjs";
+import { verifySecondFactor } from "@/lib/two-factor-server";
+import { clientIp } from "@/lib/security";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -49,9 +51,14 @@ export async function POST(request: NextRequest) {
   if (!user) return err("Sign in required", 401);
   if (limited(`privacy-post:${user._id}`, 5)) return err("Please slow down", 429);
   try {
-    const body = z.object({ action: z.enum(["delete-account", "request-organization-deletion"]), password: z.string().min(1).max(100), confirm: z.literal("DELETE") }).parse(await request.json());
+    const body = z.object({ action: z.enum(["delete-account", "request-organization-deletion"]), password: z.string().min(1).max(100), confirm: z.literal("DELETE"), code: z.string().trim().max(20).optional(), recoveryCode: z.string().trim().max(30).optional() }).parse(await request.json());
     const full = await User.findById(user._id).select("+passwordHash");
     if (!full || !(await bcrypt.compare(body.password, full.passwordHash))) return err("Your password is not correct");
+    if (full.twoFactorEnabled) {
+      if (!body.code && !body.recoveryCode) return NextResponse.json({ error: "Enter a code from your authenticator app to confirm.", twoFactorRequired: true }, { status: 400 });
+      const second = await verifySecondFactor(String(full._id), body, clientIp(request));
+      if (!second.ok) return err(second.error, second.status);
+    }
     if (body.action === "request-organization-deletion") {
       if (user.role !== "owner" || !user.libraryId) return err("Only organization owners can request this", 403);
       const orgId = await ensureOrganizationForLibrary(user.libraryId);

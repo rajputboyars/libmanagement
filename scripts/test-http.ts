@@ -1240,8 +1240,157 @@ async function main() {
     await pu(joiner, "in", near);
     await pu(libOwner, "manual-out", { userId: String(joinerUser!._id) }); // the owner's manual close needs no location
     assert.equal((await getJson("/api/punch", joiner)).inside, false);
+    // ---- R8: two-step sign-in (TOTP), recovery codes, lockout, session behaviour and CSP ----
+    const { hotp, stepAt } = await import("../src/lib/two-factor");
+    const { RateLimit } = await import("../src/lib/ops-models");
+    await RateLimit.deleteMany({ key: /^register:ip:/ }); // earlier sign-up throttle tests used this source address
+    const tfEmail = "twostep@example.invalid";
+    let tfCookie = await account("owner", tfEmail);
+    const tfPost = (action: string, body: unknown, cookie?: string) => send(`/api/auth/${action}`, body, { Origin: base, ...(cookie ? { cookie } : {}) });
+    const tfStatus = async (cookie: string) => (await fetch(base + "/api/auth/2fa-status", { headers: { cookie } })).json();
+    const tfStep = () => stepAt(Date.now());
+    const goodCode = (secret: string, offset = 0) => hotp(secret, tfStep() + offset);
+    const badCode = (secret: string) => { const ok = new Set([-2, -1, 0, 1, 2].map((o) => hotp(secret, tfStep() + o))); for (let n = 100000; ; n++) if (!ok.has(String(n))) return String(n); };
+    const clearReplay = () => User.updateOne({ email: tfEmail }, { $unset: { twoFactorLastStep: 1 } }); // stands in for time passing between sign-ins
+    const clearLocks = () => RateLimit.deleteMany({ key: /^2fa:/ });
+    assert.equal((await tfStatus(tfCookie)).enabled, false);
+    assert.equal((await fetch(base + "/api/auth/2fa-status")).status, 401, "status needs a session");
+    const plain = await tfPost("login", { email: tfEmail, password });
+    assert.equal(plain.status, 200, "accounts without two-step sign-in keep signing in with a password only");
+    assert.ok(plain.headers.get("set-cookie"));
+    // enrolment needs the password, then a code from the authenticator
+    assert.equal((await tfPost("2fa-setup", { password: "wrong-password-123" }, tfCookie)).status, 400, "setup re-checks the password");
+    assert.equal((await tfPost("2fa-setup", { password })).status, 401, "setup needs a session");
+    const setup = await rawJson(await tfPost("2fa-setup", { password }, tfCookie));
+    assert.match(setup.secret, /^[A-Z2-7]{32}$/);
+    assert.ok(String(setup.qr).startsWith("data:image/png;base64,") && String(setup.otpauthUri).startsWith("otpauth://totp/"));
+    const pendingRow = await User.findOne({ email: tfEmail }).select("+twoFactorPendingEnc");
+    assert.ok(pendingRow?.twoFactorPendingEnc && !pendingRow.twoFactorPendingEnc.includes(setup.secret), "the seed is stored encrypted, never in plain text");
+    assert.equal((await tfPost("2fa-enable", { code: badCode(setup.secret) }, tfCookie)).status, 400, "a wrong code does not enable two-step sign-in");
+    assert.equal((await tfStatus(tfCookie)).enabled, false);
+    const enabled = await tfPost("2fa-enable", { code: goodCode(setup.secret) }, tfCookie);
+    assert.equal(enabled.status, 200);
+    const enabledBody = await rawJson(enabled);
+    assert.equal(enabledBody.recoveryCodes.length, 10);
+    assert.equal(new Set(enabledBody.recoveryCodes).size, 10);
+    assert.equal((await fetch(base + "/api/workspace", { headers: { cookie: tfCookie } })).status, 401, "enabling signs out the old session");
+    tfCookie = enabled.headers.get("set-cookie")!.split(";")[0];
+    assert.equal((await fetch(base + "/api/workspace", { headers: { cookie: tfCookie } })).status, 200, "the new session works");
+    const stored = await User.findOne({ email: tfEmail }).select("+twoFactorSecretEnc +twoFactorRecovery");
+    assert.ok(stored?.twoFactorSecretEnc && !stored.twoFactorSecretEnc.includes(setup.secret));
+    assert.equal(stored?.twoFactorRecovery?.length, 10);
+    assert.ok(stored!.twoFactorRecovery!.every((h: string) => enabledBody.recoveryCodes.every((c: string) => !h.includes(c.replace(/-/g, "")))), "recovery codes are stored only as hashes");
+    const exposed = JSON.stringify([await (await fetch(base + "/api/auth/me", { headers: { cookie: tfCookie } })).json(), await get(tfCookie)]);
+    assert.ok(!/twoFactorSecretEnc|twoFactorRecovery|twoFactorPendingEnc|twoFactorLastStep|recovery/i.test(exposed), "no seed, hash or recovery data leaves the server");
+    assert.equal((await tfPost("2fa-setup", { password }, tfCookie)).status, 400, "already enabled");
+    // sign-in: the password alone no longer creates a session
+    const first = await tfPost("login", { email: tfEmail, password });
+    const challenge1 = await rawJson(first);
+    assert.equal(first.status, 200);
+    assert.equal(challenge1.twoFactorRequired, true);
+    assert.equal(first.headers.get("set-cookie"), null, "no session cookie after the password step");
+    assert.equal((await fetch(base + "/api/workspace", { headers: { cookie: `sq-session=${challenge1.challenge}` } })).status, 401, "a challenge is not a session");
+    assert.equal((await tfPost("2fa-login", { challenge: "x".repeat(40), code: "123456" })).status, 401, "garbage challenge");
+    assert.equal((await tfPost("2fa-login", { challenge: challenge1.challenge, code: badCode(setup.secret) })).status, 401, "wrong code");
+    const signedIn = await tfPost("2fa-login", { challenge: challenge1.challenge, code: goodCode(setup.secret, 1) });
+    assert.equal(signedIn.status, 200, await signedIn.clone().text());
+    assert.ok(signedIn.headers.get("set-cookie")?.includes("HttpOnly"));
+    assert.equal((await fetch(base + "/api/workspace", { headers: { cookie: signedIn.headers.get("set-cookie")!.split(";")[0] } })).status, 200);
+    const challenge2 = await rawJson(await tfPost("login", { email: tfEmail, password }));
+    assert.equal((await tfPost("2fa-login", { challenge: challenge2.challenge, code: goodCode(setup.secret, 1) })).status, 401, "a code that was already used cannot be replayed");
+    await clearLocks();
+    // recovery codes: one use each
+    const codes: string[] = enabledBody.recoveryCodes;
+    const viaRecovery = async (code: string) => tfPost("2fa-login", { challenge: (await rawJson(await tfPost("login", { email: tfEmail, password }))).challenge, recoveryCode: code });
+    const r1 = await viaRecovery(codes[0]);
+    assert.equal(r1.status, 200);
+    assert.equal((await rawJson(r1)).recoveryUsed, true);
+    assert.equal((await viaRecovery(codes[0])).status, 401, "a consumed recovery code cannot be reused");
+    assert.equal((await viaRecovery(codes[1].toLowerCase().replace("-", " "))).status, 200, "formatting is forgiven, the code is still single-use");
+    assert.equal((await viaRecovery("AAAA-BBBB-CCCC")).status, 401);
+    assert.equal((await tfStatus(tfCookie)).recoveryRemaining, 8);
+    const concurrent = await Promise.all([viaRecovery(codes[2]), viaRecovery(codes[2])]);
+    assert.equal(concurrent.filter((r) => r.status === 200).length, 1, "two simultaneous uses of one recovery code: exactly one wins");
+    assert.equal((await tfStatus(tfCookie)).recoveryRemaining, 7);
+    // brute force: five wrong codes lock the second step for that account, even for the right code
+    await clearLocks();
+    const lockChallenge = (await rawJson(await tfPost("login", { email: tfEmail, password }))).challenge;
+    for (let i = 0; i < 5; i++) assert.equal((await tfPost("2fa-login", { challenge: lockChallenge, code: badCode(setup.secret) })).status, 401);
+    await clearReplay();
+    assert.equal((await tfPost("2fa-login", { challenge: lockChallenge, code: goodCode(setup.secret) })).status, 429, "locked after five failures");
+    assert.equal((await viaRecovery(codes[3])).status, 429, "recovery codes are locked too");
+    const otherAccount = await tfPost("login", { email: "victim@example.invalid", password: "definitely-wrong-password" });
+    assert.equal(otherAccount.status, 401, "other accounts are unaffected by this lock");
+    await clearLocks();
+    // re-authentication for sensitive changes
+    assert.equal((await tfPost("2fa-recovery", { password, code: goodCode(setup.secret) })).status, 401, "needs a session");
+    assert.equal((await tfPost("2fa-recovery", { password: "wrong-password-123", code: goodCode(setup.secret) }, tfCookie)).status, 400, "regenerating needs the password");
+    assert.equal((await tfPost("2fa-recovery", { password, code: badCode(setup.secret) }, tfCookie)).status, 401, "and a valid code");
+    await clearReplay();
+    assert.equal((await tfPost("2fa-recovery", { password, recoveryCode: codes[4] } as object, tfCookie)).status, 400, "regeneration cannot be authorised with a recovery code");
+    const regen = await tfPost("2fa-recovery", { password, code: goodCode(setup.secret) }, tfCookie);
+    assert.equal(regen.status, 200);
+    const newCodes: string[] = (await rawJson(regen)).recoveryCodes;
+    assert.equal(newCodes.length, 10);
+    assert.equal((await viaRecovery(codes[5])).status, 401, "old recovery codes stop working after regeneration");
+    assert.equal((await viaRecovery(newCodes[0])).status, 200);
+    // password change and a reset link cannot bypass the second factor
+    assert.equal((await tfPost("change-password", { current: password, password: "another-long-password-1" }, tfCookie)).status, 400, "change-password asks for a code");
+    await clearReplay();
+    const tfChanged = await tfPost("change-password", { current: password, password: "another-long-password-1", code: goodCode(setup.secret) }, tfCookie);
+    assert.equal(tfChanged.status, 200, await tfChanged.clone().text());
+    tfCookie = tfChanged.headers.get("set-cookie")!.split(";")[0];
+    const tfUser = await User.findOne({ email: tfEmail });
+    const resetToken = rb(24).toString("base64url");
+    await ResetModel.create({ userId: tfUser!._id, tokenHash: hashToken(resetToken), expiresAt: new Date(Date.now() + 600000) });
+    const resetRes = await tfPost("reset", { token: resetToken, password: "third-long-password-123" });
+    const resetBody = await rawJson(resetRes);
+    assert.equal(resetRes.status, 200);
+    assert.equal(resetBody.twoFactorRequired, true, "a reset link alone does not sign an account with two-step sign-in in");
+    assert.equal(resetRes.headers.get("set-cookie"), null);
+    const resetDone = await tfPost("2fa-login", { challenge: resetBody.challenge, recoveryCode: newCodes[1] });
+    assert.equal(resetDone.status, 200, "the second factor completes the reset");
+    // turning it off needs the password and a valid factor; afterwards sign-in is password-only again
+    const tfNewPassword = "third-long-password-123";
+    assert.equal((await tfPost("2fa-disable", { password: "wrong-password-123", code: goodCode(setup.secret) }, resetDone.headers.get("set-cookie")!.split(";")[0])).status, 400);
+    assert.equal((await tfPost("2fa-disable", { password: tfNewPassword, code: badCode(setup.secret) }, resetDone.headers.get("set-cookie")!.split(";")[0])).status, 401);
+    await clearReplay();
+    const disabled = await tfPost("2fa-disable", { password: tfNewPassword, code: goodCode(setup.secret) }, resetDone.headers.get("set-cookie")!.split(";")[0]);
+    assert.equal(disabled.status, 200);
+    const afterDisable = await User.findOne({ email: tfEmail }).select("+twoFactorSecretEnc +twoFactorRecovery");
+    assert.ok(!afterDisable?.twoFactorEnabled && !afterDisable?.twoFactorSecretEnc && !(afterDisable?.twoFactorRecovery?.length), "seed and recovery codes are deleted");
+    const passwordOnly = await tfPost("login", { email: tfEmail, password: tfNewPassword });
+    assert.equal(passwordOnly.status, 200);
+    assert.ok(passwordOnly.headers.get("set-cookie") && !(await rawJson(passwordOnly)).twoFactorRequired);
+    // another account's two-step sign-in cannot be touched
+    const bystander = await account("student", "bystander@example.invalid");
+    assert.equal((await tfPost("2fa-disable", { password, code: "123456" }, bystander)).status, 400, "not enabled for this account");
+    await clearLocks();
+
+    // ---- R8: Content-Security-Policy on public and authenticated pages (production build) ----
+    const cspOf = async (path: string, cookie?: string) => { const r = await fetch(base + path, { headers: cookie ? { cookie } : {} }); return { r, csp: r.headers.get("content-security-policy") ?? "", html: await r.text() }; };
+    const nonces = new Set<string>();
+    for (const [path, cookie] of [["/", undefined], ["/login", undefined], ["/privacy", undefined], ["/terms", undefined], ["/owner", owner], ["/app", student], ["/super-admin", await forge(sessionSecret, "1h")]] as [string, string | undefined][]) {
+      const { r, csp, html } = await cspOf(path, cookie);
+      assert.ok(r.status < 500, `${path} renders`);
+      const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("script-src")) ?? "";
+      const nonce = /'nonce-([A-Za-z0-9+/=]+)'/.exec(scriptSrc)?.[1];
+      assert.ok(nonce, `${path} has a script nonce`);
+      nonces.add(nonce!);
+      assert.ok(scriptSrc.includes("'strict-dynamic'"), `${path} uses strict-dynamic`);
+      assert.ok(!scriptSrc.includes("unsafe-inline") && !scriptSrc.includes("unsafe-eval") && !/\*|https?:/.test(scriptSrc), `${path} script-src has no unsafe-inline, unsafe-eval, wildcard or host`);
+      for (const directive of ["default-src 'self'", "object-src 'none'", "base-uri 'self'", "frame-ancestors 'none'", "form-action 'self'"]) assert.ok(csp.includes(directive), `${path} keeps ${directive}`);
+      const tags = [...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0]);
+      assert.ok(tags.length > 0, `${path} ships scripts`);
+      for (const tag of tags) assert.ok(tag.includes(`nonce="${nonce}"`) || /type="application\/(ld\+)?json"/.test(tag), `${path}: every executable script carries the nonce (${tag.slice(0, 60)})`);
+      assert.equal(r.headers.get("x-frame-options"), "DENY");
+      assert.equal(r.headers.get("x-content-type-options"), "nosniff");
+    }
+    assert.ok(nonces.size >= 6, "the nonce is different on every request");
+    const apiCsp = (await fetch(base + "/api/health")).headers.get("content-security-policy");
+    assert.equal(apiCsp, "default-src 'none'; frame-ancestors 'none'", "API responses allow nothing");
     console.log(
-      "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant.",
+      "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant, two-step sign-in (TOTP, recovery codes, replay, lockout, reset/change bypass), nonce-based CSP.",
     );
   } finally {
     server.kill();

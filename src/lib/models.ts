@@ -28,6 +28,14 @@ export const User = model("User", {
   // Set by the platform owner; a suspended account cannot sign in and its sessions end.
   suspendedAt: Date,
   suspendedReason: { type: String, trim: true, maxlength: 200 },
+  // Two-step sign-in (TOTP). Optional: accounts without these fields keep signing in with a password only.
+  // The seed is stored encrypted (AES-GCM), recovery codes only as salted scrypt hashes; none of these ever leave the server.
+  twoFactorEnabled: { type: Boolean, default: false },
+  twoFactorEnabledAt: Date,
+  twoFactorSecretEnc: { type: String, select: false },
+  twoFactorPendingEnc: { type: String, select: false },
+  twoFactorLastStep: { type: Number, select: false },
+  twoFactorRecovery: { type: [String], select: false },
 });
 export const Library = model("Library", {
   name: { type: String, required: true },

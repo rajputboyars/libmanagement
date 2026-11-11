@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { User } from "./models";
 import { db } from "./db";
 import type { Types } from "mongoose";
+import type { NextResponse } from "next/server";
 export type AuthUser = {
   _id: Types.ObjectId;
   name: string;
@@ -43,6 +44,8 @@ export async function currentUser() {
     const { payload } = await jwtVerify(token, secret(), {
       algorithms: ["HS256"],
     });
+    // Only real sessions are accepted. A two-step challenge (purpose "2fa") is signed with the same key but is never a session.
+    if (payload.purpose) return null;
     await db();
     const user = await User.findById(payload.sub).lean<AuthUser>();
     // Sessions end when the account is deleted or its session version changes (password reset/change, sign out everywhere).
@@ -64,4 +67,23 @@ export function limited(key: string, limit = 15) {
   }
   b.count++;
   return b.count > limit;
+}
+
+/** The one place that sets the session cookie, so every sign-in path uses the same flags. */
+export function setSessionCookie(response: NextResponse, token: string) {
+  response.cookies.set("sq-session", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 604800 });
+  return response;
+}
+/** A short-lived proof that the password step succeeded. It is not a session: it only unlocks the second-factor endpoint. */
+export async function issueChallenge(userId: string, sessionVersion = 0) {
+  return new SignJWT({ sv: sessionVersion, purpose: "2fa" }).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setIssuedAt().setExpirationTime("5m").sign(secret());
+}
+export async function readChallenge(token: string): Promise<{ userId: string; sv: number } | null> {
+  try {
+    const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
+    if (payload.purpose !== "2fa" || !payload.sub) return null;
+    return { userId: String(payload.sub), sv: Number(payload.sv ?? 0) };
+  } catch {
+    return null;
+  }
 }

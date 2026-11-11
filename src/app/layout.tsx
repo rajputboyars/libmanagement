@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { connection } from "next/server";
 import "./globals.css";
 import "./maintenance-discovery.css";
 import "./sq-v2.css";
@@ -24,11 +25,13 @@ export const viewport: Viewport = {
   initialScale: 1,
   themeColor: "#167660",
 };
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Every document is rendered per request so the CSP nonce in src/proxy.ts can be applied to its scripts.
+  await connection();
   return (
     <html lang="en" suppressHydrationWarning>
       <body>

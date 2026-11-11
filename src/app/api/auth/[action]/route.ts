@@ -7,11 +7,13 @@ import { User, Library, StudentProfile } from "@/lib/models";
 import { createOrganization, ensurePlans, linkPendingStudent } from "@/lib/saas-server";
 import { attachReferral } from "@/lib/referrals";
 import { handleAuthExtra } from "@/lib/auth-extra";
+import { handleTwoFactor, twoFactorStatus } from "@/lib/two-factor-server";
 import { createJoinRequest } from "@/lib/join-request";
 import { newLibraryCode } from "@/lib/join";
 import { LOGIN_LIMITS, accountKey, clearLimit, clientIp, ipKey, ipLimit, isLocked, limitedShared, warnAuth } from "@/lib/security";
 import {
   currentUser,
+  issueChallenge,
   issueSession,
   secret,
   validOrigin,
@@ -27,7 +29,8 @@ const input = z.object({
   referralCode: z.string().trim().max(20).optional(),
   libraryCode: z.string().trim().max(20).optional(),
 });
-export async function GET() {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ action: string }> }) {
+  if ((await ctx.params).action === "2fa-status") return twoFactorStatus();
   const user = await currentUser();
   return NextResponse.json({ user });
 }
@@ -43,6 +46,8 @@ export async function POST(
     response.cookies.delete("sq-session");
     return response;
   }
+  const twoFactor = await handleTwoFactor(action, req.clone());
+  if (twoFactor) return twoFactor;
   const extra = await handleAuthExtra(action, req.clone());
   if (extra) return extra;
   const ip = clientIp(req);
@@ -123,6 +128,8 @@ export async function POST(
       await clearLimit(acct);
       // Only after a correct password, so this does not reveal which emails exist.
       if (user.suspendedAt) return NextResponse.json({ error: "This account is suspended. Contact StudyQuest support." }, { status: 403 });
+      // Two-step sign-in: the password alone never creates a session for an account that turned it on.
+      if (user.twoFactorEnabled) return NextResponse.json({ twoFactorRequired: true, challenge: await issueChallenge(String(user._id), user.sessionVersion ?? 0) });
     } else return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!user) throw new Error("Unable to create account");
     const response = NextResponse.json({ role: user.role, ...(joinResultOut ? { join: joinResultOut } : {}) });

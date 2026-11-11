@@ -1,4 +1,5 @@
 "use client";
+import { TwoFactorStep } from "./two-factor-ui";
 import { Garden } from "@/components/ui-bits";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -32,6 +33,22 @@ export function Auth({ register }: { register: boolean }) {
     defaultValues: { role: "student" },
   });
   const role = useWatch({ control, name: "role" });
+  const [challenge, setChallenge] = useState("");
+  const finish = async (who: string, joined?: string) => {
+    await queryClient.invalidateQueries({ queryKey: ["workspace"] });
+    router.push(who === "super-admin" ? "/super-admin" : who === "owner" || who === "staff" ? "/owner" : joined ? "/app/join" : "/app");
+    router.refresh();
+  };
+  if (challenge)
+    return (
+      <div className="auth-page">
+        <main className="auth-main">
+          <div className="auth-form">
+            <TwoFactorStep challenge={challenge} onDone={(who) => void finish(who)} onExpired={() => setChallenge("")} />
+          </div>
+        </main>
+      </div>
+    );
   return (
     <div className="auth-page">
       <div className="auth-art">
@@ -87,6 +104,8 @@ export function Auth({ register }: { register: boolean }) {
                 );
                 const result = await res.json();
                 if (!res.ok) throw new Error(result.error);
+                // Accounts with two-step sign-in get no session until the second step succeeds.
+                if (result.twoFactorRequired) return setChallenge(result.challenge);
                 await queryClient.invalidateQueries({
                   queryKey: ["workspace"],
                 });

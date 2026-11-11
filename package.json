@@ -14,6 +14,7 @@
     "worker": "node --env-file=.env.local --import tsx scripts/worker.ts",
     "backup": "node --env-file=.env.local --import tsx scripts/backup.ts backup",
     "restore": "node --env-file=.env.local --import tsx scripts/backup.ts restore",
+    "reset-2fa": "node --env-file=.env.local --import tsx scripts/reset-2fa.ts",
     "bootstrap-admin": "node --env-file=.env.local --import tsx scripts/bootstrap-admin.ts",
     "test:integration": "tsx scripts/test-db.ts",
     "test:http": "tsx scripts/test-http.ts",
