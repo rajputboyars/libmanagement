@@ -39,3 +39,11 @@ test("groupNav only shows allowed routes, in group order, and keeps unlisted rou
 test("groupNav without groups returns one unlabeled group", () => {
   assert.deepEqual(groupNav(mk("/a", "/b")).map((x) => [x.label, x.items.length]), [["", 2]]);
 });
+
+test("student nav is grouped separately from owner nav and keeps unlisted routes", () => {
+  const nav = mk("/app", "/app/punch", "/app/membership", "/app/prep", "/app/new-thing");
+  const g = groupNav(nav, NAV_GROUPS.student);
+  assert.deepEqual(g.map((x) => x.label), ["", "My library", "Study", "Other"]);
+  assert.ok(g.every((x) => x.items.every((i) => i[0].startsWith("/app"))));
+  assert.deepEqual(pickPrimary(nav, PRIMARY_NAV.student, MOBILE_PRIMARY_COUNT).map((n) => n[0]), ["/app", "/app/punch", "/app/membership", "/app/prep"]);
+});

@@ -1580,3 +1580,24 @@ textarea.sq-v2-input {
   overflow: hidden;
   max-width: 46ch;
 }
+
+/* ---------- R5: student ---------- */
+.sq-v2-plainbtn {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.sq-v2-study {
+  margin-top: 20px;
+}
+.sq-v2 .sq-v2-bigbtn {
+  min-height: 56px;
+  min-width: 180px;
+  font-size: 17px;
+}
+.sq-v2[data-layout="mobile"] .sq-v2-bigbtn {
+  width: 100%;
+}

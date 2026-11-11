@@ -4,8 +4,11 @@ import { AttendanceBoard } from "./v2/owner-ops";
 import { BrandLoader } from "@/components/brand-loader";
 import { useEffect, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Clock3, LogIn, LogOut, MapPin, ShieldCheck, Users } from "lucide-react";
+import { Building2, Clock3, LogIn, LogOut, MapPin, Users } from "lucide-react";
 import { getJson, post, type Json } from "./prep-api";
+import Link from "next/link";
+import { Field, TextInput } from "./v2/form";
+import { Badge, Btn, Chips, EmptyState, ErrorState, PageHead, Skeleton as V2Skeleton, StatCard } from "./v2/primitives";
 
 const Skeleton = () => <BrandLoader compact text="Loading…" />;
 const Empty = ({ title, text }: { title: string; text?: string }) => <div className="mt-empty"><h2>{title}</h2>{text && <p>{text}</p>}</div>;
@@ -30,32 +33,6 @@ export function getPosition(): Promise<{ lat: number; lng: number; accuracy: num
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
     );
   });
-}
-
-// ───────────────────────── Student: 4-step "Get started" quest (shown on Join and Punch pages) ─────────────────────────
-function JoinQuest({ requested, linked }: { requested: boolean; linked: boolean }) {
-  const p = useQuery<Json>({ queryKey: ["punch", "me"], queryFn: () => getJson("/api/punch"), enabled: linked });
-  const seat = !!p.data?.membershipActive, visited = !!p.data?.history?.length;
-  const steps = [
-    { label: "Enter your Library ID", done: requested || linked },
-    { label: "Get verified", done: linked },
-    { label: "Get your seat", done: seat },
-    { label: "Punch in for the first time", done: visited },
-  ];
-  const doneCount = steps.filter((s) => s.done).length, next = steps.findIndex((s) => !s.done);
-  return (
-    <section className="weekly-card" aria-label="Getting started">
-      <div className="section-label"><span>{doneCount === 4 ? "Quest complete" : "Getting started"}</span><span className="mt-pill">{doneCount * 25} XP</span></div>
-      <div role="progressbar" aria-valuemin={0} aria-valuemax={4} aria-valuenow={doneCount} aria-label="Getting started progress" style={{ height: 8, borderRadius: 99, background: "var(--line, #e5e7eb)", overflow: "hidden" }}>
-        <div style={{ width: `${doneCount * 25}%`, height: "100%", background: "var(--accent, #1f6f5c)", transition: "width .4s" }} />
-      </div>
-      <ol className="mt-list" style={{ listStyle: "none", padding: 0, margin: "12px 0 0" }}>
-        {steps.map((s, i) => <li key={s.label} aria-current={i === next ? "step" : undefined} style={{ display: "flex", gap: 10, padding: "6px 0", opacity: s.done || i === next ? 1 : 0.55, fontWeight: i === next ? 600 : 400 }}>
-          <span aria-hidden>{s.done ? "✅" : i === next ? "👉" : "⬜"}</span><span>{s.label}{s.done && <span className="sr-only"> (done)</span>}</span></li>)}
-      </ol>
-      {doneCount === 4 && <p className="pr-hint">🎉 You are all set. Keep your streak going: punch in each day you study.</p>}
-    </section>
-  );
 }
 
 // ───────────────────────── Student: join a library with its Library ID ─────────────────────────
@@ -84,32 +61,41 @@ export function StudentJoin({ notify }: { notify: (m: string) => void }) {
   }
   return (
     <>
-      <header className="p2-heading"><div><span className="eyebrow">My library</span><h1>Join your library.</h1><p>Ask your library for its ID (like LIB-AB12CD) and type it below. That&apos;s it.</p></div></header>
-      <JoinQuest requested={!!pending} linked={!!d.linked} />
+      <PageHead eyebrow="My library" title="Join your library" sub="Ask your library for its ID (like LIB-AB12CD) and type it below. That's it." />
       {d.linked ? (
-        <section className="weekly-card"><div className="section-label"><span><ShieldCheck size={14} /> Verified</span></div><h2>{d.linked.name}</h2><p>{d.linked.city}{d.linked.code ? ` · ${d.linked.code}` : ""}</p><p className="pr-hint">Once your library allots a seat and activates your membership you can punch in and out from <strong>Punch in / out</strong>.</p></section>
+        <section className="sq-v2-panel">
+          <h2 className="sq-v2-h2">{d.linked.name} <Badge tone="ok">Verified</Badge></h2>
+          <p className="sq-v2-muted">{d.linked.city}{d.linked.code ? ` · ${d.linked.code}` : ""}</p>
+          <p className="sq-v2-muted">Once your library allots a seat and activates your membership, you can check in from the <Link href="/app/punch" className="sq-v2-more">Check in</Link> page.</p>
+        </section>
       ) : pending?.invitedBy ? (
-        <section className="weekly-card" role="status"><div className="section-label"><span>Library invite</span><span className="mt-pill">new</span></div><h2>{pending.library?.name ?? "A library"} invited you</h2><p>Accept karne par aap is library se jud jaoge. Owner aapki attendance, fees aur seat manage kar payega.</p>
-          <div className="queue-actions"><button className="button" onClick={() => answer("invite-accept")}>Accept</button><button className="button secondary" onClick={() => answer("invite-decline")}>Decline</button></div></section>
+        <section className="sq-v2-panel" role="status">
+          <h2 className="sq-v2-h2">{pending.library?.name ?? "A library"} invited you <Badge tone="warn">New</Badge></h2>
+          <p className="sq-v2-muted">Accepting connects you to this library. The owner will then manage your seat, attendance and fees.</p>
+          <div className="sq-v2-btnrow" style={{ marginTop: 12 }}><Btn onClick={() => void answer("invite-accept")}>Accept</Btn><Btn kind="outline" onClick={() => void answer("invite-decline")}>Decline</Btn></div>
+        </section>
       ) : pending ? (
-        <section className="weekly-card" role="status"><div className="section-label"><span>Waiting for verification</span><span className="mt-pill">pending</span></div><h2>{pending.library?.name ?? "Your library"}</h2><p>Sent {new Date(pending.createdAt).toLocaleString("en-IN")}. You will get a notification when the owner decides.</p>
-          <button className="button secondary" onClick={async () => { try { await post("/api/join", "cancel", { id: pending._id }); notify("Request cancelled."); await qc.invalidateQueries({ queryKey: ["join"] }); } catch (e) { notify(e instanceof Error ? e.message : "Unable to cancel"); } }}>Cancel request</button></section>
+        <section className="sq-v2-panel" role="status">
+          <h2 className="sq-v2-h2">{pending.library?.name ?? "Your library"} <Badge tone="warn">Waiting for verification</Badge></h2>
+          <p className="sq-v2-muted">Sent {new Date(pending.createdAt).toLocaleString("en-IN")}. You will get a notification when the owner decides.</p>
+          <Btn kind="outline" onClick={async () => { try { await post("/api/join", "cancel", { id: pending._id }); notify("Request cancelled."); await qc.invalidateQueries({ queryKey: ["join"] }); } catch (e) { notify(e instanceof Error ? e.message : "Unable to cancel"); } }}>Cancel request</Btn>
+        </section>
       ) : (
         <>
-          <form className="mt-form" onSubmit={lookup}>
-            <label className="wide">Library ID<input value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); setPreview(null); }} placeholder="LIB-AB12CD" required maxLength={20} autoCapitalize="characters" autoComplete="off" spellCheck={false} /></label>
-            <button className="button" disabled={busy || code.length < 4}>Find library</button>
-            {error && <p className="wide cm-note danger" role="alert">{error}</p>}
+          <form className="sq-v2-panel" onSubmit={lookup} style={{ marginBottom: 14, maxWidth: 560 }}>
+            <Field label="Library ID" error={error || undefined}><TextInput value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); setPreview(null); }} placeholder="LIB-AB12CD" required maxLength={20} autoCapitalize="characters" autoComplete="off" spellCheck={false} /></Field>
+            <Btn type="submit" disabled={busy || code.length < 4}>Find library</Btn>
           </form>
           {preview && (
-            <form className="mt-form" onSubmit={(e) => { e.preventDefault(); void send(String(new FormData(e.currentTarget).get("message") || "")); }}>
-              <p className="wide"><Building2 size={16} /> <strong>{preview.library.name}</strong>{preview.library.city ? ` · ${preview.library.city}` : ""}</p>
-              <label className="wide">Message for the owner (optional)<input name="message" maxLength={300} placeholder="Name, batch or exam you are preparing for" /></label>
-              <button className="button" disabled={busy}>Send request to this library</button>
-              <p className="wide pr-hint">Only the library owner sees your request. Your study data stays private.</p>
-            </form>)}
-        </>)}
-      {(d.requests as Json[]).filter((r) => r.status === "rejected").slice(0, 1).map((r) => <p key={r._id} className="cm-note danger" role="status">Your last request to {r.library?.name ?? "the library"} was not approved{r.note ? `: ${r.note}` : "."}</p>)}
+            <form className="sq-v2-panel" style={{ maxWidth: 560 }} onSubmit={(e) => { e.preventDefault(); void send(String(new FormData(e.currentTarget).get("message") || "")); }}>
+              <h2 className="sq-v2-h2"><Building2 size={18} aria-hidden="true" /> {preview.library.name}{preview.library.city ? ` · ${preview.library.city}` : ""}</h2>
+              <Field label="Message for the owner (optional)" hint="Only the library owner sees your request. Your study data stays private."><TextInput name="message" maxLength={300} placeholder="Name, batch or exam you are preparing for" /></Field>
+              <Btn type="submit" disabled={busy}>Send request to this library</Btn>
+            </form>
+          )}
+        </>
+      )}
+      {(d.requests as Json[]).filter((r) => r.status === "rejected").slice(0, 1).map((r) => <p key={r._id} className="sq-v2-modnote" role="status" style={{ color: "var(--sq-danger)", fontWeight: 600 }}>Your last request to {r.library?.name ?? "the library"} was not approved{r.note ? `: ${r.note}` : "."}</p>)}
     </>
   );
 }
@@ -119,36 +105,47 @@ export function StudentPunch({ notify }: { notify: (m: string) => void }) {
   const qc = useQueryClient();
   const now = useTicker();
   const [busy, setBusy] = useState(false);
+  const [range, setRange] = useState("7");
   const q = useQuery<Json>({ queryKey: ["punch", "me"], queryFn: () => getJson("/api/punch"), refetchInterval: 60000 });
-  if (q.isLoading) return <Skeleton />;
-  if (q.isError || !q.data) return <Empty title="Could not load" text={q.error instanceof Error ? q.error.message : "Try again."} />;
+  if (q.isLoading) return <><PageHead title="Check in" /><V2Skeleton lines={4} /></>;
+  if (q.isError || !q.data) return <><PageHead title="Check in" /><ErrorState text={q.error instanceof Error ? q.error.message : "Please try again."} onRetry={() => void q.refetch()} /></>;
   const d = q.data;
-  if (!d.linked) return <Empty title="Join a library first" text="Enter your Library ID on the Join a library page. Punching in unlocks after the owner verifies you and allots a seat." />;
+  if (!d.linked) return <><PageHead title="Check in" /><EmptyState icon={Users} title="Join a library first" text="Enter your Library ID on the Join a library page. Check-in opens after the owner verifies you and allots a seat." action={<Btn href="/app/join">Join a library</Btn>} /></>;
   const act = async (action: "in" | "out") => {
     setBusy(true);
-    try { const r = await post("/api/punch", action, d.geo ? await getPosition() : {}); notify(action === "in" ? `Punched in at ${time(r.at)}. Happy studying!` : `Punched out. You studied ${dur(r.minutes ?? 0)} this visit.`); await qc.invalidateQueries({ queryKey: ["punch"] }); }
+    try { const r = await post("/api/punch", action, d.geo ? await getPosition() : {}); notify(action === "in" ? `Checked in at ${time(r.at)}. Happy studying!` : `Checked out. You studied ${dur(r.minutes ?? 0)} this visit.`); await qc.invalidateQueries({ queryKey: ["punch"] }); }
     catch (e) { notify(e instanceof Error ? e.message : "Unable to record"); } finally { setBusy(false); }
   };
+  const history = (d.history as Json[]).filter((day) => range === "14" || +new Date(`${day.day}T00:00:00`) >= now - 7 * 86400000);
   return (
     <>
-      <header className="p2-heading"><div><span className="eyebrow">{d.library}</span><h1>Punch in when you arrive. Punch out when you leave.</h1><p>Your visits are saved to your history and to the library&apos;s attendance record at the same time.</p></div></header>
-      <JoinQuest requested linked />
-      <section className="weekly-card" aria-live="polite">
-        <div className="section-label"><span><Clock3 size={14} /> {d.inside ? "You are inside" : "You are outside"}</span><span className={`mt-pill ${d.inside ? "" : "p-high"}`}>{d.inside ? "punched in" : "not punched in"}</span></div>
-        {d.inside && <p className="sq-price">{since(d.since, now)}<small> since {time(d.since)}</small></p>}
-        {!d.membershipActive && <p className="cm-note danger" role="alert">Your membership is not active yet. The library verifies your registration and allots your seat before you can punch in.</p>}
-        {d.geo && <p className="cm-note"><MapPin size={14} /> You can punch in and out only within {d.geo.radiusM} m of the library. Your phone will ask for location when you tap. It is checked once and never saved.</p>}
-        {d.policy === "qr" && !d.inside &&<p className="cm-note">This library verifies presence: scan the QR code at the desk to punch in. You can punch out here.</p>}
-        <div className="queue-actions">
-          {!d.inside && d.policy !== "qr" && <button className="button" style={{ minHeight: 56, fontSize: "1.1rem" }} disabled={busy || !d.membershipActive} onClick={() => act("in")}><LogIn size={18} /> Punch in</button>}
-          {d.inside && <button className="button" style={{ minHeight: 56, fontSize: "1.1rem" }} disabled={busy} onClick={() => act("out")}><LogOut size={18} /> Punch out</button>}
+      <PageHead eyebrow={d.library} title="Check in" sub="Check in when you arrive and out when you leave. Your visits are saved to your history and to the library record." />
+      <section className="sq-v2-panel" aria-live="polite" style={{ marginBottom: 14 }}>
+        <div className="sq-v2-panelhead"><h2 className="sq-v2-h2"><Clock3 size={18} aria-hidden="true" /> {d.inside ? "You are inside" : "You are outside"}</h2><Badge tone={d.inside ? "ok" : "neutral"}>{d.inside ? "Checked in" : "Not checked in"}</Badge></div>
+        {d.inside && <p className="sq-v2-bigprice">{since(d.since, now)}<small style={{ fontSize: 14, fontFamily: "var(--sq-font-ui)" }}> since {time(d.since)}</small></p>}
+        {!d.membershipActive && <p className="sq-v2-modnote" role="alert" style={{ color: "var(--sq-danger)", fontWeight: 600 }}>Your membership is not active yet. Your library verifies your registration and allots a seat before you can check in.</p>}
+        {d.geo && <p className="sq-v2-modnote"><MapPin size={13} aria-hidden="true" /> You can check in and out only within {d.geo.radiusM} m of the library. Your phone will ask for your location when you tap. It is checked once and never saved.</p>}
+        {d.policy === "qr" && !d.inside && <p className="sq-v2-modnote">This library verifies presence: scan the QR code at the desk to check in. You can check out here.</p>}
+        <div className="sq-v2-btnrow" style={{ marginTop: 12 }}>
+          {!d.inside && d.policy !== "qr" && <Btn className="sq-v2-bigbtn" disabled={busy || !d.membershipActive} onClick={() => void act("in")}><LogIn size={18} /> {busy ? "Checking in…" : "Check in"}</Btn>}
+          {d.inside && <Btn className="sq-v2-bigbtn" disabled={busy} onClick={() => void act("out")}><LogOut size={18} /> {busy ? "Checking out…" : "Check out"}</Btn>}
         </div>
       </section>
-      <div className="mt-stats"><div><small>Today</small><strong>{dur(d.today.minutes)}</strong></div><div><small>Last 7 days</small><strong>{dur(d.weekMinutes)}</strong></div><div><small>Visits today</small><strong>{d.today.sessions.length}</strong></div></div>
-      <div className="section-label"><span>Recent visits</span></div>
-      <div className="mt-list">{(d.history as Json[]).map((day) => (
-        <article className="queue-card" key={day.day}><div><span><strong>{dateText(day.day)}</strong><small>{(day.sessions as Json[]).map((s) => `${time(s.inAt)}–${s.outAt ? time(s.outAt) : "now"}${s.auto ? " (no punch-out)" : ""}`).join(", ")}</small></span></div><span className="mt-pill">{dur(day.minutes)}</span></article>))}
-        {!d.history.length && <Empty title="No visits yet" text="Your first punch-in will appear here." />}</div>
+      <div className="sq-v2-statgrid">
+        <StatCard label="Today" value={dur(d.today.minutes)} sub={`${d.today.sessions.length} visit${d.today.sessions.length === 1 ? "" : "s"}`} />
+        <StatCard label="Last 7 days" value={dur(d.weekMinutes)} sub="Total time studied" />
+      </div>
+      <div className="sq-v2-toolbar"><h2 className="sq-v2-h2" style={{ margin: 0 }}>Recent visits</h2><Chips label="Date range" value={range} onChange={setRange} items={[{ id: "7", label: "Last 7 days" }, { id: "14", label: "Last 14 days" }]} /></div>
+      {history.length ? (
+        <ul className="sq-v2-panel sq-v2-feed" style={{ listStyle: "none" }}>
+          {history.map((day) => (
+            <li key={day.day}>
+              <span><strong>{dateText(day.day)}</strong><br /><small>{(day.sessions as Json[]).map((s) => `${time(s.inAt)}–${s.outAt ? time(s.outAt) : "now"}${s.auto ? " (no check-out)" : ""}`).join(", ")}</small></span>
+              <Badge>{dur(day.minutes)}</Badge>
+            </li>
+          ))}
+        </ul>
+      ) : <EmptyState icon={Clock3} title="No visits yet" text={range === "7" && (d.history as Json[]).length ? "No visits in the last 7 days. Try the last 14 days." : "Your first check-in will appear here."} />}
     </>
   );
 }

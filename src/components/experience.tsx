@@ -87,6 +87,7 @@ import { OwnerSettings } from "@/components/v2/owner-settings";
 import { StatCard } from "@/components/v2/primitives";
 import { Btn, PageHead } from "@/components/v2/primitives";
 import { CanProvider } from "@/components/v2/can";
+import { StudentCheckIn, StudentDashboard, StudentMembership, StudentNotifications, StudentProfile } from "@/components/v2/student-screens";
 import { AdminShell, OwnerShell, StudentShell } from "@/components/v2/shell";
 import {
   FOCUS_LENGTHS,
@@ -213,7 +214,7 @@ const studentNav: [string, string, LucideIcon][] = [
   ["/app/rewards", "Rewards", Gift],
   ["/app/library-requests", "Library requests", Building2],
   ["/app/join", "Join a library", Building2],
-  ["/app/punch", "Punch in / out", Clock3],
+  ["/app/punch", "Check in", Clock3],
   ["/app/prep", "Exam prep", Target],
   ["/app/planner", "Study planner", CalendarDays],
   ["/app/tracker", "Syllabus tracker", CheckCircle2],
@@ -543,7 +544,7 @@ export function Experience({ path }: { path: string }) {
         }
       >
         <CanProvider value={canOwner}>
-        <main className={owner ? "main-content sq-v2-legacy" : "main-content"}>
+        <main className={owner || (app && !admin) ? "main-content sq-v2-legacy" : "main-content"}>
           {owner && !preview && <RememberLibraryName />}
           {owner && !preview && path !== "/owner/onboarding" && <PlanBanner />}
           {!owner &&
@@ -819,6 +820,7 @@ type Props = {
 };
 function Student({ path, data: d, preview, mutate, notify }: Props) {
   const [complaintOpen, setComplaintOpen] = useState(false);
+  const studentAccess = useQuery<Record<string, unknown>>({ queryKey: ["workspace", "access"], queryFn: () => getJson("/api/access"), staleTime: 20000, enabled: !preview });
   const xp = preview ? 1240 : d.summary?.xp || 0;
   const lv = level(xp);
   const [goal, setGoal] = useState(Number(d.profile?.goalMinutes) || 120);
@@ -952,98 +954,68 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
       )}
     </div>
   );
+  const concernModal = complaintOpen && (
+    <RecordModal
+      title="Share a concern"
+      fields={[
+        { name: "title", label: "Subject" },
+        { name: "message", label: "What can your library help with?" },
+      ]}
+      onClose={() => setComplaintOpen(false)}
+      onSubmit={async (values) => {
+        await mutate("complaints", values);
+        notify("Your concern has been shared with your library.");
+        setComplaintOpen(false);
+      }}
+    />
+  );
   if (path === "/app/check-in")
     return (
-      <>
-        {greeting}
-        <section className="card focus-room">
-          <span className="icon-tile mint">
-            <CheckCircle2 />
-          </span>
-          <h2>Make yourself at home.</h2>
-          <p>Check in to your library using this time-limited code.</p>
-          <button
-            className="button"
-            onClick={async () => {
-              try {
-                const token = new URLSearchParams(window.location.search).get(
-                  "token",
-                );
-                // Location is only asked for when the library has set one; the server enforces it either way.
-                const info = await fetch("/api/punch").then((r) => r.json()).catch(() => null);
-                const here = info?.geo ? await getPosition() : {};
-                await mutate("check-in", { token, ...here });
-                notify("You’re checked in. Have a great study session.");
-              } catch (e) {
-                notify((e as Error).message);
-              }
-            }}
-          >
-            Confirm my check-in
-          </button>
-        </section>
-      </>
+      <StudentCheckIn
+        onConfirm={async () => {
+          const token = new URLSearchParams(window.location.search).get("token");
+          // Location is only asked for when the library has set one; the server enforces it either way.
+          const info = await fetch("/api/punch").then((r) => r.json()).catch(() => null);
+          const here = info?.geo ? await getPosition() : {};
+          await mutate("check-in", { token, ...here });
+          notify("You’re checked in. Have a great study session.");
+        }}
+      />
     );
   if (path === "/app/profile")
     return (
       <>
-        {greeting}
-        <section className="card form-card">
-          <h2>Your study preferences</h2>
-          <label>
-            Exam / preparation category
-            <input value={exam} onChange={(e) => setExam(e.target.value)} />
-          </label>
-          <label>
-            Daily focus goal (minutes)
-            <input
-              type="number"
-              min="25"
-              max="480"
-              value={goal}
-              onChange={(e) => setGoal(+e.target.value)}
-            />
-          </label>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={anonymous}
-              onChange={(e) => setAnonymous(e.target.checked)}
-            />
-            Keep my profile private on leaderboards
-          </label>
-          <button
-            className="button"
-            onClick={async () => {
+        <StudentProfile
+          d={d}
+          access={studentAccess.data}
+          onConcern={() => setComplaintOpen(true)}
+          push={!preview ? <PushToggle notify={notify} /> : undefined}
+          form={{
+            exam,
+            setExam,
+            goal,
+            setGoal,
+            anonymous,
+            setAnonymous,
+            onSave: async () => {
               try {
                 await mutate("profile", { exam, goalMinutes: goal, anonymous });
                 notify("Preferences saved");
               } catch (e) {
                 notify((e as Error).message);
               }
-            }}
-          >
-            Save preferences
-          </button>
-          <p className="muted">
-            Rest days preserve your momentum. No public leaderboard is enabled.
-          </p>
-          <button
-            className="button secondary"
-            onClick={async () => {
+            },
+            onRest: async () => {
               try {
                 await mutate("rest-day");
                 notify("Rest day saved. Your streak is protected.");
               } catch (e) {
                 notify((e as Error).message);
               }
-            }}
-          >
-            <Leaf size={17} />
-            Take a rest day
-          </button>
-        </section>
-        {!preview && <PushToggle notify={notify} />}
+            },
+          }}
+        />
+        {concernModal}
       </>
     );
   if (path === "/app/focus")
@@ -1063,124 +1035,35 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
         </div>
       </>
     );
-  if (path === "/app/notifications")
-    return (
-      <>
-        {greeting}
-        <section className="card">
-          {d.notifications.length ? (
-            d.notifications.map((n) => (
-              <div className="list-row" key={String(n._id)}>
-                <Bell />
-                <div>
-                  <strong>{n.title}</strong>
-                  <p>{n.message}</p>
-                </div>
-              </div>
-            ))
-          ) : (
-            <Empty
-              icon={Bell}
-              title="A quiet moment"
-              text="Library announcements and personal updates will appear here."
-            />
-          )}
-        </section>
-      </>
-    );
+  if (path === "/app/notifications") return <StudentNotifications d={d} />;
   if (path === "/app/membership")
     return (
       <>
-        {greeting}
-        <section className="card">
-          {d.memberships.length ? (
-            d.memberships.map((m) => (
-              <div className="membership-detail" key={String(m._id)}>
-                <BookOpen />
-                <h2>Your membership</h2>
-                <p>
-                  Valid until {new Date(String(m.end)).toLocaleDateString()}
-                </p>
-                <span className="pill">{m.status}</span>
-                <p>
-                  Seat{" "}
-                  {String(
-                    d.seats.find(
-                      (s) =>
-                        String(s._id) ===
-                        String(
-                          d.assignments?.find(
-                            (a) => String(a.membershipId) === String(m._id),
-                          )?.seatId,
-                        ),
-                    )?.label || "—",
-                  )}
-                </p>
-                <h3>
-                  Balance due:{" "}
-                  {money(
-                    Number(m.amount) - Number(m.discount) - Number(m.paid),
-                  )}
-                </h3>
-                <p>
-                  Contact your library to renew or record a cash / UPI payment.
-                </p>
-              </div>
-            ))
-          ) : (
-            <Empty
-              icon={BookOpen}
-              title="Your next favourite study spot"
-              text="Already a library member? Ask the owner to connect your registered email. Standalone study mode is always available."
-            />
-          )}
-        </section>
-        {!preview && <LibraryTimings library={d.library} />}
-        {!preview && d.user?.libraryId && d.memberships.length > 0 && (
-          <StudentSeatChange seats={d.seats} shifts={d.shifts} notify={notify} />
-        )}
-        {d.user?.libraryId && (
-          <section className="card" style={{ marginTop: 20 }}>
-            <div className="section-heading">
-              <h2>Your library, your voice.</h2>
-              <button
-                className="button secondary"
-                onClick={() => setComplaintOpen(true)}
-              >
-                Raise a concern
-              </button>
-            </div>
-            {d.payments.map((p) => (
-              <Link
-                key={String(p._id)}
-                className="list-row"
-                href={`/api/receipts/${p._id}`}
-                target="_blank"
-              >
-                <Receipt size={18} />
-                <strong>{p.receipt}</strong>
-                <span>{money(Number(p.amount))}</span>
-                <ArrowUpRight size={16} />
-              </Link>
-            ))}
-          </section>
-        )}
-        {complaintOpen && (
-          <RecordModal
-            title="Share a concern"
-            fields={[
-              { name: "title", label: "Subject" },
-              { name: "message", label: "What can your library help with?" },
-            ]}
-            onClose={() => setComplaintOpen(false)}
-            onSubmit={async (values) => {
-              await mutate("complaints", values);
-              notify("Your concern has been shared with your library.");
-              setComplaintOpen(false);
-            }}
-          />
-        )}
+        <StudentMembership
+          d={d}
+          preview={preview}
+          onConcern={() => setComplaintOpen(true)}
+          slots={{
+            timings: !preview ? <LibraryTimings library={d.library} /> : undefined,
+            seatChange: !preview && d.user?.libraryId && d.memberships.length > 0 ? <StudentSeatChange seats={d.seats} shifts={d.shifts} notify={notify} /> : undefined,
+          }}
+        />
+        {concernModal}
       </>
+    );
+  if (path === "/app" && !preview)
+    return (
+      <StudentDashboard
+        d={d}
+        access={studentAccess.data}
+        study={
+          <>
+            <LibraryToday library={d.library} />
+            <ExamCountdown exam={d.exam} />
+            <TodayCards notify={notify} />
+          </>
+        }
+      />
     );
   return (
     <>
