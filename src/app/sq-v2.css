@@ -1615,3 +1615,73 @@ textarea.sq-v2-input {
 .sq-v2-feed li > .sq-v2-badge {
   flex: none;
 }
+
+/* ---------- R7: contrast fixes (WCAG AA) ---------- */
+:root {
+  --sq-fill: var(--sq-green);
+  --sq-warn-ink: #7a4a07;
+}
+[data-theme="dark"] {
+  --sq-fill: #2a7d5f;
+  --sq-warn-ink: var(--sq-warn);
+}
+.sq-v2 .sq-v2-btn[data-kind="primary"],
+.sq-v2 .sq-v2-fab,
+.sq-v2 .sq-v2-brand i {
+  background: var(--sq-fill);
+}
+.sq-v2 .sq-v2-qa[data-main="true"] {
+  background: var(--sq-fill);
+  border-color: var(--sq-fill);
+}
+.sq-v2-legacy .button {
+  background: var(--sq-fill);
+  border-color: var(--sq-fill);
+}
+.sq-v2-legacy .button.secondary {
+  background: transparent;
+  border-color: var(--sq-line);
+}
+.sq-v2-badge[data-tone="warn"],
+.sq-v2-legacy .mt-pill.p-high {
+  color: var(--sq-warn-ink);
+}
+.sq-v2-nav .grow-card {
+  background: var(--sq-nav-active-bg);
+  color: var(--sq-nav-ink);
+}
+.sq-v2-nav .grow-card strong,
+.sq-v2-nav .grow-card p {
+  color: var(--sq-nav-ink);
+}
+.sq-v2-nav .grow-card a {
+  color: var(--sq-nav-active-ink);
+}
+/* Plain legacy buttons (no class) fell back to the browser's white button in dark mode. */
+.sq-v2-legacy :where(button:not([class]), button[class=""]) {
+  background: var(--sq-surface);
+  color: var(--sq-ink);
+  border: 1px solid var(--sq-line);
+}
+.sq-v2-legacy .gentle-note strong {
+  color: var(--sq-ink);
+}
+.sq-v2-legacy .pf-cell.added {
+  background: var(--sq-fill);
+}
+[data-theme="dark"] .sq-v2-legacy .pf-bad {
+  color: #f0a090;
+}
+[data-theme="dark"] .sq-v2-legacy .pf-cell.removed {
+  background: #4a2a24;
+  color: #f3b3a5;
+}
+[data-theme="dark"] .sq-v2-legacy .pf-cell.restricted {
+  background: #4a3a14;
+  color: #f3d08e;
+}
+/* Self-study chips hard-code a white background; keep their text readable in dark mode. */
+.sq-v2-legacy :is(.ss-sounds, .ss-energy, .ss-steps, .ss-reasons, .ss-tabs) button {
+  background: var(--sq-surface);
+  color: var(--sq-ink);
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCan } from "./v2/can";
+import { ErrorState } from "./v2/primitives";
 import { PublicHeader } from "@/components/site";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,9 +20,10 @@ export function LibraryDiscovery({ mode = "public", notify }: { mode?: "public" 
   const [selected, setSelected] = useState<Library>();
   const [message, setMessage] = useState("");
   const params = new URLSearchParams(); if (location) params.set("location", location); if (facility) params.set("facility", facility);
-  const { data, isLoading } = useQuery<Data>({ queryKey: ["discovery", location, facility, mode], queryFn: async () => { const response = await fetch(`/api/discovery?${params}`); if (!response.ok) throw new Error("Library discovery could not load"); return response.json(); } });
+  const { data, isLoading, isError, refetch } = useQuery<Data>({ queryKey: ["discovery", location, facility, mode], queryFn: async () => { const response = await fetch(`/api/discovery?${params}`); if (!response.ok) throw new Error("Library discovery could not load"); return response.json(); } });
   async function act(action: string, value: unknown, success: string) { try { const response = await fetch("/api/discovery", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, data: value }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error); setMessage(success); notify?.(success); await queryClient.invalidateQueries({ queryKey: ["discovery"] }); } catch (error) { const text = error instanceof Error ? error.message : "Unable to update"; setMessage(text); notify?.(text); } }
   if (isLoading) return <div className="discovery-loading" />;
+  if (isError || !data) return <ErrorState title="Could not load" text="Library information is unavailable right now." onRetry={() => void refetch()} />;
   if (mode === "owner") return <OwnerListing data={data!} act={act} />;
   if (mode === "mine") return <MyRequests data={data!} act={act} />;
   if (mode === "waitlist") return <OwnerWaitlist data={data!} act={act} />;
