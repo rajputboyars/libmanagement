@@ -715,6 +715,8 @@ async function main() {
     await S.PendingStudent.deleteMany({ email: /^pending\d+@/ });
     // billing in sandbox: checkout → verified events → active
     const billing0 = await getJson("/api/billing", owner);
+    // staff (any role) never read billing: invoices, credit and the referral code are the owner's
+    assert.equal((await fetch(base + "/api/billing", { headers: { cookie: staff } })).status, 403, "staff cannot read billing");
     assert.equal(billing0.provider.name, "sandbox");
     assert.ok(billing0.plans.length === 4 && !JSON.stringify(billing0.plans).includes("providerPlanIds"));
     await bill(student, "checkout", { planKey: "starter", interval: "monthly" }, 403);

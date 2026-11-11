@@ -25,6 +25,8 @@ export async function GET(request: NextRequest) {
   const a = await authed();
   if ("error" in a) return a.error;
   const { user } = a;
+  // Invoices, credit and the referral code are the owner's: staff roles (including custom ones) never read billing.
+  if (user.role !== "owner") return err("Only the library owner can view billing", 403);
   await ensurePlans();
   const access = await accessForLibrary(user.libraryId!);
   if (!access) return err("Organization not found", 404);
