@@ -87,6 +87,7 @@ import { OwnerSettings } from "@/components/v2/owner-settings";
 import { StatCard } from "@/components/v2/primitives";
 import { Btn, PageHead } from "@/components/v2/primitives";
 import { CanProvider } from "@/components/v2/can";
+import { AdminOverview } from "@/components/v2/admin-screens";
 import { StudentCheckIn, StudentDashboard, StudentMembership, StudentNotifications, StudentProfile } from "@/components/v2/student-screens";
 import { AdminShell, OwnerShell, StudentShell } from "@/components/v2/shell";
 import {
@@ -348,9 +349,9 @@ export function Experience({ path }: { path: string }) {
     : admin
       ? ([
           ["/super-admin", "Overview", LayoutDashboard],
-          ["/super-admin/libraries", "Libraries", Building2],
+          ["/super-admin/libraries", "Organizations", Building2],
           ["/super-admin/subscriptions", "Subscriptions", CreditCard],
-          ["/super-admin/analytics", "Analytics", ChartNoAxesCombined],
+          ["/super-admin/analytics", "Product analytics", ChartNoAxesCombined],
           ["/super-admin/business", "Business", ChartNoAxesCombined],
           ["/super-admin/syllabus", "Syllabus", BookOpen],
           ["/super-admin/question-bank", "Question bank", ListChecks],
@@ -358,7 +359,7 @@ export function Experience({ path }: { path: string }) {
           ["/super-admin/modules", "Module availability", ListChecks],
           ["/super-admin/student-features", "Student features", Users],
           ["/super-admin/accounts", "Accounts", Users],
-          ["/super-admin/plans", "Plans", CreditCard],
+          ["/super-admin/plans", "Plans & pricing", CreditCard],
         ] as typeof ownerNav)
       : studentNav;
   const nav = admin ? rawNav : filterNav(rawNav, accessQ.data, role);
@@ -459,7 +460,7 @@ export function Experience({ path }: { path: string }) {
   ].includes(path);
   const importPath = path === "/owner/import";
   const securityPath = path === "/app/security" || path === "/owner/security";
-  const saasAdminPath = path === "/super-admin/business" || path === "/super-admin/plans";
+  const saasAdminPath = ["/super-admin/business", "/super-admin/plans", "/super-admin/libraries", "/super-admin/subscriptions", "/super-admin/analytics"].includes(path);
   const platformPath = ["/super-admin/features", "/super-admin/student-features", "/super-admin/accounts", "/super-admin/modules"].includes(path);
   const prepPath = path === "/app/prep";
   const reportPath = path === "/app/report";
@@ -544,7 +545,7 @@ export function Experience({ path }: { path: string }) {
         }
       >
         <CanProvider value={canOwner}>
-        <main className={owner || (app && !admin) ? "main-content sq-v2-legacy" : "main-content"}>
+        <main className={app ? "main-content sq-v2-legacy" : "main-content"}>
           {owner && !preview && <RememberLibraryName />}
           {owner && !preview && path !== "/owner/onboarding" && <PlanBanner />}
           {!owner &&
@@ -645,7 +646,7 @@ export function Experience({ path }: { path: string }) {
             <SaasAdmin
               key={path}
               notify={setToast}
-              initialTab={path === "/super-admin/plans" ? "plans" : "overview"}
+              initialTab={({ "/super-admin/plans": "plans", "/super-admin/libraries": "orgs", "/super-admin/subscriptions": "subscriptions", "/super-admin/analytics": "product" } as Record<string, "plans" | "orgs" | "subscriptions" | "product">)[path] ?? "overview"}
             />
           ) : saasOwnerPath ? (
             preview ? (
@@ -2735,83 +2736,7 @@ function Admin({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">THE BIGGER PICTURE</div>
-          <h1>A growing community of spaces.</h1>
-          <p>
-            Platform administration ·{" "}
-            {preview
-              ? "Sign in with an administrator account to view data."
-              : "Live library overview"}
-          </p>
-        </div>
-        <button className="button" onClick={() => setOpen(true)}>
-          Manage subscription
-        </button>
-      </div>
-      <div className="stats-grid">
-        <Stat
-          icon={Building2}
-          label="Libraries"
-          value={String(data.libraries.length)}
-          detail="Registered workspaces"
-          color="mint"
-        />
-        <Stat
-          icon={CheckCircle2}
-          label="Active subscriptions"
-          value={String(
-            data.libraries.filter((l) => l.subscriptionStatus === "active")
-              .length,
-          )}
-          detail="Manually confirmed status"
-          color="violet"
-        />
-        <Stat
-          icon={Clock3}
-          label="Trial libraries"
-          value={String(
-            data.libraries.filter((l) => l.subscriptionStatus === "trial")
-              .length,
-          )}
-          detail="Getting started"
-          color="amber"
-        />
-        <Stat
-          icon={Pause}
-          label="Paused"
-          value={String(
-            data.libraries.filter((l) => l.subscriptionStatus === "paused")
-              .length,
-          )}
-          detail="Subscription status"
-          color="peach"
-        />
-      </div>
-      <section className="card">
-        <h2>Libraries & subscriptions</h2>
-        {data.libraries.length ? (
-          data.libraries.map((l) => (
-            <div className="list-row" key={String(l._id)}>
-              <Building2 />
-              <strong>{l.name}</strong>
-              <span className="pill">{l.plan}</span>
-              <span className="pill neutral">{l.subscriptionStatus}</span>
-            </div>
-          ))
-        ) : (
-          <Empty
-            icon={Building2}
-            title="A fresh start"
-            text="Registered libraries will appear here. External subscription billing is not connected."
-          />
-        )}
-        <p className="tiny muted">
-          Subscription status is managed manually. Changing it does not charge
-          an account.
-        </p>
-      </section>
+      <AdminOverview preview={preview} libraries={data.libraries} onManage={() => setOpen(true)} />
       {open && (
         <RecordModal
           title="Manage a library subscription"

@@ -47,3 +47,10 @@ test("student nav is grouped separately from owner nav and keeps unlisted routes
   assert.ok(g.every((x) => x.items.every((i) => i[0].startsWith("/app"))));
   assert.deepEqual(pickPrimary(nav, PRIMARY_NAV.student, MOBILE_PRIMARY_COUNT).map((n) => n[0]), ["/app", "/app/punch", "/app/membership", "/app/prep"]);
 });
+
+test("admin nav is grouped and never lists owner or student routes", () => {
+  const nav = mk("/super-admin", "/super-admin/libraries", "/super-admin/modules", "/super-admin/syllabus");
+  const g = groupNav(nav, NAV_GROUPS.admin);
+  assert.deepEqual(g.map((x) => x.label), ["", "Business", "Platform controls", "Content"]);
+  assert.ok(g.every((x) => x.items.every((i) => i[0].startsWith("/super-admin"))));
+});

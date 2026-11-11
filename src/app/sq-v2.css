@@ -1601,3 +1601,17 @@ textarea.sq-v2-input {
 .sq-v2[data-layout="mobile"] .sq-v2-bigbtn {
   width: 100%;
 }
+
+/* ---------- R6: admin ---------- */
+.sq-v2-panel[data-scope="platform"] {
+  border-color: color-mix(in srgb, var(--sq-warn) 55%, var(--sq-line));
+  border-left-width: 4px;
+}
+.sq-v2[data-sq-theme="admin"] .sq-v2-panel,
+.sq-v2[data-sq-theme="admin"] .sq-v2-stat {
+  border-radius: 10px;
+}
+.sq-v2-feed li > .sq-v2-avatar,
+.sq-v2-feed li > .sq-v2-badge {
+  flex: none;
+}

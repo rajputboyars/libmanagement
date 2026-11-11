@@ -8,7 +8,7 @@ export type Role = "owner" | "student" | "admin";
 export const PRIMARY_NAV: Record<Role, string[]> = {
   owner: ["/owner", "/owner/students", "/owner/seats", "/owner/fees", "/owner/attendance", "/owner/payments", "/owner/reports"],
   student: ["/app", "/app/punch", "/app/membership", "/app/focus", "/app/prep", "/app/quests", "/app/progress"],
-  admin: ["/super-admin", "/super-admin/libraries", "/super-admin/subscriptions", "/super-admin/analytics", "/super-admin/business", "/super-admin/plans", "/super-admin/modules"],
+  admin: ["/super-admin", "/super-admin/libraries", "/super-admin/subscriptions", "/super-admin/plans", "/super-admin/modules", "/super-admin/accounts", "/super-admin/business"],
 };
 export const MOBILE_PRIMARY_COUNT = 4;
 export const RAIL_PRIMARY_COUNT = 7;
@@ -32,6 +32,12 @@ export type NavGroup = { label: string; hrefs: string[] };
  * not listed here still shows up under "Other", so a new route can never be hidden by this config.
  */
 export const NAV_GROUPS: Partial<Record<Role, NavGroup[]>> = {
+  admin: [
+    { label: "", hrefs: ["/super-admin"] },
+    { label: "Business", hrefs: ["/super-admin/libraries", "/super-admin/subscriptions", "/super-admin/plans", "/super-admin/business", "/super-admin/analytics"] },
+    { label: "Platform controls", hrefs: ["/super-admin/modules", "/super-admin/features", "/super-admin/student-features", "/super-admin/accounts"] },
+    { label: "Content", hrefs: ["/super-admin/syllabus", "/super-admin/question-bank"] },
+  ],
   student: [
     { label: "", hrefs: ["/app"] },
     { label: "My library", hrefs: ["/app/punch", "/app/membership", "/app/join", "/app/library-requests", "/app/library-notes", "/app/maintenance", "/app/events"] },

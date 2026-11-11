@@ -1,19 +1,21 @@
 "use client";
 
-import { BrandLoader } from "@/components/brand-loader";
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { FileQuestion } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertTriangle } from "lucide-react";
 import { fmtDate, getJson, inr, post, type Json } from "./prep-api";
+import { AdminOrganizations, AdminSubscriptions } from "./v2/admin-screens";
+import { ConfirmDialog } from "./v2/dialog";
+import { EmptyState, ErrorState, PageHead, Skeleton as V2Skeleton, Tabs } from "./v2/primitives";
 
 const TABS = [["overview", "Overview"], ["product", "Product"], ["orgs", "Organizations"], ["subscriptions", "Subscriptions"], ["plans", "Plans & pricing"], ["billing", "Billing"], ["support", "Support"], ["growth", "Growth"], ["audit", "Audit log"]] as const;
 type Tab = (typeof TABS)[number][0];
 const api = "/api/saas-admin";
 const label = (v: string) => v.replace(/[-_]/g, " ");
-const Skeleton = () => <BrandLoader compact text="Loading…" />;
-const Empty = ({ title, text }: { title: string; text?: string }) => <div className="mt-empty"><h2>{title}</h2>{text && <p>{text}</p>}</div>;
-const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="mt-empty"><AlertTriangle /><h2>Could not load</h2><p>{error instanceof Error ? error.message : "Try again."}</p><button className="button" onClick={retry}>Try again</button></div>;
+const Skeleton = () => <V2Skeleton lines={5} />;
+const Empty = ({ title, text }: { title: string; text?: string }) => <EmptyState icon={FileQuestion} title={title} text={text} />;
+const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <ErrorState text={error instanceof Error ? error.message : "Try again."} onRetry={retry} />;
 const pctText = (v: number | null) => (v === null || v === undefined ? "—" : `${v}%`);
 
 export function SaasAdmin({ notify, initialTab = "overview" }: { notify: (m: string) => void; initialTab?: Tab }) {
@@ -24,12 +26,13 @@ export function SaasAdmin({ notify, initialTab = "overview" }: { notify: (m: str
   };
   return (
     <>
-      <header className="p2-heading"><div><span className="eyebrow">Platform business</span><h1>Run StudyQuest as a business.</h1><p>Every figure is calculated from verified data. Test organizations and sandbox payments are excluded unless you include them. Every change here is audited.</p></div></header>
-      <div className="mt-filter pr-tabs" role="tablist" aria-label="Business sections">{TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <PageHead eyebrow="Platform" title={tab === "overview" ? "Business" : (TABS.find((t) => t[0] === tab)?.[1] ?? "Business")} sub="Every figure is calculated from verified data. Test organizations and sandbox payments are excluded unless you include them. Every change here is audited." />
+      <Tabs label="Business sections" items={TABS.map(([id, text]) => ({ id, label: text }))} value={tab} onChange={(v) => setTab(v as Tab)} />
+      <div style={{ marginTop: 16 }} />
       {tab === "overview" && <Overview act={act} />}
       {tab === "product" && <Product />}
-      {tab === "orgs" && <Orgs act={act} />}
-      {tab === "subscriptions" && <Subs />}
+      {tab === "orgs" && <AdminOrganizations act={act} />}
+      {tab === "subscriptions" && <AdminSubscriptions />}
       {tab === "plans" && <Plans act={act} />}
       {tab === "billing" && <Billing act={act} />}
       {tab === "support" && <Support act={act} />}
@@ -39,9 +42,9 @@ export function SaasAdmin({ notify, initialTab = "overview" }: { notify: (m: str
   );
 }
 type Act = (action: string, data: unknown, ok?: string, url?: string) => Promise<Json | null>;
-const reasonPrompt = (what: string) => { const r = prompt(`Reason for ${what} (recorded in the audit log)`); return r && r.trim().length >= 3 ? r.trim() : null; };
 
 function Overview({ act }: { act: Act }) {
+  const [confirmJobs, setConfirmJobs] = useState(false);
   const [days, setDays] = useState(30);
   const [sandbox, setSandbox] = useState(false);
   const q = useQuery<Json>({ queryKey: ["sa", "overview", days, sandbox], queryFn: () => getJson(`${api}?view=overview&days=${days}${sandbox ? "&sandbox=1" : ""}`) });
@@ -53,7 +56,7 @@ function Overview({ act }: { act: Act }) {
     <>
       <div className="mt-filter"><select className="pr-select" value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Reporting period">{[7, 30, 90, 365].map((n) => <option key={n} value={n}>Last {n} days</option>)}</select>
         <label className="mt-check"><input type="checkbox" checked={sandbox} onChange={(e) => setSandbox(e.target.checked)} />Include sandbox data</label>
-        <button className="button secondary" onClick={() => act("jobs-run", {}, "Background jobs ran.")}>Run background jobs</button></div>
+        <button className="button secondary" onClick={() => setConfirmJobs(true)}>Run background jobs</button><ConfirmDialog open={confirmJobs} onClose={() => setConfirmJobs(false)} title="Run background jobs now?" confirmLabel="Run jobs" message="Runs the platform-wide background jobs (reminders, renewals and clean-ups) immediately for every organization. They normally run on a schedule." onConfirm={async () => { setConfirmJobs(false); await act("jobs-run", {}, "Background jobs ran."); }} /></div>
       {sandbox && <p className="cm-note danger" role="status">Sandbox data is included. These numbers are not production revenue.</p>}
       <div className="mt-stats">
         {tile("MRR", inr(r.mrrPaise), `ARR ${inr(r.arrPaise)}`)}{tile("Paying organizations", String(r.activePayingOrganizations), `ARPA ${inr(r.arpaPaise)}`)}
@@ -67,71 +70,6 @@ function Overview({ act }: { act: Act }) {
         <div style={{ height: 220 }}><ResponsiveContainer><AreaChart data={r.series.map((s: Json) => ({ month: s.month, value: s.collectedPaise / 100 }))}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="month" tick={{ fontSize: 11 }} /><YAxis tick={{ fontSize: 11 }} width={48} /><Tooltip formatter={(v) => `₹${Number(v).toLocaleString("en-IN")}`} /><Area dataKey="value" stroke="#20745b" fill="#20745b33" name="Collected" /></AreaChart></ResponsiveContainer></div>
         <div className="queue-actions">{(r.byPlan as Json[]).map((p) => <span className="mt-pill" key={p.plan}>{p.plan}: {p.count}</span>)}{!r.byPlan.length && <small>No paying organizations yet.</small>}</div></div>
       <details className="weekly-card"><summary>Metric definitions</summary><dl className="sq-defs">{Object.entries(d.definitions as Record<string, string>).map(([k, v]) => <div key={k}><dt>{label(k)}</dt><dd>{v}</dd></div>)}</dl><p className="pr-hint">Gross {inr(r.grossPaise)} · discounts {inr(r.discountsPaise)} · tax {inr(r.taxPaise)} (informational, from tax settings).</p></details>
-    </>
-  );
-}
-
-function Orgs({ act }: { act: Act }) {
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [open, setOpen] = useState("");
-  const q = useQuery<Json>({ queryKey: ["sa", "orgs", search, page], queryFn: () => getJson(`${api}?view=orgs&page=${page}&q=${encodeURIComponent(search)}`) });
-  const detail = useQuery<Json>({ queryKey: ["sa", "org", open], queryFn: () => getJson(`${api}?view=org&id=${open}`), enabled: !!open });
-  if (q.isLoading) return <Skeleton />;
-  if (q.isError || !q.data) return <Failed error={q.error} retry={() => q.refetch()} />;
-  const items: Json[] = q.data.items;
-  return (
-    <>
-      <input className="pr-select" placeholder="Search organizations" aria-label="Search organizations" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
-      <div className="sq-table" role="region" aria-label="Organizations" tabIndex={0}><table><thead><tr><th>Organization</th><th>Owner</th><th>Plan</th><th>Status</th><th>Branches</th><th>Students</th><th /></tr></thead>
-        <tbody>{items.map((o) => <tr key={o._id}><td>{o.name}{o.isTest && <span className="mt-pill p-high">test</span>}</td><td>{o.owner?.email}</td><td>{o.subscription?.planKey ?? "—"}</td><td><span className={`mt-pill ${o.status === "suspended" ? "p-urgent" : ""}`}>{o.status === "suspended" ? "suspended" : o.subscription?.status ?? "—"}</span></td><td>{o.branches}</td><td>{o.students}</td><td><button className="button secondary" onClick={() => setOpen(open === o._id ? "" : o._id)}>{open === o._id ? "Close" : "Manage"}</button></td></tr>)}</tbody></table></div>
-      {!items.length && <Empty title="No organizations found" />}
-      <div className="mt-pager"><button className="button secondary" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page}</span><button className="button secondary" disabled={page * 20 >= q.data.total} onClick={() => setPage(page + 1)}>Next</button></div>
-      {open && (detail.isLoading ? <Skeleton /> : detail.data ? <OrgDetail d={detail.data} act={act} /> : null)}
-    </>
-  );
-}
-
-function OrgDetail({ d, act }: { d: Json; act: Act }) {
-  const org = d.org, sub = d.subscription as Json | null;
-  const id = org._id;
-  const run = (action: string, extra: Json, why: string, ok: string) => { const reason = reasonPrompt(why); if (reason) act(action, { organizationId: id, reason, ...extra }, ok); };
-  return (
-    <section className="weekly-card">
-      <div className="section-label"><span>{org.name}</span><span className={`mt-pill ${org.status === "suspended" ? "p-urgent" : ""}`}>{org.status}</span></div>
-      <p className="pr-hint">Plan {sub?.planKey ?? "—"} · {sub ? `${sub.status} (${sub.source}${sub.mode !== "none" ? `, ${sub.mode}` : ""})` : "no subscription"}{sub?.trialEnd ? ` · trial ends ${fmtDate(sub.trialEnd)}` : ""}{sub?.currentPeriodEnd ? ` · period ends ${fmtDate(sub.currentPeriodEnd)}` : ""} · {d.branches.length} branch(es) · {d.openTickets} open ticket(s)</p>
-      {sub?.overrides && <p className="cm-note">Override active: {JSON.stringify(sub.overrides.features ?? {})} {sub.overrides.limits ? JSON.stringify(sub.overrides.limits) : ""} — {sub.overrides.reason}</p>}
-      <div className="queue-actions">
-        {org.status === "active" ? <button className="button secondary" onClick={() => run("org-suspend", {}, "suspending", "Organization suspended.")}>Suspend</button> : <button className="button" onClick={() => run("org-reinstate", {}, "reinstating", "Organization reinstated.")}>Reinstate</button>}
-        <button className="button secondary" onClick={() => { const n = Number(prompt("Extend trial by how many days? (1-90)")); if (n >= 1) run("trial-extend", { days: Math.floor(n) }, "extending the trial", "Trial extended."); }}>Extend trial</button>
-        <button className="button secondary" onClick={() => { const key = prompt("Grant which plan? (free, starter, pro, business, …)"); const until = prompt("Until (YYYY-MM-DD)"); if (key && until && !isNaN(+new Date(until))) run("grant-plan", { planKey: key, until: new Date(until).toISOString() }, "granting a plan", "Plan granted."); }}>Grant plan</button>
-        <button className="button secondary" onClick={() => { const add = prompt("Features to add (comma separated, e.g. qr-attendance,multi-branch)") ?? ""; const lim = Number(prompt("Active student limit override (blank to keep)") || 0) || undefined; const days = Number(prompt("Override lasts how many days? (blank = until cleared)") || 0); run("sub-override", { add: add.split(",").map((s) => s.trim()).filter(Boolean), activeStudents: lim, ...(days ? { expiresAt: new Date(Date.now() + days * 86400000).toISOString() } : {}) }, "overriding entitlements", "Override saved."); }}>Override entitlements</button>
-        {sub?.overrides && <button className="button secondary" onClick={() => run("sub-override", { clear: true }, "clearing the override", "Override cleared.")}>Clear override</button>}
-        <button className="button secondary" onClick={() => run("org-test", { isTest: !org.isTest }, "changing the test flag", "Flag updated.")}>{org.isTest ? "Unmark test" : "Mark as test"}</button>
-        <button className="button secondary" onClick={() => { const n = Number(prompt("Credit adjustment in rupees (negative to deduct)")); if (n) run("credit-adjust", { amountPaise: Math.round(n * 100) }, "adjusting credit", "Credit adjusted."); }}>Adjust credit</button>
-      </div>
-      <div className="queue-columns">
-        <section><div className="section-label"><span>Invoices</span></div>{(d.invoices as Json[]).map((i) => <article className="queue-card" key={i._id}><div><span><strong>{i.number} · {inr(i.totalPaise)}</strong><small>{i.mode} · {fmtDate(i.createdAt)}</small></span></div><span className="mt-pill">{label(i.status)}</span></article>)}{!d.invoices.length && <Empty title="No invoices" />}</section>
-        <section><div className="section-label"><span>Recent audit trail</span></div><ol className="mt-history">{(d.audits as Json[]).slice(0, 10).map((a) => <li key={a._id}><strong>{a.action}</strong><span>{new Date(a.createdAt).toLocaleString("en-IN")}</span>{a.details?.reason && <em>{a.details.reason}</em>}</li>)}</ol></section>
-      </div>
-    </section>
-  );
-}
-
-function Subs() {
-  const [status, setStatus] = useState("");
-  const [page, setPage] = useState(1);
-  const q = useQuery<Json>({ queryKey: ["sa", "subs", status, page], queryFn: () => getJson(`${api}?view=subscriptions&page=${page}${status ? `&status=${status}` : ""}`) });
-  return (
-    <>
-      <div className="mt-filter">{["", "trialing", "active", "past_due", "canceled", "expired"].map((s) => <button key={s} className={status === s ? "active" : ""} onClick={() => { setStatus(s); setPage(1); }}>{s ? label(s) : "All"}</button>)}</div>
-      {q.isLoading ? <Skeleton /> : q.isError || !q.data ? <Failed error={q.error} retry={() => q.refetch()} /> : (
-        <>
-          <div className="sq-table" role="region" aria-label="Subscriptions" tabIndex={0}><table><thead><tr><th>Organization</th><th>Plan</th><th>Interval</th><th>Status</th><th>Source</th><th>Trial ends</th><th>Period ends</th></tr></thead>
-            <tbody>{(q.data.items as Json[]).map((s) => <tr key={s._id}><td>{s.org?.name}{s.org?.isTest && <span className="mt-pill p-high">test</span>}</td><td>{s.planKey} v{s.planVersion}</td><td>{s.interval}</td><td><span className={`mt-pill ${s.status === "past_due" ? "p-urgent" : ""}`}>{label(s.status)}</span></td><td>{s.source}{s.mode !== "none" ? ` · ${s.mode}` : ""}</td><td>{s.trialEnd ? fmtDate(s.trialEnd) : "—"}</td><td>{s.currentPeriodEnd ? fmtDate(s.currentPeriodEnd) : "—"}</td></tr>)}</tbody></table></div>
-          {!q.data.items.length && <Empty title="No subscriptions in this state" />}
-          <div className="mt-pager"><button className="button secondary" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page}</span><button className="button secondary" disabled={page * 20 >= q.data.total} onClick={() => setPage(page + 1)}>Next</button></div>
-        </>)}
     </>
   );
 }

@@ -47,7 +47,7 @@ export function PlatformFeatures({ notify }: { notify: (m: string) => void }) {
   const features = (data.data?.features ?? {}) as Record<string, string>;
   return (
     <div className="pr-page">
-      <header className="p2-heading"><div><span className="eyebrow">Platform owner</span><h1>Feature access by library</h1><p>Each library gets features from its plan. Click a cell to switch one feature on or off for that library, with a reason and an optional end date.</p></div></header>
+      <header className="p2-heading"><div><span className="eyebrow">Platform controls · one library at a time</span><h1>Feature access by library</h1><p>Each library gets features from its plan. Click a cell to switch one feature on or off for that library, with a reason and an optional end date.</p></div></header>
       <form className="pf-search" onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(String(new FormData(e.currentTarget).get("q") ?? "")); }}>
         <Search size={16} aria-hidden="true" />
         <input name="q" defaultValue={q} placeholder="Search libraries by name" aria-label="Search libraries" />
@@ -126,7 +126,7 @@ export function PlatformStudentRules({ notify }: { notify: (m: string) => void }
   const libs = data.data.libraries as Json[];
   return (
     <div className="pr-page">
-      <header className="p2-heading"><div><span className="eyebrow">Platform owner</span><h1>Student features</h1><p>Basic features are always on. Premium features work only for students whose library membership is active today and fully paid. Students with dues see a lock and a link to their fees.</p></div></header>
+      <header className="p2-heading"><div><span className="eyebrow">Platform controls · every student</span><h1>Student features</h1><p>Basic features are always on. Premium features work only for students whose library membership is active today and fully paid. Students with dues see a lock and a link to their fees.</p></div></header>
       <form className="card pf-rules" onSubmit={save}>
         <label className="pf-rule pf-trial">
           <input type="checkbox" name="freeTrial" defaultChecked={!!data.data.freeTrial} />
@@ -187,7 +187,7 @@ export function PlatformAccounts({ notify }: { notify: (m: string) => void }) {
   };
   return (
     <div className="pr-page">
-      <header className="p2-heading"><div><span className="eyebrow">Platform owner</span><h1>Accounts</h1><p>Owners, staff and students across all libraries, with their plan and payment status.</p></div></header>
+      <header className="p2-heading"><div><span className="eyebrow">Platform controls · one account at a time</span><h1>Accounts</h1><p>Owners, staff and students across all libraries, with their plan and payment status.</p></div></header>
       <form className="pf-search" onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(String(new FormData(e.currentTarget).get("q") ?? "")); }}>
         <Search size={16} aria-hidden="true" />
         <input name="q" defaultValue={q} placeholder="Search name or email" aria-label="Search accounts" />
