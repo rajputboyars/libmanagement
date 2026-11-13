@@ -45,7 +45,7 @@ export function Auth({ register }: { register: boolean }) {
       <div className="auth-page">
         <main className="auth-main">
           <div className="auth-form">
-            <EnrollmentStep token={enroll.token} role={enroll.role} onDone={(who) => void finish(who)} onExpired={() => setEnroll(null)} />
+            <EnrollmentStep token={enroll.token} role={enroll.role} onDone={(who) => void finish(who)} onExpired={(why) => { setEnroll(null); setError(why ? "Your sign-in expired. Enter your password again to continue." : ""); }} />
           </div>
         </main>
       </div>
@@ -55,7 +55,7 @@ export function Auth({ register }: { register: boolean }) {
       <div className="auth-page">
         <main className="auth-main">
           <div className="auth-form">
-            <TwoFactorStep challenge={challenge} onDone={(who) => void finish(who)} onExpired={() => setChallenge("")} />
+            <TwoFactorStep challenge={challenge} onDone={(who) => void finish(who)} onExpired={(why) => { setChallenge(""); setError(why ? "Your sign-in expired. Enter your password again to continue." : ""); }} />
           </div>
         </main>
       </div>

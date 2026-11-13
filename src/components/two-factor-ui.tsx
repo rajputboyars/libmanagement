@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { clearClientCaches } from "./pwa";
 import { getJson, send } from "./prep-api";
 
@@ -12,7 +12,7 @@ export function useTwoFactorStatus() {
 }
 
 /** Second step of sign-in (and of a password reset): an authenticator code, or one recovery code. */
-export function TwoFactorStep({ challenge, onDone, onExpired }: { challenge: string; onDone: Done; onExpired: () => void }) {
+export function TwoFactorStep({ challenge, onDone, onExpired }: { challenge: string; onDone: Done; onExpired: (reason?: "expired") => void }) {
   const [recovery, setRecovery] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,7 +25,7 @@ export function TwoFactorStep({ challenge, onDone, onExpired }: { challenge: str
       const res = await fetch("/api/auth/2fa-login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(recovery ? { challenge, recoveryCode: value } : { challenge, code: value }) });
       const result = await res.json();
       if (!res.ok) {
-        if (result.code === "challenge-expired") return onExpired();
+        if (result.code === "challenge-expired") return onExpired("expired");
         throw new Error(result.error);
       }
       onDone(result.role);
@@ -45,7 +45,7 @@ export function TwoFactorStep({ challenge, onDone, onExpired }: { challenge: str
       {error && <p className="cm-note danger" role="alert">{error}</p>}
       <button className="button" disabled={busy}>{busy ? "Checking…" : "Verify and sign in"}</button>
       <button type="button" className="text-link" onClick={() => { setRecovery(!recovery); setError(""); }}>{recovery ? "Use my authenticator app instead" : "Use a recovery code instead"}</button>
-      <button type="button" className="text-link" onClick={onExpired}>Back to password</button>
+      <button type="button" className="text-link" onClick={() => onExpired()}>Back to password</button>
     </form>
   );
 }
@@ -130,17 +130,25 @@ export function TwoFactorSettings({ notify }: { notify: (m: string) => void }) {
 }
 
 /** Mandatory setup for owners and platform admins. No session exists yet: every call carries the restricted enrolment token. */
-export function EnrollmentStep({ token, role, onDone, onExpired }: { token: string; role: string; onDone: Done; onExpired: () => void }) {
+export function EnrollmentStep({ token, role, onDone, onExpired }: { token: string; role: string; onDone: Done; onExpired: (reason?: "expired") => void }) {
   const [setup, setSetup] = useState<{ secret: string; qr: string } | null>(null);
   const [codes, setCodes] = useState<string[] | null>(null);
   const [saved, setSaved] = useState(false);
+  const [copied, setCopied] = useState<"" | "key" | "codes">("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // The codes are shown once: warn before a refresh or tab close throws them away unsaved.
+  useEffect(() => {
+    if (!codes || saved) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [codes, saved]);
   const call = async (path: string, payload: Record<string, unknown>) => {
     const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, enrollmentToken: token }) });
     const result = await res.json();
     if (!res.ok) {
-      if (result.code === "challenge-expired") { onExpired(); throw new Error(result.error); }
+      if (result.code === "challenge-expired") { onExpired("expired"); throw new Error(result.error); }
       throw new Error(result.error);
     }
     return result;
@@ -158,13 +166,13 @@ export function EnrollmentStep({ token, role, onDone, onExpired }: { token: stri
         <div role="status">
           <p className="cm-note danger"><strong>Save these recovery codes now.</strong> They are shown once. Each works one time if you lose your authenticator. Keep them somewhere safe and private.</p>
           <ul style={{ fontFamily: "monospace", listStyle: "none", padding: 0, columns: 2 }}>{codes.map((c) => <li key={c}>{c}</li>)}</ul>
-          <button type="button" className="button secondary" onClick={() => void navigator.clipboard?.writeText(codes.join(String.fromCharCode(10)))}>Copy codes</button>
-          <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} /> I have saved my recovery codes</label>
+          <button type="button" className="button secondary" onClick={() => { void navigator.clipboard?.writeText(codes.join(String.fromCharCode(10))); setCopied("codes"); }}>{copied === "codes" ? "Codes copied" : "Copy codes"}</button>
+          <label style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}><input type="checkbox" style={{ width: 20, height: 20, flex: "none" }} checked={saved} onChange={(e) => setSaved(e.target.checked)} /> I have saved my recovery codes</label>
           <button className="button" disabled={!saved} onClick={() => onDone(role)}>Continue to my account</button>
         </div>
       ) : !setup ? (
         <form className="dialog-form" onSubmit={(e) => { e.preventDefault(); const f = new FormData(e.currentTarget); void run(async () => { const r = await call("/api/auth/2fa-setup", { password: f.get("password") }); setSetup({ secret: r.secret, qr: r.qr }); }); }}>
-          <ol className="pr-hint">
+          <ol className="pr-hint" style={{ listStyle: "decimal", paddingLeft: 20 }}>
             <li>Install an authenticator app (Google Authenticator, Microsoft Authenticator, Authy, 1Password or similar).</li>
             <li>Confirm your password, then scan the QR code (or type the key).</li>
             <li>Enter the 6-digit code and save your recovery codes.</li>
@@ -178,12 +186,13 @@ export function EnrollmentStep({ token, role, onDone, onExpired }: { token: stri
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={setup.qr} alt="QR code to add StudyQuest to your authenticator app" width={220} height={220} />
           <p className="pr-hint">Cannot scan? Enter this key manually: <code>{setup.secret.match(/.{1,4}/g)?.join(" ")}</code></p>
+          <button type="button" className="button secondary" onClick={() => { void navigator.clipboard?.writeText(setup.secret); setCopied("key"); }}>{copied === "key" ? "Key copied" : "Copy key"}</button>
           <label>6-digit code<input name="code" required autoFocus autoComplete="one-time-code" inputMode="numeric" maxLength={8} /></label>
           <button className="button" disabled={busy}>{busy ? "Checking…" : "Verify and finish"}</button>
         </form>
       )}
       {error && <p className="cm-note danger" role="alert">{error}</p>}
-      {!codes && <button type="button" className="text-link" onClick={onExpired}>Sign out</button>}
+      {!codes && <button type="button" className="text-link" onClick={() => onExpired()}>Sign out</button>}
     </div>
   );
 }

@@ -62,8 +62,8 @@ export function ResetPassword() {
       toApp(r.role);
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to reset"); setBusy(false); }
   }
-  if (enroll) return <Card title="Almost done"><EnrollmentStep token={enroll.token} role={enroll.role} onDone={toApp} onExpired={() => setEnroll(null)} /></Card>;
-  if (challenge) return <Card title="Almost done"><TwoFactorStep challenge={challenge} onDone={toApp} onExpired={() => setChallenge("")} /></Card>;
+  if (enroll) return <Card title="Almost done"><EnrollmentStep token={enroll.token} role={enroll.role} onDone={toApp} onExpired={() => router.push("/login")} /></Card>;
+  if (challenge) return <Card title="Almost done"><TwoFactorStep challenge={challenge} onDone={toApp} onExpired={() => router.push("/login")} /></Card>;
   return (
     <Card title="Choose a new password">
       <form className="dialog-form" onSubmit={submit}>
