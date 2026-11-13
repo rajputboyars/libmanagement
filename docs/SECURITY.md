@@ -49,6 +49,15 @@ Status key: **Implemented** (code + test evidence), **Partial**, **Not implement
 - **Migration:** none. Existing owners and admins who have not enrolled are asked to enrol at their next sign-in (their old sessions stop working immediately), so announce the change to owners before deploying.
 - **Logging:** only events (`auth.2fa_enabled`, `auth.2fa_failed`, `auth.2fa_locked`, ...) with user ids. Enrolment tokens, seeds, codes and recovery codes are never logged; the HTTP suite asserts this against the server log.
 
+## Backups and restore (R10)
+
+- **Policy:** daily encrypted logical backups to off-site S3-compatible storage with 35-day / 12-month retention, plus (to be enabled) Atlas Cloud Backup with point-in-time recovery. See docs/BACKUP_RESTORE.md for the schedule, storage, restore steps and the go-live checklist. **Not active in production yet.**
+- **Encryption and keys:** every archive is encrypted client-side with AES-256-GCM (authenticated header, random IV) before upload; keys come from `BACKUP_ENCRYPTION_KEYS` (rotatable ring, separate from `SESSION_SECRET` and `TWO_FACTOR_KEY`). The key must be in the secret manager and held offline by two custodians; losing it makes every backup unreadable.
+- **Credentials:** the backup job needs a read-only database user and bucket write/list credentials; only the retention job may delete; the restore operator needs the key ring and `readWrite` on the target database only. None of these variables belong in the web or worker processes. Connection strings are scrubbed from errors; logs and alerts carry only archive names, counts and sizes, never customer data or credentials.
+- **No public exposure:** the application has no route that serves backups; archives exist only in the bucket and in a private temporary directory (mode 0700) that is wiped after every run.
+- **Restore safety:** targets must be new, empty and explicitly named; the live database is refused; non-empty targets are never overwritten; a typed `<db>@<host>` confirmation is required (otherwise dry run); decrypted data is released only after GCM authentication and checksum verification; success needs verified counts, indexes, per-tenant counts and zero cross-tenant references.
+- **Residual risks:** the logical dump is not point-in-time consistent (Atlas continuous backup covers that); anyone holding both the key and bucket read access can read all data; the plaintext temporary directory depends on the backup host's disk protection.
+
 ## Reporting
 
 Security reports should go to a monitored address (to be defined by the business) and be triaged within 2 business days.

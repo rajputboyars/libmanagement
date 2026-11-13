@@ -17,7 +17,7 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 | 5 | Performance | **FAIL** on landing page target; others PASS | Medium |
 | 6 | Accessibility | PASS (automated) / manual NOT TESTED | Low |
 | 7 | Reliability | PASS (automated) · load NOT TESTED | Medium |
-| 8 | Backups / restoration | PASS (drill) · **BLOCKED** (real provider) | Critical |
+| 8 | Backups / restoration | Encrypted off-site backup, checks and verified restore IMPLEMENTED and drilled on a disposable database · **BLOCKED** (no production backup, bucket, key or Atlas Cloud Backup configured) | Critical |
 | 9 | Monitoring | **BLOCKED** (not configured) | Critical |
 | 10 | Documentation | PASS (legal pages are placeholders) | High |
 | 11 | Deployment | PARTIAL (image built, nothing deployed) | High |
@@ -30,8 +30,8 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 |---|---|---|
 | Typecheck | PASS | `npm run typecheck` |
 | Lint | PASS | `npm run lint`, 0 errors, 0 warnings |
-| Unit tests | PASS | 80 tests: 78 pass, 0 fail, 2 skipped (the database tests, which run in the integration suite) |
-| Integration | PASS | 3 pass: tenant scope and concurrent seat writes, token signing, backup→restore drill |
+| Unit tests | PASS | 183 tests: 180 pass, 0 fail, 3 skipped (the database tests, which run in the integration suite) |
+| Integration | PASS | 4 pass: tenant scope and concurrent seat writes, token signing, backup→restore drill, encrypted backup → check → verified restore |
 | HTTP workflow ("E2E") | PASS | `npm run test:http`: one continuous workflow against a production build and real MongoDB replica set |
 | Production build | PASS | `npm run build` |
 | Production dependency audit | PASS | `npm audit --omit=dev`: 0 vulnerabilities |
@@ -110,9 +110,26 @@ Remaining: landing page style/layout cost (~1 s on throttled CPU) — server-ren
   **Not tested:** installation on a real phone (Android Chrome add-to-home-screen, iOS Safari), service-worker update flow after a new deployment, push notifications (not implemented).
 - Load, soak and failover behaviour: **NOT TESTED**.
 
-### 8. Backups / restoration — PASS (drill) · BLOCKED (real provider)
-- Automated restore drill into a separate database passes (counts, ObjectId/date fidelity, payment reconciliation, unique indexes, refusal of non-empty/tampered targets) — docs/BACKUP_RESTORE.md.
-- **BLOCKED:** provider backups are not enabled (no production database exists), and no restore from provider snapshots has been performed. RPO/RTO in the document are proposals. Severity Critical. Action: enable continuous backup, perform and record a restore into staging.
+### 8. Backups / restoration — IMPLEMENTED + DRILLED (disposable) · BLOCKED (production)
+Implemented in R10 (docs/BACKUP_RESTORE.md is the runbook):
+- Encrypted logical backups (client-side AES-256-GCM, rotatable key ring) to S3-compatible off-site storage, sidecar summaries, retention (35 days + 12 monthly, minimum 3), daily schedule template (`.github/workflows/backup.yml`, inactive without secrets), failure alerts through the existing alert webhook.
+- Health checks that report missing, stale, incomplete, truncated or corrupted backups; the weekly deep check downloads and decrypts the newest archive and verifies every checksum.
+- Restore only into a new, empty, explicitly named database; the live database (`MONGODB_URI`, `BACKUP_SOURCE_URI`, `BACKUP_PROTECTED_TARGETS`) is refused; environment and a typed `<db>@<host>` confirmation are required (otherwise a dry run). Success is reported only after verification of collections, document counts, indexes, per-library (tenant) counts and cross-tenant-safe relationships.
+- Tests: `tests/backup-ops.test.ts` (unit) and `tests/backup-ops.integration.test.ts` (real MongoDB): wrong key, tampered/truncated archives, unsafe archive names, failed upload, unreachable or empty source, protected/non-empty/unnamed targets, damage detection (lost rows, a payment moved to another tenant, a dropped index), no plaintext left behind, no credentials in errors.
+- Restore drill (`npm run backup:drill`, disposable in-memory replica set, seeded through the real models, real CLI end to end):
+
+```
+DRILL RESULT: PASS  (2026-11-14, Windows laptop, MongoDB 7.0.14 in-memory replica set)
+  tenants=3 students/tenant=60 documents=4906 collections=72 archive=105 KiB (encrypted)
+  backup run (dump + encrypt + upload + checks)      2.3 s
+  check --deep (download + decrypt + checksums)      1.5 s
+  restore dry run                                    1.9 s
+  restore --confirm (download, decrypt, restore, verify, TTL indexes)  5.6 s
+    download 10 ms | decrypt+unpack 134 ms | verify-archive 52 ms | restore 3767 ms | verify-restored 202 ms | ttl-indexes 95 ms
+  independent per-tenant comparison: students, payment counts and sums per library match; no payment references another tenant's membership
+```
+  These numbers are for a tiny dataset on a laptop and are **not** a production RTO or RPO.
+- **BLOCKED / NOT VERIFIED (Critical):** no production database backup exists. Atlas Cloud Backup (continuous PITR) is not confirmed (needs a dedicated tier; the Atlas tier is unknown). No bucket, encryption key, read-only backup user or workflow secrets exist; the S3 client was exercised only against a local signed endpoint, never a real provider; the scheduled workflow has never run; alert delivery is unverified; no restore from a real backup into staging has been performed and no real recovery time is known. Action: complete the go-live checklist at the end of docs/BACKUP_RESTORE.md and record a restore into staging.
 
 ### 9. Monitoring — BLOCKED
 Implemented: structured redacted JSON logs, request ids, health/readiness endpoints, global error hook, alert webhook, job heartbeat, audit logs, documented alert rules (docs/MONITORING.md).
@@ -132,7 +149,7 @@ Tooling is ready and tested: validated CSV import with duplicate detection, seat
 
 ## Exact blockers to READY
 
-1. **Backups:** enable provider backups on the production database and complete a recorded restore into staging.
+1. **Backups:** enable Atlas Cloud Backup (or accept the 24-hour RPO in writing), create the bucket, encryption key and read-only backup user, schedule and observe a real backup, verify alerting, and complete a recorded restore of that real backup into staging (checklist in docs/BACKUP_RESTORE.md).
 2. **Monitoring/alerting:** configure a provider, uptime probe, alert destination and recipients; verify with a real triggered alert.
 3. **Payments:** run Razorpay test-mode end to end on staging; tax/GST and payment-compliance review; written approval before any live key.
 4. **Security:** set `TWO_FACTOR_KEY` (mandatory two-step sign-in is enforced since R9), enrol two platform admins, independent security review/penetration test.

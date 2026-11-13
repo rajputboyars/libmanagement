@@ -79,7 +79,7 @@ Build for deployment with `npm run build`, then `npm start`. Supply production e
 - Operations docs: [deployment](docs/DEPLOYMENT.md) · [backup & restore](docs/BACKUP_RESTORE.md) · [monitoring](docs/MONITORING.md) · [security](docs/SECURITY.md) · [pilot](docs/PILOT.md).
 - Health: `GET /api/health` (liveness), `GET /api/ready` (config + database + job heartbeat).
 - Background jobs: `npm run worker` (or `POST /api/jobs/run` with `x-cron-secret`).
-- Backups: `npm run backup -- --out backups/<date>`; `npm run restore -- --from <dir> --target-uri <empty db> --confirm`.
+- Backups: encrypted off-site backups, health checks and verified restores (`npm run backup:run`, `backup:check`, `backup:restore`, `backup:drill`); see docs/BACKUP_RESTORE.md. Not active in production until its go-live checklist is done.
 - Existing databases: `npm run migrate:orgs -- --dry` then apply with approval.
 - Tools: `scripts/responsive-audit.mjs` (overflow, touch targets and screenshot baselines across 10 viewports via Chrome DevTools Protocol), `scripts/measure-bundle.mjs` (first-load JS), `scripts/qa-server.ts` (seeded local server on a disposable in-memory database).
 - Verification: `npm run typecheck && npm run lint && npm test && npm run build && npm run test:integration && npm run test:http`.
