@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { User } from "./models";
 import { currentUser, issueSession, readChallenge, setSessionCookie } from "./auth";
+import { requiresTwoFactor } from "./two-factor-policy";
 import { log } from "./log";
 import { clearLimit, clientIp, ipLimit, isLocked, limitedShared, warnAuth } from "./security";
 import { RECOVERY_COUNT, decryptSecret, encryptSecret, findRecoveryMatch, generateSecret, hashRecovery, matchTotp, newRecoveryCode, otpauthUri } from "./two-factor";
@@ -85,8 +86,9 @@ export async function handleTwoFactor(action: string, req: Request): Promise<Nex
   await db();
   const ip = clientIp(req);
   try {
+    const body: unknown = await req.json();
     if (action === "2fa-login") {
-      const v = factor.extend({ challenge: z.string().min(20).max(2000) }).parse(await req.json());
+      const v = factor.extend({ challenge: z.string().min(20).max(2000) }).parse(body);
       const ch = await readChallenge(v.challenge);
       if (!ch) return json({ error: "Your sign-in expired. Enter your password again.", code: "challenge-expired" }, 401);
       const user = await User.findById(ch.userId).lean<{ _id: unknown; role: string; sessionVersion?: number; deletedAt?: Date; suspendedAt?: Date; twoFactorEnabled?: boolean }>();
@@ -99,12 +101,22 @@ export async function handleTwoFactor(action: string, req: Request): Promise<Nex
       return response;
     }
 
-    const me = await currentUser();
+    // Enrolment may be done by a normal session, or (privileged accounts only) with the restricted enrolment token from the password step.
+    let me: { _id: unknown; email: string; role: string } | null = null;
+    let enrolling = false;
+    const token = typeof (body as { enrollmentToken?: unknown }).enrollmentToken === "string" ? (body as { enrollmentToken: string }).enrollmentToken : "";
+    if (token && (action === "2fa-setup" || action === "2fa-enable")) {
+      const ch = await readChallenge(token, "2fa-enroll");
+      const u = ch ? await User.findById(ch.userId).lean<{ _id: unknown; email: string; role: string; sessionVersion?: number; deletedAt?: Date; suspendedAt?: Date; twoFactorEnabled?: boolean }>() : null;
+      if (!ch || !u || u.deletedAt || u.suspendedAt || u.twoFactorEnabled || !requiresTwoFactor(u.role) || (u.sessionVersion ?? 0) !== ch.sv) return json({ error: "Your sign-in expired. Enter your password again.", code: "challenge-expired" }, 401);
+      me = u;
+      enrolling = true;
+    } else me = await currentUser();
     if (!me) return json({ error: "Sign in required" }, 401);
     const id = String(me._id);
 
     if (action === "2fa-setup") {
-      const v = z.object({ password: z.string().min(1).max(100) }).parse(await req.json());
+      const v = z.object({ password: z.string().min(1).max(100) }).passthrough().parse(body);
       const state = await User.findById(id).select("twoFactorEnabled").lean<{ twoFactorEnabled?: boolean }>();
       if (state?.twoFactorEnabled) return json({ error: "Two-step sign-in is already on." }, 400);
       if (!(await passwordOk(id, v.password))) return json({ error: "Your password is not correct." }, 400);
@@ -115,7 +127,7 @@ export async function handleTwoFactor(action: string, req: Request): Promise<Nex
     }
 
     if (action === "2fa-enable") {
-      const v = z.object({ code: z.string().trim().min(6).max(10) }).parse(await req.json());
+      const v = z.object({ code: z.string().trim().min(6).max(10) }).passthrough().parse(body);
       if (await limitedShared(`2fa:enable:${id}`, FAIL_LIMIT, WINDOW)) return json({ error: "Too many attempts. Try again in 15 minutes." }, 429);
       const row = await User.findById(id).select("twoFactorEnabled +twoFactorPendingEnc").lean<{ twoFactorEnabled?: boolean; twoFactorPendingEnc?: string }>();
       if (!row || row.twoFactorEnabled || !row.twoFactorPendingEnc) return json({ error: "Start again: set up two-step sign-in first." }, 400);
@@ -128,13 +140,16 @@ export async function handleTwoFactor(action: string, req: Request): Promise<Nex
       if (!claimed) return json({ error: "Start again: set up two-step sign-in first." }, 400);
       await clearLimit(`2fa:enable:${id}`);
       log("info", "auth.2fa_enabled", { userId: id });
-      const response = json({ ok: true, recoveryCodes: plain });
+      // The new session is only issued now, after the second factor was proven; enrolment tokens never become sessions themselves.
+      const response = json({ ok: true, recoveryCodes: plain, role: me.role, enrolled: enrolling });
       setSessionCookie(response, await issueSession(id, claimed.sessionVersion ?? 0)); // other devices are signed out
       return response;
     }
 
     if (action === "2fa-disable") {
-      const v = factor.extend({ password: z.string().min(1).max(100) }).parse(await req.json());
+      // Owners and platform admins cannot turn it off: that would silently remove their own access (and the policy). Operators use reset-2fa.
+      if (requiresTwoFactor(me.role)) return json({ error: "Two-step sign-in is required for your account and cannot be turned off." }, 403);
+      const v = factor.extend({ password: z.string().min(1).max(100) }).parse(body);
       if (!(await passwordOk(id, v.password))) return json({ error: "Your password is not correct." }, 400);
       const state = await User.findById(id).select("twoFactorEnabled").lean<{ twoFactorEnabled?: boolean }>();
       if (!state?.twoFactorEnabled) return json({ error: "Two-step sign-in is not on." }, 400);
@@ -148,7 +163,7 @@ export async function handleTwoFactor(action: string, req: Request): Promise<Nex
     }
 
     // 2fa-recovery: new recovery codes (the old ones stop working). Needs the password and a code from the authenticator app.
-    const v = z.object({ password: z.string().min(1).max(100), code: z.string().trim().min(6).max(10) }).parse(await req.json());
+    const v = z.object({ password: z.string().min(1).max(100), code: z.string().trim().min(6).max(10) }).parse(body);
     if (!(await passwordOk(id, v.password))) return json({ error: "Your password is not correct." }, 400);
     const r = await verifySecondFactor(id, { code: v.code }, ip, false);
     if (!r.ok) return json({ error: r.error }, r.status);

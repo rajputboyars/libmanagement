@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { User } from "./models";
 import { PasswordReset } from "./ops-models";
-import { currentUser, issueChallenge, issueSession } from "./auth";
+import { currentUser, enrollmentRequired, issueChallenge, issueSession } from "./auth";
 import { verifySecondFactor } from "./two-factor-server";
 import { clientIp, hashToken, ipLimit, limitedShared, newToken, warnAuth } from "./security";
 import { emailConfigured, sendEmail } from "./saas-notify";
@@ -58,6 +58,8 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
       log("info", "auth.password_reset", { userId: String(user._id) });
       // A reset link proves access to the mailbox, not to the authenticator: accounts with two-step sign-in still need the second factor.
       if (user.twoFactorEnabled) return NextResponse.json({ ok: true, twoFactorRequired: true, challenge: await issueChallenge(String(user._id), user.sessionVersion ?? 0) });
+      const enroll = await enrollmentRequired(user);
+      if (enroll) return NextResponse.json({ ok: true, ...enroll });
       const response = NextResponse.json({ ok: true, role: user.role });
       cookie(response, await issueSession(String(user._id), user.sessionVersion));
       return response;

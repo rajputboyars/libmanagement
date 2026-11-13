@@ -5,7 +5,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { clearClientCaches } from "./pwa";
 import { send } from "./prep-api";
-import { TwoFactorSettings, TwoFactorStep, useTwoFactorStatus } from "./two-factor-ui";
+import { EnrollmentStep, TwoFactorSettings, TwoFactorStep, useTwoFactorStatus } from "./two-factor-ui";
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -46,6 +46,7 @@ export function ResetPassword() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [challenge, setChallenge] = useState("");
+  const [enroll, setEnroll] = useState<{ token: string; role: string } | null>(null);
   const token = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("token") ?? "";
   const toApp = (role: string) => { router.push(role === "owner" || role === "staff" ? "/owner" : role === "super-admin" ? "/super-admin" : "/app"); router.refresh(); };
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -57,9 +58,11 @@ export function ResetPassword() {
       const r = await send("/api/auth/reset", "POST", { token, password: f.get("password") });
       // The reset link proves the mailbox only; accounts with two-step sign-in still need their authenticator.
       if (r.twoFactorRequired) { setChallenge(r.challenge); setBusy(false); return; }
+      if (r.twoFactorEnrollmentRequired) { setEnroll({ token: r.enrollmentToken, role: r.role }); setBusy(false); return; }
       toApp(r.role);
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to reset"); setBusy(false); }
   }
+  if (enroll) return <Card title="Almost done"><EnrollmentStep token={enroll.token} role={enroll.role} onDone={toApp} onExpired={() => setEnroll(null)} /></Card>;
   if (challenge) return <Card title="Almost done"><TwoFactorStep challenge={challenge} onDone={toApp} onExpired={() => setChallenge("")} /></Card>;
   return (
     <Card title="Choose a new password">

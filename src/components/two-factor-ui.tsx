@@ -128,3 +128,62 @@ export function TwoFactorSettings({ notify }: { notify: (m: string) => void }) {
     </section>
   );
 }
+
+/** Mandatory setup for owners and platform admins. No session exists yet: every call carries the restricted enrolment token. */
+export function EnrollmentStep({ token, role, onDone, onExpired }: { token: string; role: string; onDone: Done; onExpired: () => void }) {
+  const [setup, setSetup] = useState<{ secret: string; qr: string } | null>(null);
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const call = async (path: string, payload: Record<string, unknown>) => {
+    const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, enrollmentToken: token }) });
+    const result = await res.json();
+    if (!res.ok) {
+      if (result.code === "challenge-expired") { onExpired(); throw new Error(result.error); }
+      throw new Error(result.error);
+    }
+    return result;
+  };
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError("");
+    try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : "Unable to complete"); } finally { setBusy(false); }
+  };
+  return (
+    <div className="dialog-form" aria-label="Required two-step sign-in setup">
+      <h1>Set up two-step sign-in</h1>
+      <p className="muted">{role === "super-admin" ? "Platform administrator" : "Library owner"} accounts must use two-step sign-in. You cannot open your dashboard until this is finished. It takes about a minute.</p>
+      {codes ? (
+        <div role="status">
+          <p className="cm-note danger"><strong>Save these recovery codes now.</strong> They are shown once. Each works one time if you lose your authenticator. Keep them somewhere safe and private.</p>
+          <ul style={{ fontFamily: "monospace", listStyle: "none", padding: 0, columns: 2 }}>{codes.map((c) => <li key={c}>{c}</li>)}</ul>
+          <button type="button" className="button secondary" onClick={() => void navigator.clipboard?.writeText(codes.join(String.fromCharCode(10)))}>Copy codes</button>
+          <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} /> I have saved my recovery codes</label>
+          <button className="button" disabled={!saved} onClick={() => onDone(role)}>Continue to my account</button>
+        </div>
+      ) : !setup ? (
+        <form className="dialog-form" onSubmit={(e) => { e.preventDefault(); const f = new FormData(e.currentTarget); void run(async () => { const r = await call("/api/auth/2fa-setup", { password: f.get("password") }); setSetup({ secret: r.secret, qr: r.qr }); }); }}>
+          <ol className="pr-hint">
+            <li>Install an authenticator app (Google Authenticator, Microsoft Authenticator, Authy, 1Password or similar).</li>
+            <li>Confirm your password, then scan the QR code (or type the key).</li>
+            <li>Enter the 6-digit code and save your recovery codes.</li>
+          </ol>
+          <label>Your password<input name="password" type="password" required autoFocus autoComplete="current-password" /></label>
+          <button className="button" disabled={busy}>{busy ? "Starting…" : "Start setup"}</button>
+        </form>
+      ) : (
+        <form className="dialog-form" onSubmit={(e) => { e.preventDefault(); const f = new FormData(e.currentTarget); void run(async () => { const r = await call("/api/auth/2fa-enable", { code: f.get("code") }); setCodes(r.recoveryCodes); }); }}>
+          <p>Scan this code with your authenticator app, then enter the 6-digit code it shows.</p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={setup.qr} alt="QR code to add StudyQuest to your authenticator app" width={220} height={220} />
+          <p className="pr-hint">Cannot scan? Enter this key manually: <code>{setup.secret.match(/.{1,4}/g)?.join(" ")}</code></p>
+          <label>6-digit code<input name="code" required autoFocus autoComplete="one-time-code" inputMode="numeric" maxLength={8} /></label>
+          <button className="button" disabled={busy}>{busy ? "Checking…" : "Verify and finish"}</button>
+        </form>
+      )}
+      {error && <p className="cm-note danger" role="alert">{error}</p>}
+      {!codes && <button type="button" className="text-link" onClick={onExpired}>Sign out</button>}
+    </div>
+  );
+}

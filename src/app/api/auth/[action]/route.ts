@@ -13,6 +13,7 @@ import { newLibraryCode } from "@/lib/join";
 import { LOGIN_LIMITS, accountKey, clearLimit, clientIp, ipKey, ipLimit, isLocked, limitedShared, warnAuth } from "@/lib/security";
 import {
   currentUser,
+  enrollmentRequired,
   issueChallenge,
   issueSession,
   secret,
@@ -132,6 +133,9 @@ export async function POST(
       if (user.twoFactorEnabled) return NextResponse.json({ twoFactorRequired: true, challenge: await issueChallenge(String(user._id), user.sessionVersion ?? 0) });
     } else return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!user) throw new Error("Unable to create account");
+    // Owners and platform admins get no session until two-step sign-in is set up; they receive a restricted enrolment token instead.
+    const enroll = await enrollmentRequired(user);
+    if (enroll) return NextResponse.json(enroll);
     const response = NextResponse.json({ role: user.role, ...(joinResultOut ? { join: joinResultOut } : {}) });
     response.cookies.set("sq-session", await issueSession(String(user._id), user.sessionVersion ?? 0), {
       httpOnly: true,

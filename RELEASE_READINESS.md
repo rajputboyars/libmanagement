@@ -11,7 +11,7 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 | # | Category | Status | Severity of what remains |
 |---|---|---|---|
 | 1 | Functionality | PASS (automated) / pilot pending | Low |
-| 2 | Security | PARTIAL (optional TOTP two-step sign-in and nonce-based CSP implemented in R8; enforcement for administrators and an independent review remain) | Medium |
+| 2 | Security | PARTIAL (TOTP two-step sign-in is mandatory for owners and platform admins since R9, nonce-based CSP since R8; an independent review remains) | Medium |
 | 3 | Data integrity | PASS (automated) | Low |
 | 4 | Payments | PASS in sandbox · **BLOCKED** for live | Critical |
 | 5 | Performance | **FAIL** on landing page target; others PASS | Medium |
@@ -58,7 +58,7 @@ Implemented and tested (see docs/SECURITY.md for the ASVS mapping):
 Remaining (mandatory before launch):
 | Issue | Severity | Action |
 |---|---|---|
-| Two-step sign-in is optional, not enforced for owners and platform admins (R8: TOTP + recovery codes implemented) | Medium | Decide and enforce a policy for platform admins and owners; set a dedicated `TWO_FACTOR_KEY` before launch |
+| Two-step sign-in is enforced for owners and platform admins (R9); recovery is operator-assisted (`npm run reset-2fa`) | Low | Set a dedicated `TWO_FACTOR_KEY` before launch, enrol at least two platform admins, store their recovery codes offline, announce the change to existing owners |
 | CSP `style-src` keeps `'unsafe-inline'` (scripts are nonce-only since R8) | Low | Documented exception: inline styles cannot execute script (see docs/SECURITY.md) |
 | General API rate limits are per-process memory | Medium | Move to the shared limiter or an edge/WAF limit before running multiple instances |
 | No independent security review or penetration test | High | Commission before launch |
@@ -135,7 +135,7 @@ Tooling is ready and tested: validated CSV import with duplicate detection, seat
 1. **Backups:** enable provider backups on the production database and complete a recorded restore into staging.
 2. **Monitoring/alerting:** configure a provider, uptime probe, alert destination and recipients; verify with a real triggered alert.
 3. **Payments:** run Razorpay test-mode end to end on staging; tax/GST and payment-compliance review; written approval before any live key.
-4. **Security:** enforce two-step sign-in for administrators (the feature exists since R8), set `TWO_FACTOR_KEY`, independent security review/penetration test.
+4. **Security:** set `TWO_FACTOR_KEY` (mandatory two-step sign-in is enforced since R9), enrol two platform admins, independent security review/penetration test.
 5. **Legal:** lawyer-reviewed Privacy Policy and Terms; DPDP consent and children's-data review.
 6. **Infrastructure:** production database cluster, domain and TLS, reverse proxy with `TRUST_PROXY=1`, secrets manager, email provider, run CI on the hosted service, create staging.
 7. **Performance:** meet the landing-page targets (≥ 90, LCP ≤ 2.5 s) and measure large-table and API latency under load.

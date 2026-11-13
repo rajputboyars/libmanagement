@@ -1,5 +1,5 @@
 import { MongoMemoryReplSet } from "mongodb-memory-server";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
@@ -34,7 +34,9 @@ async function main() {
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
-  server.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  let serverLog = "";
+  server.stdout.on("data", (chunk) => { serverLog += chunk; });
+  server.stderr.on("data", (chunk) => { serverLog += chunk; process.stderr.write(chunk); });
   try {
     let ready = false;
     for (let i = 0; i < 60; i++) {
@@ -61,6 +63,15 @@ async function main() {
         }),
       });
       assert.equal(response.status, 200, await response.text());
+      if (role === "owner") {
+        // R9: a new owner gets no session, only an enrolment token. The harness stands in for completed enrolment
+        // (the real enrolment flow is tested in the R9 block) and mints the session an enrolled owner would hold.
+        assert.equal(response.headers.get("set-cookie"), null, "owner sign-up sets no session cookie");
+        if (mongoose.connection.readyState === 0) await mongoose.connect(replica.getUri());
+        const { User: U } = await import("../src/lib/models");
+        const row = await U.findOneAndUpdate({ email }, { $set: { twoFactorEnabled: true } }, { new: true });
+        return "sq-session=" + (await new SignJWT({ sv: row!.sessionVersion ?? 0 }).setProtectedHeader({ alg: "HS256" }).setSubject(String(row!._id)).setIssuedAt().setExpirationTime("1h").sign(new TextEncoder().encode(sessionSecret)));
+      }
       return response.headers.get("set-cookie")!.split(";")[0];
     }
     async function get(cookie: string) {
@@ -487,7 +498,7 @@ async function main() {
     assert.equal((await getJson("/api/community?view=wall", student)).locked, true);
     // ---- Phase 4: exam preparation engine ----
     const { Question, SyllabusNode, TestAttempt, User, XPTransaction, MistakeEntry } = await import("../src/lib/models");
-    const adminUser = await User.create({ name: "Admin", email: "admin@example.invalid", passwordHash: "x", role: "super-admin" });
+    const adminUser = await User.create({ name: "Admin", email: "admin@example.invalid", passwordHash: "x", role: "super-admin", twoFactorEnabled: true });
     const adminCookie = "sq-session=" + (await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(String(adminUser._id)).setIssuedAt().setExpirationTime("1h").sign(new TextEncoder().encode(sessionSecret)));
     const pa = (action: string, data: unknown, status = 200, cookie = adminCookie) => api("/api/prep-admin", cookie, action, data, status);
     // ---- platform module availability (separate from the library's own switches and the plan) ----
@@ -1245,7 +1256,7 @@ async function main() {
     const { RateLimit } = await import("../src/lib/ops-models");
     await RateLimit.deleteMany({ key: /^register:ip:/ }); // earlier sign-up throttle tests used this source address
     const tfEmail = "twostep@example.invalid";
-    let tfCookie = await account("owner", tfEmail);
+    let tfCookie = await account("student", tfEmail); // two-step sign-in is optional for students and staff
     const tfPost = (action: string, body: unknown, cookie?: string) => send(`/api/auth/${action}`, body, { Origin: base, ...(cookie ? { cookie } : {}) });
     const tfStatus = async (cookie: string) => (await fetch(base + "/api/auth/2fa-status", { headers: { cookie } })).json();
     const tfStep = () => stepAt(Date.now());
@@ -1292,12 +1303,13 @@ async function main() {
     assert.equal((await fetch(base + "/api/workspace", { headers: { cookie: `sq-session=${challenge1.challenge}` } })).status, 401, "a challenge is not a session");
     assert.equal((await tfPost("2fa-login", { challenge: "x".repeat(40), code: "123456" })).status, 401, "garbage challenge");
     assert.equal((await tfPost("2fa-login", { challenge: challenge1.challenge, code: badCode(setup.secret) })).status, 401, "wrong code");
-    const signedIn = await tfPost("2fa-login", { challenge: challenge1.challenge, code: goodCode(setup.secret, 1) });
+    const usedCode = goodCode(setup.secret, 1); // fixed once so a 30-second boundary cannot change it between the two uses
+    const signedIn = await tfPost("2fa-login", { challenge: challenge1.challenge, code: usedCode });
     assert.equal(signedIn.status, 200, await signedIn.clone().text());
     assert.ok(signedIn.headers.get("set-cookie")?.includes("HttpOnly"));
     assert.equal((await fetch(base + "/api/workspace", { headers: { cookie: signedIn.headers.get("set-cookie")!.split(";")[0] } })).status, 200);
     const challenge2 = await rawJson(await tfPost("login", { email: tfEmail, password }));
-    assert.equal((await tfPost("2fa-login", { challenge: challenge2.challenge, code: goodCode(setup.secret, 1) })).status, 401, "a code that was already used cannot be replayed");
+    assert.equal((await tfPost("2fa-login", { challenge: challenge2.challenge, code: usedCode })).status, 401, "a code that was already used cannot be replayed");
     await clearLocks();
     // recovery codes: one use each
     const codes: string[] = enabledBody.recoveryCodes;
@@ -1367,6 +1379,127 @@ async function main() {
     assert.equal((await tfPost("2fa-disable", { password, code: "123456" }, bystander)).status, 400, "not enabled for this account");
     await clearLocks();
 
+    // ---- R9: two-step sign-in is mandatory for owners and platform admins ----
+    await RateLimit.deleteMany({ key: /^(register:ip:|2fa:|login:)/ });
+    const r9 = {
+      email: "mandatory-owner@example.invalid",
+      pass: "mandatory-owner-pass-1",
+      session: async (userId: unknown, sv = 0) => "sq-session=" + (await new SignJWT({ sv }).setProtectedHeader({ alg: "HS256" }).setSubject(String(userId)).setIssuedAt().setExpirationTime("1h").sign(new TextEncoder().encode(sessionSecret))),
+      me: async (cookie?: string) => (await (await fetch(base + "/api/auth/me", { headers: cookie ? { cookie } : {} })).json()).user,
+      status: async (path: string, cookie: string) => (await fetch(base + path, { headers: { cookie } })).status,
+    };
+    const r9token = async (userId: unknown) => { const t = rb(24).toString("base64url"); await ResetModel.create({ userId, tokenHash: hashToken(t), expiresAt: new Date(Date.now() + 600000) }); return t; };
+    // sign-up as an owner: no session, only a restricted enrolment token
+    const signup = await tfPost("register", { name: "Mandatory Owner", email: r9.email, password: r9.pass, role: "owner", library: "Mandatory Library" });
+    assert.equal(signup.status, 200);
+    assert.equal(signup.headers.get("set-cookie"), null, "owner sign-up creates no session");
+    const signupBody = await rawJson(signup);
+    assert.equal(signupBody.twoFactorEnrollmentRequired, true);
+    assert.ok(signupBody.enrollmentToken && !JSON.stringify(signupBody).includes("passwordHash"));
+    // password sign-in of the same unenrolled owner: still no session
+    const r9login = await rawJson(await tfPost("login", { email: r9.email, password: r9.pass }));
+    assert.equal(r9login.twoFactorEnrollmentRequired, true);
+    const token1 = r9login.enrollmentToken as string;
+    assert.equal((await tfPost("login", { email: r9.email, password: "wrong-password-123" })).status, 401);
+    // the token is not a session, not a second-factor challenge, and not accepted by ordinary APIs
+    for (const path of ["/api/workspace", "/api/fees", "/api/billing"]) assert.notEqual(await r9.status(path, `sq-session=${token1}`), 200, `${path} rejects the enrolment token as a session`);
+    assert.equal((await r9.me(`sq-session=${token1}`)) ?? null, null);
+    assert.equal((await tfPost("2fa-login", { challenge: token1, code: "123456" })).status, 401, "enrolment token is not a login challenge");
+    assert.equal((await tfPost("2fa-setup", { password: r9.pass })).status, 401, "enrolment needs a session or token");
+    assert.equal((await tfPost("2fa-enable", { code: "123456", enrollmentToken: "x".repeat(40) })).status, 401, "a made-up token is rejected");
+    assert.equal((await tfPost("2fa-recovery", { password: r9.pass, code: "123456", enrollmentToken: token1 })).status, 401, "the token unlocks nothing but setup and enable");
+    assert.equal((await tfPost("2fa-disable", { password: r9.pass, code: "123456", enrollmentToken: token1 })).status, 401);
+    // an old pre-policy session for the unenrolled owner is dead too (existing-session bypass)
+    const r9user = await User.findOne({ email: r9.email });
+    const r9legacy = await r9.session(r9user!._id, r9user!.sessionVersion ?? 0);
+    for (const path of ["/api/workspace", "/api/fees", "/api/billing", "/api/seat-map", "/api/access?view=manage", "/api/export"]) assert.ok([401, 403].includes(await r9.status(path, r9legacy)), `${path} refuses an unenrolled owner's session`);
+    assert.equal(await r9.me(r9legacy), null);
+    // enrolment: password, then a code from the authenticator
+    assert.equal((await tfPost("2fa-setup", { password: "wrong-password-123", enrollmentToken: token1 })).status, 400);
+    const setup1 = await rawJson(await tfPost("2fa-setup", { password: r9.pass, enrollmentToken: token1 }));
+    assert.ok(setup1.secret && setup1.qr);
+    const badEnable = await tfPost("2fa-enable", { code: badCode(setup1.secret), enrollmentToken: token1 });
+    assert.equal(badEnable.status, 400);
+    assert.equal(badEnable.headers.get("set-cookie"), null);
+    assert.equal(await r9.status("/api/workspace", r9legacy), 401, "still no access after a failed code");
+    const okEnable = await tfPost("2fa-enable", { code: goodCode(setup1.secret), enrollmentToken: token1 });
+    assert.equal(okEnable.status, 200);
+    const okBody = await rawJson(okEnable);
+    assert.equal(okBody.recoveryCodes.length, 10);
+    const r9cookie = okEnable.headers.get("set-cookie")!.split(";")[0];
+    assert.ok(okEnable.headers.get("set-cookie")!.includes("HttpOnly"));
+    assert.equal(await r9.status("/api/workspace", r9cookie), 200, "normal session after enrolment");
+    assert.equal((await tfPost("2fa-enable", { code: goodCode(setup1.secret, 1), enrollmentToken: token1 })).status, 401, "the token is single-use");
+    assert.equal((await tfPost("2fa-setup", { password: r9.pass, enrollmentToken: token1 })).status, 401);
+    assert.equal(await r9.status("/api/workspace", r9legacy), 401, "enrolment ends every earlier session");
+    assert.equal((await r9.me(r9cookie)).email, r9.email);
+    // from now on sign-in needs the code; an owner can never turn it off
+    const r9second = await rawJson(await tfPost("login", { email: r9.email, password: r9.pass }));
+    assert.equal(r9second.twoFactorRequired, true);
+    assert.equal((await tfPost("2fa-disable", { password: r9.pass, code: goodCode(setup1.secret, 1) }, r9cookie)).status, 403, "owners cannot turn two-step sign-in off");
+    assert.equal((await tfStatus(r9cookie)).enabled, true);
+    // tenant isolation is intact for the newly enrolled owner
+    assert.notEqual(String((await r9.me(r9cookie)).libraryId), String((await r9.me(owner)).libraryId));
+
+    // password reset / change / session revocation cannot bypass the policy
+    const r9row = await User.findOne({ email: r9.email });
+    await User.updateOne({ _id: r9row!._id }, { $set: { twoFactorEnabled: false } });
+    const r9reset = await tfPost("reset", { token: await r9token(r9row!._id), password: "reset-owner-password-1" });
+    assert.equal(r9reset.status, 200);
+    assert.equal(r9reset.headers.get("set-cookie"), null, "a reset link does not sign an unenrolled owner in");
+    assert.equal((await rawJson(r9reset)).twoFactorEnrollmentRequired, true);
+    assert.equal((await tfPost("change-password", { current: "reset-owner-password-1", password: "another-owner-pass-12" }, r9cookie)).status, 401, "no session, so no password change");
+    // real operator reset: the account must enrol again, there is no way in without it
+    await User.updateOne({ _id: r9row!._id }, { $set: { twoFactorEnabled: true } });
+    execFileSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", "scripts/reset-2fa.ts"], { env: { ...process.env, MONGODB_URI: replica.getUri(), RESET_2FA_EMAIL: r9.email }, stdio: "pipe" });
+    const afterOp = await User.findOne({ email: r9.email }).select("+twoFactorSecretEnc +twoFactorRecovery");
+    assert.ok(!afterOp!.twoFactorEnabled && !afterOp!.twoFactorSecretEnc && !afterOp!.twoFactorRecovery?.length);
+    assert.equal(await r9.status("/api/workspace", r9cookie), 401, "the operator reset ends the old session and grants no access");
+    const afterReset = await rawJson(await tfPost("login", { email: r9.email, password: "reset-owner-password-1" }));
+    assert.equal(afterReset.twoFactorEnrollmentRequired, true, "after an operator reset the owner must enrol again");
+    assert.ok(!afterReset.challenge);
+    const setup2 = await rawJson(await tfPost("2fa-setup", { password: "reset-owner-password-1", enrollmentToken: afterReset.enrollmentToken }));
+    const done2 = await tfPost("2fa-enable", { code: goodCode(setup2.secret), enrollmentToken: afterReset.enrollmentToken });
+    assert.equal(done2.status, 200);
+    assert.equal(await r9.status("/api/workspace", done2.headers.get("set-cookie")!.split(";")[0]), 200);
+
+    // role changes apply immediately
+    const promoted = await account("student", "promoted@example.invalid");
+    assert.equal(await r9.status("/api/workspace", promoted), 200);
+    const promotedRow = await User.findOne({ email: "promoted@example.invalid" });
+    await User.updateOne({ _id: promotedRow!._id }, { $set: { role: "owner" } });
+    assert.equal(await r9.status("/api/workspace", promoted), 401, "a user who gains the owner role loses access until enrolled");
+    await User.updateOne({ _id: promotedRow!._id }, { $set: { role: "super-admin" } });
+    assert.notEqual(await r9.status("/api/saas-admin?view=orgs", promoted), 200, "same for platform admin");
+    await User.updateOne({ _id: promotedRow!._id }, { $set: { role: "staff" } });
+    assert.equal((await r9.me(promoted))?.role, "staff", "staff are not forced to enrol");
+    await User.updateOne({ _id: promotedRow!._id }, { $set: { role: "student" } });
+    assert.equal((await r9.me(promoted))?.role, "student");
+    const stuLogin = await tfPost("login", { email: "promoted@example.invalid", password });
+    const stuBody = await rawJson(stuLogin);
+    assert.ok(stuLogin.headers.get("set-cookie") && !stuBody.twoFactorRequired && !stuBody.twoFactorEnrollmentRequired, "student sign-in is unchanged");
+
+    // platform admins: same gate, and enrolment works for them
+    const bcryptJs = (await import("bcryptjs")).default;
+    const adminAcct = await User.create({ name: "Admin Two", email: "admin2@example.invalid", passwordHash: await bcryptJs.hash("admin-two-password-1", 10), role: "super-admin" });
+    assert.notEqual(await r9.status("/api/saas-admin?view=orgs", await r9.session(adminAcct._id, 0)), 200, "unenrolled admin session is refused");
+    const adminLogin = await rawJson(await tfPost("login", { email: "admin2@example.invalid", password: "admin-two-password-1" }));
+    assert.equal(adminLogin.twoFactorEnrollmentRequired, true);
+    assert.equal(adminLogin.role, "super-admin");
+    const adminSetup = await rawJson(await tfPost("2fa-setup", { password: "admin-two-password-1", enrollmentToken: adminLogin.enrollmentToken }));
+    const adminDone = await tfPost("2fa-enable", { code: goodCode(adminSetup.secret), enrollmentToken: adminLogin.enrollmentToken });
+    assert.equal(adminDone.status, 200);
+    const adminCk = adminDone.headers.get("set-cookie")!.split(";")[0];
+    assert.equal(await r9.status("/api/saas-admin?view=orgs", adminCk), 200);
+    assert.equal((await tfPost("2fa-disable", { password: "admin-two-password-1", code: goodCode(adminSetup.secret, 1) }, adminCk)).status, 403, "platform admins cannot turn it off");
+    const unknown = await rawJson(await tfPost("login", { email: "admin-none@example.invalid", password: "nobody-nobody-12" }));
+    assert.ok(!unknown.enrollmentToken, "unknown accounts get no enrolment token");
+
+    // nothing sensitive is logged
+    const leaked = [setup1.secret, setup2.secret, adminSetup.secret, token1, afterReset.enrollmentToken, ...okBody.recoveryCodes, r9.pass].filter((v) => serverLog.includes(v));
+    assert.deepEqual(leaked, [], "no secret, token, recovery code or password appears in server logs");
+    await RateLimit.deleteMany({ key: /^2fa:/ });
+
     // ---- R8: Content-Security-Policy on public and authenticated pages (production build) ----
     const cspOf = async (path: string, cookie?: string) => { const r = await fetch(base + path, { headers: cookie ? { cookie } : {} }); return { r, csp: r.headers.get("content-security-policy") ?? "", html: await r.text() }; };
     const nonces = new Set<string>();
@@ -1390,7 +1523,7 @@ async function main() {
     const apiCsp = (await fetch(base + "/api/health")).headers.get("content-security-policy");
     assert.equal(apiCsp, "default-src 'none'; frame-ancestors 'none'", "API responses allow nothing");
     console.log(
-      "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant, two-step sign-in (TOTP, recovery codes, replay, lockout, reset/change bypass), nonce-based CSP.",
+      "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant, two-step sign-in (TOTP, recovery codes, replay, lockout, reset/change bypass), mandatory enrolment for owners and platform admins, nonce-based CSP.",
     );
   } finally {
     server.kill();

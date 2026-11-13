@@ -63,3 +63,10 @@ test("otpauth URI carries issuer, account and the standard parameters", () => {
   assert.ok(uri.startsWith("otpauth://totp/StudyQuest%3Aowner%40example.in?secret=ABCDEFGH"));
   assert.ok(uri.includes("issuer=StudyQuest") && uri.includes("digits=6") && uri.includes("period=30"));
 });
+
+test("R9 policy: owners and platform admins must use two-step sign-in; staff and students may opt in", async () => {
+  const { requiresTwoFactor } = await import("../src/lib/two-factor-policy");
+  assert.equal(requiresTwoFactor("owner"), true);
+  assert.equal(requiresTwoFactor("super-admin"), true);
+  for (const role of ["staff", "student", "", undefined, "OWNER", "admin"]) assert.equal(requiresTwoFactor(role), false, String(role));
+});

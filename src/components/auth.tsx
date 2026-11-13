@@ -1,5 +1,5 @@
 "use client";
-import { TwoFactorStep } from "./two-factor-ui";
+import { EnrollmentStep, TwoFactorStep } from "./two-factor-ui";
 import { Garden } from "@/components/ui-bits";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -34,11 +34,22 @@ export function Auth({ register }: { register: boolean }) {
   });
   const role = useWatch({ control, name: "role" });
   const [challenge, setChallenge] = useState("");
+  const [enroll, setEnroll] = useState<{ token: string; role: string } | null>(null);
   const finish = async (who: string, joined?: string) => {
     await queryClient.invalidateQueries({ queryKey: ["workspace"] });
     router.push(who === "super-admin" ? "/super-admin" : who === "owner" || who === "staff" ? "/owner" : joined ? "/app/join" : "/app");
     router.refresh();
   };
+  if (enroll)
+    return (
+      <div className="auth-page">
+        <main className="auth-main">
+          <div className="auth-form">
+            <EnrollmentStep token={enroll.token} role={enroll.role} onDone={(who) => void finish(who)} onExpired={() => setEnroll(null)} />
+          </div>
+        </main>
+      </div>
+    );
   if (challenge)
     return (
       <div className="auth-page">
@@ -106,6 +117,7 @@ export function Auth({ register }: { register: boolean }) {
                 if (!res.ok) throw new Error(result.error);
                 // Accounts with two-step sign-in get no session until the second step succeeds.
                 if (result.twoFactorRequired) return setChallenge(result.challenge);
+                if (result.twoFactorEnrollmentRequired) return setEnroll({ token: result.enrollmentToken, role: result.role });
                 await queryClient.invalidateQueries({
                   queryKey: ["workspace"],
                 });

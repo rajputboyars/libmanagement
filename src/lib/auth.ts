@@ -4,6 +4,7 @@ import { User } from "./models";
 import { db } from "./db";
 import type { Types } from "mongoose";
 import type { NextResponse } from "next/server";
+import { requiresTwoFactor } from "./two-factor-policy";
 export type AuthUser = {
   _id: Types.ObjectId;
   name: string;
@@ -13,6 +14,7 @@ export type AuthUser = {
   sessionVersion?: number;
   deletedAt?: Date;
   suspendedAt?: Date;
+  twoFactorEnabled?: boolean;
 };
 export function validOrigin(request: Request) {
   const origin = request.headers.get("origin");
@@ -50,6 +52,9 @@ export async function currentUser() {
     const user = await User.findById(payload.sub).lean<AuthUser>();
     // Sessions end when the account is deleted or its session version changes (password reset/change, sign out everywhere).
     if (!user || user.deletedAt || user.suspendedAt || (user.sessionVersion ?? 0) !== Number(payload.sv ?? 0)) return null;
+    // Privileged accounts (owner, platform admin) without two-step sign-in have no usable session, whatever cookie they hold.
+    // This is the single server-side gate: it also covers sessions issued before the policy and accounts that just gained a privileged role.
+    if (requiresTwoFactor(user.role) && !user.twoFactorEnabled) return null;
     return user;
   } catch {
     return null;
@@ -74,16 +79,22 @@ export function setSessionCookie(response: NextResponse, token: string) {
   response.cookies.set("sq-session", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 604800 });
   return response;
 }
-/** A short-lived proof that the password step succeeded. It is not a session: it only unlocks the second-factor endpoint. */
-export async function issueChallenge(userId: string, sessionVersion = 0) {
-  return new SignJWT({ sv: sessionVersion, purpose: "2fa" }).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setIssuedAt().setExpirationTime("5m").sign(secret());
+/** A short-lived proof that the password step succeeded. It is not a session: it only unlocks the 2FA endpoints for its purpose. */
+export type ChallengePurpose = "2fa" | "2fa-enroll";
+export async function issueChallenge(userId: string, sessionVersion = 0, purpose: ChallengePurpose = "2fa") {
+  return new SignJWT({ sv: sessionVersion, purpose }).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setIssuedAt().setExpirationTime(purpose === "2fa" ? "5m" : "15m").sign(secret());
 }
-export async function readChallenge(token: string): Promise<{ userId: string; sv: number } | null> {
+export async function readChallenge(token: string, purpose: ChallengePurpose = "2fa"): Promise<{ userId: string; sv: number } | null> {
   try {
     const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
-    if (payload.purpose !== "2fa" || !payload.sub) return null;
+    if (payload.purpose !== purpose || !payload.sub) return null;
     return { userId: String(payload.sub), sv: Number(payload.sv ?? 0) };
   } catch {
     return null;
   }
+}
+/** Response for a privileged account that has not enrolled yet: no cookie, only a restricted enrolment token. */
+export async function enrollmentRequired(user: { _id: unknown; role: string; sessionVersion?: number; twoFactorEnabled?: boolean }) {
+  if (!requiresTwoFactor(user.role) || user.twoFactorEnabled) return null;
+  return { twoFactorEnrollmentRequired: true, enrollmentToken: await issueChallenge(String(user._id), user.sessionVersion ?? 0, "2fa-enroll"), role: user.role };
 }
