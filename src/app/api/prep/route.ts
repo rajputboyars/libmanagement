@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { libraryClock } from "@/lib/library-hours";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
@@ -229,6 +230,7 @@ export async function POST(request: NextRequest) {
     async function create(doc: Record<string, unknown>) {
       try { return await TestAttempt.create({ userId: user!._id, libraryId: user!.libraryId, examKey: needExam().examKey, startedAt: now, ...doc }); }
       catch (e) {
+        reportUnexpected(e, "/api/prep");
         if ((e as { code?: number }).code !== 11000) throw e;
         const existing = await TestAttempt.findOne({ userId: user!._id, ...(doc.templateId ? { templateId: doc.templateId, state: { $in: ["in-progress", "scoring"] } } : { kind: doc.kind, day: doc.day }) });
         if (!existing) throw e;
@@ -443,6 +445,7 @@ export async function POST(request: NextRequest) {
       default: throw new Error("Unsupported action");
     }
   } catch (error) {
+    reportUnexpected(error, "/api/prep");
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update" }, { status: error instanceof z.ZodError ? 422 : 400 });
   }
 }

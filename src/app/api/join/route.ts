@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -153,6 +154,7 @@ export async function POST(request: NextRequest) {
     }
     throw new Error("Unsupported action");
   } catch (error) {
+    reportUnexpected(error, "/api/join");
     if (error instanceof PlanError) return err(error.message, 402, error.code);
     if ((error as { code?: number }).code === 11000) return err("You already have a pending request");
     return err(error instanceof z.ZodError ? error.issues[0]?.message || "Check your entries" : error instanceof Error ? error.message : "Unable to update", error instanceof z.ZodError ? 422 : 400);

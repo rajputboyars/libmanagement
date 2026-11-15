@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -242,6 +243,7 @@ export async function POST(request: NextRequest) {
     } else throw new Error("Unsupported action");
     return NextResponse.json({ ok: true, record });
   } catch (error) {
+    reportUnexpected(error, "/api/community");
     const denied = accessResponse(error);
     if (denied) return denied;
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update community" }, { status: error instanceof z.ZodError ? 422 : 400 });

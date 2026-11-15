@@ -1,3 +1,4 @@
+import { reportUnexpected } from "./api-errors";
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -89,6 +90,7 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
     cookie(response, await issueSession(String(full._id), full.sessionVersion));
     return response;
   } catch (error) {
+    reportUnexpected(error, "/api/auth/account");
     return NextResponse.json({ error: error instanceof z.ZodError ? "Check your entries. Passwords need at least 10 characters." : "Unable to complete the request." }, { status: 400 });
   }
 }

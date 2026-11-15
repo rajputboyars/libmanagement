@@ -65,9 +65,15 @@ GitHub-hosted runners have changing IP addresses and Atlas blocks unknown addres
 
 Least privilege: the **backup job** needs read on the database and `PutObject` + `ListBucket` (+ `GetObject` for checks) on the bucket; only the **retention job** needs `DeleteObject`. The **restore operator** needs `GetObject`/`ListBucket`, the key ring, and `readWrite` on the *target* database only. Nobody should hold production write credentials to run a restore drill.
 
-## Health checks and alerts
+## Health checks, monitoring and alerts (R10 + R11)
 
-`npm run backup:check [-- --deep]` exits non-zero and alerts when: no backup exists, the newest is older than 26 hours (stale), an archive has no sidecar after an hour (incomplete), a sidecar has no archive (missing), the stored size differs from the recorded size (truncated/corrupted), too few complete backups exist, or (with `--deep`) the newest archive cannot be downloaded, **decrypted (GCM authentication)** or fails its collection checksums. A warning is raised if the newest backup has fewer than half the previous documents. Run the quick check daily and the deep check weekly (`backup.yml`). **No alert destination exists yet**, so alerts are unverified until `ALERT_WEBHOOK_URL` is configured (see MONITORING.md).
+`npm run backup:check [-- --deep]` exits non-zero and alerts when: no backup exists, the newest is older than 26 hours (stale), an archive has no sidecar after an hour (incomplete), a sidecar has no archive (missing), the stored size differs from the recorded size (truncated/corrupted), too few complete backups exist, or (with `--deep`) the newest archive cannot be downloaded, **decrypted (GCM authentication)** or fails its collection checksums. A warning is raised if the newest backup has fewer than half the previous documents. Run the quick check daily and the deep check weekly (`backup.yml`).
+
+**Monitoring connection (R11, details and operator procedures in MONITORING.md):**
+- `npm run backup:status` reports the last successful backup time/age, the number of complete backups and the last integrity check (time, deep or not, problems); exit 1 when stale, failing, or the deep check has not run for 8 days.
+- Alerts `backup.failed`, `backup.stale`, `backup.check_failed` go to `ALERT_WEBHOOK_URL` (deduplicated); a `RESOLVED` notice follows the next success (state is kept in `backup-status.json` beside the backups).
+- A scheduler that silently stops produces no failure, so set `BACKUP_HEARTBEAT_URL` (daily) and `BACKUP_CHECK_HEARTBEAT_URL` (weekly) to a dead-man's-switch (healthchecks-style): the jobs `POST` it after each success and `<url>/fail` after a failure; the provider alerts on a **missing** ping. GitHub disables scheduled workflows after 60 days without repository activity, which is exactly the failure this catches.
+- **No alert destination or heartbeat monitor exists yet**, so none of this is verified end to end (see the MONITORING.md checklist).
 
 ## Restore runbook
 
@@ -114,5 +120,5 @@ Never restore over the live database. The tool enforces this: the target must be
 - [ ] `BACKUP_ENCRYPTION_KEYS` generated, stored in the secret manager and offline with two custodians.
 - [ ] Read-only backup database user created; backup host IP added to the Atlas access list.
 - [ ] Workflow secrets/cron installed; first scheduled backup observed to succeed.
-- [ ] `ALERT_WEBHOOK_URL` set; a failing/stale backup demonstrably alerts.
+- [ ] `ALERT_WEBHOOK_URL`, `BACKUP_HEARTBEAT_URL` and `BACKUP_CHECK_HEARTBEAT_URL` set; a failing/stale backup and a skipped run each demonstrably alert (MONITORING.md verification procedure).
 - [ ] Restore of the real backup into staging performed, verified and recorded (with duration).

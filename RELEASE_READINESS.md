@@ -18,7 +18,7 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 | 6 | Accessibility | PASS (automated) / manual NOT TESTED | Low |
 | 7 | Reliability | PASS (automated) · load NOT TESTED | Medium |
 | 8 | Backups / restoration | Encrypted off-site backup, checks and verified restore IMPLEMENTED and drilled on a disposable database · **BLOCKED** (no production backup, bucket, key or Atlas Cloud Backup configured) | Critical |
-| 9 | Monitoring | **BLOCKED** (not configured) | Critical |
+| 9 | Monitoring | Logging, scrubbing, health, deduplicated alerting and backup monitoring IMPLEMENTED and tested locally · **BLOCKED** (no external monitoring configured or verified) | Critical |
 | 10 | Documentation | PASS (legal pages are placeholders) | High |
 | 11 | Deployment | PARTIAL (image built, nothing deployed) | High |
 | 12 | Pilot acceptance | **NOT TESTED** | High |
@@ -131,9 +131,15 @@ DRILL RESULT: PASS  (2026-11-14, Windows laptop, MongoDB 7.0.14 in-memory replic
   These numbers are for a tiny dataset on a laptop and are **not** a production RTO or RPO.
 - **BLOCKED / NOT VERIFIED (Critical):** no production database backup exists. Atlas Cloud Backup (continuous PITR) is not confirmed (needs a dedicated tier; the Atlas tier is unknown). No bucket, encryption key, read-only backup user or workflow secrets exist; the S3 client was exercised only against a local signed endpoint, never a real provider; the scheduled workflow has never run; alert delivery is unverified; no restore from a real backup into staging has been performed and no real recovery time is known. Action: complete the go-live checklist at the end of docs/BACKUP_RESTORE.md and record a restore into staging.
 
-### 9. Monitoring — BLOCKED
-Implemented: structured redacted JSON logs, request ids, health/readiness endpoints, global error hook, alert webhook, job heartbeat, audit logs, documented alert rules (docs/MONITORING.md).
-**Not configured:** no provider, no uptime probe, no alert destination or recipients. Monitoring is **not active** and no alert has been verified end to end. Severity Critical. Action: follow docs/MONITORING.md steps 1–5 and record the evidence.
+### 9. Monitoring — IMPLEMENTED (R11) · BLOCKED (external)
+Implemented and tested (docs/MONITORING.md is the runbook and operator checklist):
+- Structured JSON logs (severity, timestamp, environment, request id) with scrubbing of passwords, cookies, authorization headers, session tokens, TOTP seeds, recovery codes, database URIs (credentials and hosts), JWTs, emails, phone/card numbers and payment key ids; no request bodies or records logged; stack frames only in server logs, never in responses.
+- Capture: unexpected API errors (all route catch blocks, classified so business errors never page anyone), uncaught route/render errors, process crashes (log, alert, exit 1 as before) and unhandled rejections, worker failures.
+- Liveness (`/api/health`, no dependencies) and readiness (`/api/ready`, bounded 3 s database probe, coarse body with no credentials, topology, key names or business data).
+- Alerts via `ALERT_WEBHOOK_URL`: deduplication with cooldowns, storm cap, cross-instance claim (fails open), recovery notices, https-only in production, timeouts, never throws or blocks requests. Keys: config, database, API error rate/unexpected errors, crash, worker, jobs, billing, backup failed/stale/integrity.
+- Backup monitoring: `npm run backup:status` (last successful backup, integrity-check state), persisted alert state for recovery notices, dead-man's-switch heartbeats (`BACKUP_HEARTBEAT_URL`, `BACKUP_CHECK_HEARTBEAT_URL`, `WORKER_HEARTBEAT_URL`) that detect a scheduler that silently stops.
+- Tests: `tests/monitoring.test.ts` (scrubbing, dedup/cooldown/storm/recovery, delivery failure/hang/bad URL, cross-instance claim, error-rate, classification, heartbeat, backup status) and the HTTP suite (the **entire** suite, including sign-in and payments, runs while the alert webhook returns HTTP 500; health endpoints and leakage; an instance with an unreachable database keeps liveness up, fails readiness fast with no internals, answers users with generic errors, sends exactly one `db.unavailable` alert and logs no URI or secret).
+- **BLOCKED / UNVERIFIED (Critical):** no monitoring provider is chosen (hosting undecided), no uptime probe, dead-man's-switch, log collector, alert destination or recipients exist, and **no alert has been delivered to a real destination** (delivery was verified only against a local HTTPS test sink). An error-tracking SaaS was not added (Next.js 16 / hosting compatibility unverified). Action: complete the checklist and verification procedure in docs/MONITORING.md and record evidence here.
 
 ### 10. Documentation — PASS (legal placeholders)
 Present: README, DEPLOYMENT, BACKUP_RESTORE, MONITORING, SECURITY, PILOT, `.env.example` (no secrets), PROGRESS.
@@ -150,7 +156,7 @@ Tooling is ready and tested: validated CSV import with duplicate detection, seat
 ## Exact blockers to READY
 
 1. **Backups:** enable Atlas Cloud Backup (or accept the 24-hour RPO in writing), create the bucket, encryption key and read-only backup user, schedule and observe a real backup, verify alerting, and complete a recorded restore of that real backup into staging (checklist in docs/BACKUP_RESTORE.md).
-2. **Monitoring/alerting:** configure a provider, uptime probe, alert destination and recipients; verify with a real triggered alert.
+2. **Monitoring/alerting:** create the alert webhook and recipients, external uptime probes on `/api/ready` and `/api/health`, the three heartbeat monitors and Atlas Alerts; verify a real `db.unavailable` alert and recovery and a missed-heartbeat alert, and record the evidence (checklist in docs/MONITORING.md).
 3. **Payments:** run Razorpay test-mode end to end on staging; tax/GST and payment-compliance review; written approval before any live key.
 4. **Security:** set `TWO_FACTOR_KEY` (mandatory two-step sign-in is enforced since R9), enrol two platform admins, independent security review/penetration test.
 5. **Legal:** lawyer-reviewed Privacy Policy and Terms; DPDP consent and children's-data review.

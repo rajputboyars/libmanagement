@@ -6,6 +6,28 @@ import mongoose from "mongoose";
 import { dayKey } from "../src/lib/punch";
 import { StudySession } from "../src/lib/models";
 import { SignJWT } from "jose";
+import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// A local HTTPS "alert webhook" with a throwaway self-signed certificate (the application refuses plain http alert destinations in production).
+type Sink = { url: string; hits: { body: Record<string, unknown> }[]; status: number; server: HttpsServer };
+async function startSink(status: number): Promise<Sink | null> {
+  const dir = mkdtempSync(join(tmpdir(), "sq-sink-"));
+  try {
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(dir, "k.pem"), "-out", join(dir, "c.pem"), "-days", "1", "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1"], { stdio: "ignore" });
+    const sink = { hits: [] as Sink["hits"], status } as Sink;
+    sink.server = createHttpsServer({ key: readFileSync(join(dir, "k.pem")), cert: readFileSync(join(dir, "c.pem")) }, (req, res) => {
+      let data = "";
+      req.on("data", (c) => { data += c; });
+      req.on("end", () => { try { sink.hits.push({ body: JSON.parse(data) }); } catch { /* ignore */ } res.writeHead(sink.status); res.end("{}"); });
+    });
+    await new Promise<void>((r) => sink.server.listen(0, "127.0.0.1", r));
+    sink.url = `https://127.0.0.1:${(sink.server.address() as { port: number }).port}/alert`;
+    return sink;
+  } catch { return null; } finally { rmSync(dir, { recursive: true, force: true }); }
+}
 async function main() {
   const replica = await MongoMemoryReplSet.create({
     replSet: { count: 1 },
@@ -13,6 +35,9 @@ async function main() {
   });
   const base = "http://127.0.0.1:3101";
   const sessionSecret = randomBytes(32).toString("hex");
+  const failingSink = await startSink(500); // alert delivery that always FAILS: the whole suite below must still pass
+  const okSink = await startSink(200);
+  const extraServers: ReturnType<typeof spawn>[] = [];
   const server = spawn(
     process.execPath,
     [
@@ -30,6 +55,7 @@ async function main() {
         SESSION_SECRET: sessionSecret,
         APP_URL: base,
         ALLOW_BILLING_SANDBOX: "1",
+        ...(failingSink ? { ALERT_WEBHOOK_URL: failingSink.url, NODE_TLS_REJECT_UNAUTHORIZED: "0" } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -1500,6 +1526,71 @@ async function main() {
     assert.deepEqual(leaked, [], "no secret, token, recovery code or password appears in server logs");
     await RateLimit.deleteMany({ key: /^2fa:/ });
 
+    // ---- R11: health endpoints, monitoring failures never break business flows, alert delivery, no leakage ----
+    if (!failingSink || !okSink) console.log("NOTE: openssl is unavailable, so the HTTPS alert-webhook checks were SKIPPED");
+    // liveness and readiness are public, uncached and expose nothing but coarse state
+    const r11live = await fetch(base + "/api/health");
+    assert.equal(r11live.status, 200); assert.equal(r11live.headers.get("cache-control"), "no-store");
+    assert.deepEqual(Object.keys(await r11live.json()).sort(), ["status", "uptimeSeconds"]);
+    assert.equal((await fetch(base + "/api/health", { method: "HEAD" })).status, 200);
+    const r11Ready = await fetch(base + "/api/ready");
+    const r11ReadyText = await r11Ready.text();
+    assert.equal(r11Ready.headers.get("cache-control"), "no-store");
+    const r11ReadyBody = JSON.parse(r11ReadyText);
+    assert.deepEqual(Object.keys(r11ReadyBody).sort(), ["alerting", "checks", "degraded", "status"]);
+    assert.ok(r11Ready.status === 200 || r11Ready.status === 503);
+    assert.equal(r11ReadyBody.checks.database.ok, true);
+    assert.ok(!/mongodb|replicaSet|127\.0\.0\.1:\d{5}|SESSION_SECRET|@/.test(r11ReadyText), "readiness exposes no credentials, hosts or topology");
+    assert.ok(!/libraryId|email|membership|payment|student/i.test(r11ReadyText), "health endpoints carry no tenant or business data");
+    assert.equal(r11ReadyBody.alerting, failingSink ? "configured" : "not-configured");
+
+    // the failing webhook received the boot-time configuration alert (production config is intentionally imperfect in this harness) and nothing broke
+    if (failingSink) {
+      for (let i = 0; i < 20 && !failingSink.hits.length; i++) await new Promise((r) => setTimeout(r, 250));
+      assert.ok(failingSink.hits.length >= 1, "alert delivery was attempted");
+      const first = failingSink.hits[0].body as Record<string, unknown> & { key?: string; status?: string; text?: string; severity?: string; runbook?: string; details?: Record<string, unknown> };
+      assert.equal(first.key, "config.invalid"); assert.equal(first.status, "firing"); assert.match(String(first.text), /CRITICAL/);
+      assert.ok(!JSON.stringify(first).includes(sessionSecret), "alert payloads never carry secrets");
+      assert.ok(failingSink.hits.length < 5, "alerts are deduplicated, not repeated per request");
+    }
+    assert.ok(!serverLog.includes(replica.getUri()), "the database connection string never appears in server logs");
+    assert.ok(!serverLog.includes("mongodb://"), "no database URI of any kind in server logs");
+
+    // an application instance whose database is DOWN: liveness stays up, readiness fails fast and quietly, users get generic errors, one alert is sent
+    if (okSink) {
+      const dead = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", "3102", "--hostname", "127.0.0.1"], {
+        env: { ...process.env, MONGODB_URI: "mongodb://127.0.0.1:1/unreachable?serverSelectionTimeoutMS=1500", SESSION_SECRET: sessionSecret, APP_URL: "http://127.0.0.1:3102", ALERT_WEBHOOK_URL: okSink.url, NODE_TLS_REJECT_UNAUTHORIZED: "0" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      extraServers.push(dead);
+      let deadLog = "";
+      dead.stdout!.on("data", (c) => { deadLog += c; }); dead.stderr!.on("data", (c) => { deadLog += c; });
+      const d = "http://127.0.0.1:3102";
+      for (let i = 0; i < 60; i++) { try { if ((await fetch(d + "/api/health")).ok) break; } catch { /* starting */ } await new Promise((r) => setTimeout(r, 500)); }
+      assert.equal((await fetch(d + "/api/health")).status, 200, "liveness does not depend on MongoDB");
+      const t0 = Date.now();
+      const deadReady = await fetch(d + "/api/ready");
+      const deadText = await deadReady.text();
+      assert.equal(deadReady.status, 503);
+      assert.ok(Date.now() - t0 < 8000, "readiness answers within its probe timeout instead of hanging");
+      assert.equal(JSON.parse(deadText).checks.database.detail, "unreachable");
+      assert.ok(!/mongodb|127\.0\.0\.1:1|unreachable\?|ECONNREFUSED|MongoServer/i.test(deadText.replace('"unreachable"', "")), "readiness reveals no topology or driver errors");
+      // a user trying to sign in during the outage gets a generic message, not internals
+      const login = await fetch(d + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json", Origin: d }, body: JSON.stringify({ email: "someone@example.invalid", password: "a-long-enough-password" }) });
+      const loginText = await login.text();
+      assert.ok(login.status >= 400 && login.status < 600);
+      assert.ok(!/mongodb|ECONNREFUSED|MongoServer|\sat\s.+\(.*:\d+:\d+\)|node_modules/i.test(loginText), "no stack trace or driver error reaches the user");
+      assert.equal((await fetch(d + "/api/health")).status, 200, "the process keeps serving after the failures");
+      for (let i = 0; i < 24 && !okSink.hits.some((h) => (h.body as { key?: string }).key === "db.unavailable"); i++) await new Promise((r) => setTimeout(r, 250));
+      const dbAlerts = okSink.hits.filter((h) => (h.body as { key?: string }).key === "db.unavailable");
+      assert.equal(dbAlerts.length, 1, "exactly one database-unavailable alert despite several failing requests");
+      const dbBody = dbAlerts[0].body as Record<string, unknown> & { key?: string; status?: string; text?: string; severity?: string; runbook?: string; details?: Record<string, unknown> };
+      assert.equal(dbBody.severity, "critical"); assert.match(String(dbBody.runbook), /MONITORING\.md#alert-db/);
+      assert.ok(!JSON.stringify(dbBody).includes("mongodb://"), "alert has no database URI");
+      assert.ok(!deadLog.includes("mongodb://") && !deadLog.includes(sessionSecret), "the unavailable-database logs carry no URI or secret");
+      assert.ok(/api\.unexpected_error|alert\.db\.unavailable/.test(deadLog), "the failures were logged for operators");
+    }
+
     // ---- R8: Content-Security-Policy on public and authenticated pages (production build) ----
     const cspOf = async (path: string, cookie?: string) => { const r = await fetch(base + path, { headers: cookie ? { cookie } : {} }); return { r, csp: r.headers.get("content-security-policy") ?? "", html: await r.text() }; };
     const nonces = new Set<string>();
@@ -1523,9 +1614,11 @@ async function main() {
     const apiCsp = (await fetch(base + "/api/health")).headers.get("content-security-policy");
     assert.equal(apiCsp, "default-src 'none'; frame-ancestors 'none'", "API responses allow nothing");
     console.log(
-      "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant, two-step sign-in (TOTP, recovery codes, replay, lockout, reset/change bypass), mandatory enrolment for owners and platform admins, nonce-based CSP.",
+      "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant, two-step sign-in (TOTP, recovery codes, replay, lockout, reset/change bypass), mandatory enrolment for owners and platform admins, nonce-based CSP, health endpoints, alert-delivery failure isolation, database-outage behaviour.",
     );
   } finally {
+    for (const x of extraServers) x.kill();
+    failingSink?.server.close(); okSink?.server.close();
     server.kill();
     await mongoose.disconnect();
     await replica.stop();

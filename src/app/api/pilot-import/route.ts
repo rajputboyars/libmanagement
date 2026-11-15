@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
@@ -136,6 +137,7 @@ export async function POST(request: NextRequest) {
     await audit({ organizationId: orgId as never, actorId: user._id, actorRole: "org-owner", action: "pilot.import", details: { ...created, ...result.totals } });
     return NextResponse.json({ ok: true, created, totals: result.totals });
   } catch (error) {
+    reportUnexpected(error, "/api/pilot-import");
     if (error instanceof PlanError) return err(error.message, 402, { code: error.code });
     return err(error instanceof z.ZodError ? error.issues[0]?.message || "Check the request" : error instanceof Error ? error.message : "Import failed");
   }

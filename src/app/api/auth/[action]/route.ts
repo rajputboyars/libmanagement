@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -146,6 +147,7 @@ export async function POST(
     });
     return response;
   } catch (error) {
+    reportUnexpected(error, "/api/auth/[action]");
     const message =
       error instanceof z.ZodError
         ? "Please check your entries. Passwords need at least 10 characters."

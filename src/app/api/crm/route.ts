@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest) {
     await audit({ organizationId: orgId as never, actorId: user._id, actorRole: user.role, action: `crm.${body.action}` });
     return NextResponse.json({ ok: true, record });
   } catch (error) {
+    reportUnexpected(error, "/api/crm");
     if (error instanceof PlanError) return err(error.message, 402, error.code);
     return err(error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update", error instanceof z.ZodError ? 422 : 400);
   }

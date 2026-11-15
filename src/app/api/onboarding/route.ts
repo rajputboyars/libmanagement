@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { createHash, randomInt } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -142,6 +143,7 @@ export async function POST(request: NextRequest) {
     await draft.save();
     return NextResponse.json({ ok: true, record, completed: draft.completed, lastStep: draft.lastStep, status: draft.status });
   } catch (error) {
+    reportUnexpected(error, "/api/onboarding");
     if (error instanceof PlanError) return err(error.message, 402, error.code);
     return err(error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to save", error instanceof z.ZodError ? 422 : 400);
   }

@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import bcrypt from "bcryptjs";
 import { verifySecondFactor } from "@/lib/two-factor-server";
 import { clientIp } from "@/lib/security";
@@ -83,6 +84,7 @@ export async function POST(request: NextRequest) {
     response.cookies.delete("sq-session");
     return response;
   } catch (error) {
+    reportUnexpected(error, "/api/privacy");
     return err(error instanceof z.ZodError ? 'Type DELETE and your password to confirm' : error instanceof Error ? error.message : "Unable to complete the request", 400);
   }
 }

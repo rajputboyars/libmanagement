@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { limited, validOrigin } from "@/lib/auth";
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
     await notifyOrg({ organizationId: access.org._id, key: `lead:${lead._id}`, kind: "lead", title: "New admission enquiry", message: `${v.name} enquired about your library.` }).catch(() => null);
     return ok();
   } catch (error) {
+    reportUnexpected(error, "/api/leads");
     return fail(error instanceof z.ZodError ? error.issues[0]?.message || "Check the form" : "Unable to send. Please try again.", error instanceof z.ZodError ? 422 : 400);
   }
 }

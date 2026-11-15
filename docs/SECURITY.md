@@ -58,6 +58,14 @@ Status key: **Implemented** (code + test evidence), **Partial**, **Not implement
 - **Restore safety:** targets must be new, empty and explicitly named; the live database is refused; non-empty targets are never overwritten; a typed `<db>@<host>` confirmation is required (otherwise dry run); decrypted data is released only after GCM authentication and checksum verification; success needs verified counts, indexes, per-tenant counts and zero cross-tenant references.
 - **Residual risks:** the logical dump is not point-in-time consistent (Atlas continuous backup covers that); anyone holding both the key and bucket read access can read all data; the plaintext temporary directory depends on the backup host's disk protection.
 
+## Observability and alerting (R11)
+
+- **Logging hygiene:** JSON logs with request id and severity; every field is scrubbed (keys such as password, cookie, authorization, token, session, seed, totp, recovery, uri, card, email, phone; and free-text patterns for database URIs including hosts, Bearer tokens, `name=value` cookie/password pairs, JWTs, emails, long digit runs, recovery-code shapes, payment key ids and long opaque strings). Request bodies and database records are never logged. Logging and alerting never throw.
+- **No internal detail to users:** stack traces and driver errors are logged server-side only; the health endpoints return coarse state only (no hostnames, versions, configuration key names, counts or tenant data) and are uncached.
+- **Alert channel:** `ALERT_WEBHOOK_URL` must be https in production, is called with a 4 s timeout and no redirects, carries scrubbed context and a runbook pointer, is deduplicated and storm-limited, and delivery failures are logged but never affect login, payments or any business workflow (verified in the HTTP suite with a webhook that returns 500). Treat the URL as a secret; it lets anyone post to your on-call channel.
+- **Crash handling:** an uncaught exception is logged and alerted, then the process exits with code 1 (same as Node's default); rejections are logged and alerted without stopping the process.
+- **Residual risks:** monitoring is not active until the operator checklist in docs/MONITORING.md is completed; alert state is per process (shared MongoDB claim reduces duplicates but fails open); the webhook is the only notification path, so also use an external uptime monitor and dead-man's-switches that alert independently of this application.
+
 ## Reporting
 
 Security reports should go to a monitored address (to be defined by the business) and be triaged within 2 business days.

@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -130,6 +131,7 @@ export async function POST(request: NextRequest) {
     } finally { await session.endSession(); }
     return NextResponse.json({ ok: true, record, affectedAssignments });
   } catch (error) {
+    reportUnexpected(error, "/api/maintenance");
     const denied = accessResponse(error);
     if (denied) return denied;
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update maintenance" }, { status: error instanceof z.ZodError ? 422 : 400 });

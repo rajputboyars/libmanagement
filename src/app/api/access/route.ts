@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import mongoose, { Types } from "mongoose";
 import { z } from "zod";
@@ -122,6 +123,7 @@ export async function POST(request: NextRequest) {
     await AuditLog.create({ libraryId, actorId: user._id, action: `access.${body.action}`, recordId });
     return NextResponse.json({ ok: true });
   } catch (e) {
+    reportUnexpected(e, "/api/access");
     if (e instanceof PlanError) return err(e.message, 402, e.code);
     if ((e as { code?: number }).code === 11000) return err("A role with that name already exists");
     return err(e instanceof z.ZodError ? e.issues[0]?.message || "Check your entries" : e instanceof Error ? e.message : "Unable to save", e instanceof z.ZodError ? 422 : 400);

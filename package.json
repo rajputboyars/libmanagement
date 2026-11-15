@@ -14,6 +14,7 @@
     "worker": "node --env-file=.env.local --import tsx scripts/worker.ts",
     "backup:run": "node --env-file=.env.local --import tsx scripts/backup.ts run",
     "backup:check": "node --env-file=.env.local --import tsx scripts/backup.ts check",
+    "backup:status": "node --env-file=.env.local --import tsx scripts/backup.ts status",
     "backup:list": "node --env-file=.env.local --import tsx scripts/backup.ts list",
     "backup:prune": "node --env-file=.env.local --import tsx scripts/backup.ts prune",
     "backup:restore": "node --env-file=.env.local --import tsx scripts/backup.ts restore",

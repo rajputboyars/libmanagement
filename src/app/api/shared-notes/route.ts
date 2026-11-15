@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { assertTeam, guardMember } from "@/lib/access";
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
       await Notification.create({ userId: note.userId, libraryId: user.libraryId, title: "Shared note hidden", message: `Your library hid “${note.title}” from classmates: ${v.reason}` });
     return NextResponse.json({ ok: true });
   } catch (e) {
+    reportUnexpected(e, "/api/shared-notes");
     if (e instanceof z.ZodError) return err(e.issues[0]?.message ?? "Invalid request");
     return err(e instanceof Error ? e.message : "Could not save");
   }

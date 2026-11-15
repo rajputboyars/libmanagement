@@ -1,3 +1,4 @@
+import { reportUnexpected } from "./api-errors";
 import bcrypt from "bcryptjs";
 import QRCode from "qrcode";
 import { NextResponse } from "next/server";
@@ -172,6 +173,7 @@ export async function handleTwoFactor(action: string, req: Request): Promise<Nex
     log("info", "auth.2fa_recovery_regenerated", { userId: id });
     return json({ ok: true, recoveryCodes: plain });
   } catch (error) {
+    reportUnexpected(error, "/api/auth/2fa");
     return json({ error: error instanceof z.ZodError ? "Check your entries." : "Unable to complete the request." }, 400);
   }
 }

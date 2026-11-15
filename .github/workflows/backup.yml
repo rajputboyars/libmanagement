@@ -42,6 +42,7 @@ jobs:
           BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
           BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
           ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          BACKUP_HEARTBEAT_URL: ${{ secrets.BACKUP_HEARTBEAT_URL }} # dead-man's-switch: a MISSING ping is the alert for a job that stopped running
           NODE_ENV: production
 
   check:
@@ -65,4 +66,5 @@ jobs:
           BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
           BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
           ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          BACKUP_CHECK_HEARTBEAT_URL: ${{ secrets.BACKUP_CHECK_HEARTBEAT_URL }}
           NODE_ENV: production

@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ ok: true, record: record.toObject() });
   } catch (error) {
+    reportUnexpected(error, "/api/doubts");
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check the question" : error instanceof Error ? error.message : "Unable to solve this doubt" }, { status: error instanceof z.ZodError ? 422 : 400 });
   }
 }

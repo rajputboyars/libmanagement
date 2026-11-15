@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { guardTeam } from "@/lib/access";
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest) {
     const total = rows.reduce((t, r) => ({ students: t.students + r.students, revenuePaise: t.revenuePaise + r.revenuePaise, expensesPaise: t.expensesPaise + r.expensesPaise, netPaise: t.netPaise + r.netPaise, seats: t.seats + r.seats, seatsInUse: t.seatsInUse + r.seatsInUse, leads: t.leads + r.leads, converted: t.converted + r.converted }), { students: 0, revenuePaise: 0, expensesPaise: 0, netPaise: 0, seats: 0, seatsInUse: 0, leads: 0, converted: 0 });
     return NextResponse.json({ days, comparison: advanced, branches: rows, total: { ...total, utilizationPct: rate(total.seatsInUse, total.seats), leadConversionPct: rate(total.converted, total.leads) }, note: advanced ? undefined : "Branch comparison is part of advanced reporting (Pro and above)." });
   } catch (error) {
+    reportUnexpected(error, "/api/org-analytics");
     if (error instanceof PlanError) return NextResponse.json({ error: error.message }, { status: 402 });
     throw error;
   }

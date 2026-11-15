@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest) {
     const session = (r.record.sessions as Session[]).filter((s) => s.outAt && new Date(s.outAt).getTime() === now.getTime())[0];
     return NextResponse.json({ ok: true, at: now, minutes: session ? sessionMinutes([session]) : 0 });
   } catch (error) {
+    reportUnexpected(error, "/api/punch");
     if (error instanceof PlanError) return err(error.message, 402, error.code);
     const accessDenied = accessResponse(error);
     if (accessDenied) return accessDenied;

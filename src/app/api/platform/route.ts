@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
@@ -187,6 +188,7 @@ export async function POST(request: NextRequest) {
     await audit({ actorId: user._id, actorRole: "super-admin", action: action === "account-suspend" ? "account.suspend" : "account.reinstate", targetType: "user", targetId: String(v.userId), details: { reason: v.reason } });
     return NextResponse.json({ ok: true });
   } catch (e) {
+    reportUnexpected(e, "/api/platform");
     if (e instanceof z.ZodError) return err(e.issues[0]?.message ?? "Invalid request");
     return err(e instanceof Error ? e.message : "Could not save");
   }

@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
     } finally { await session.endSession(); }
     return NextResponse.json({ ok: true, record });
   } catch (error) {
+    reportUnexpected(error, "/api/rewards");
     const denied = accessResponse(error);
     if (denied) return denied;
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update rewards" }, { status: error instanceof z.ZodError ? 422 : 400 });

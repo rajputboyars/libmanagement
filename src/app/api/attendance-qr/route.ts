@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
 import { currentUser, secret } from "@/lib/auth";
@@ -16,6 +17,7 @@ export async function GET(req: NextRequest) {
   try {
     await requireFeature(user.libraryId, "qr-attendance", "QR attendance");
   } catch (error) {
+    reportUnexpected(error, "/api/attendance-qr");
     if (error instanceof PlanError) return NextResponse.json({ error: error.message, code: error.code }, { status: 402 });
     throw error;
   }

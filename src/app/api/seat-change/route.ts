@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -203,6 +204,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ ok: true });
   } catch (e) {
+    reportUnexpected(e, "/api/seat-change");
     const denied = accessResponse(e);
     if (denied) return denied;
     if (e instanceof z.ZodError) return err(e.issues[0]?.message ?? "Invalid request");

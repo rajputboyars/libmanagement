@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { guardMember } from "@/lib/access";
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
     const { token } = await shareWeeklyReport(user._id);
     return NextResponse.json({ token, path: `/r/${token}` });
   } catch (e) {
+    reportUnexpected(e, "/api/report");
     return err(e instanceof Error ? e.message : "Could not create the link");
   }
 }

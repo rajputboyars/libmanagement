@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import { z } from "zod";
@@ -22,6 +23,7 @@ async function feeTeam(permission: "fees.view" | "fees.create") {
     const a = await assertTeam(user, "fees", permission);
     return { user, libraryId: user.libraryId, owner: a.kind === "owner" };
   } catch (e) {
+    reportUnexpected(e, "/api/fees");
     const r = accessResponse(e);
     if (r) return { error: r };
     throw e;
@@ -147,6 +149,7 @@ export async function POST(request: NextRequest) {
     await AuditLog.create({ libraryId, actorId: user._id, action: "fees.remind", recordId: libraryId });
     return NextResponse.json({ ok: true, sent, skipped });
   } catch (error) {
+    reportUnexpected(error, "/api/fees");
     if (error instanceof PlanError) return err(error.message, 402, error.code);
     return err(error instanceof z.ZodError ? "Check your entries" : error instanceof Error ? error.message : "Unable to send reminders", error instanceof z.ZodError ? 422 : 400);
   }

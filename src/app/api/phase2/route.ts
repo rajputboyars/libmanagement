@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import type { StudentFeature } from "@/lib/student-access";
 import { NextRequest, NextResponse } from "next/server";
@@ -323,6 +324,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, record });
   } catch (error) {
+    reportUnexpected(error, "/api/phase2");
     return errorResponse(error);
   }
 }

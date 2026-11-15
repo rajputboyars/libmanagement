@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { guardMember } from "@/lib/access";
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json({ ok: true });
   } catch (e) {
+    reportUnexpected(e, "/api/leaderboard");
     if (e instanceof z.ZodError) return err(e.issues[0]?.message ?? "Invalid name");
     return err(e instanceof Error ? e.message : "Could not save");
   }

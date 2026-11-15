@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { assertTeam, can, accessResponse } from "@/lib/access";
@@ -17,6 +18,7 @@ export async function GET() {
     const a = await assertTeam(user, "seats", "seats.view");
     showMoney = can(a, "fees.view") || can(a, "memberships.view");
   } catch (e) {
+    reportUnexpected(e, "/api/seat-map");
     const r = accessResponse(e);
     if (r) return r;
     throw e;
