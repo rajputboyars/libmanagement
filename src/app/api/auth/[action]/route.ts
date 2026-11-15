@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { User, Library, StudentProfile } from "@/lib/models";
 import { createOrganization, ensurePlans, linkPendingStudent } from "@/lib/saas-server";
 import { attachReferral } from "@/lib/referrals";
+import { recordConsent } from "@/lib/consent";
 import { handleAuthExtra } from "@/lib/auth-extra";
 import { handleTwoFactor, twoFactorStatus } from "@/lib/two-factor-server";
 import { createJoinRequest } from "@/lib/join-request";
@@ -30,6 +31,9 @@ const input = z.object({
   library: z.string().min(2).max(100).optional(),
   referralCode: z.string().trim().max(20).optional(),
   libraryCode: z.string().trim().max(20).optional(),
+  // Required to register (enforced below, on the server). Marketing is a separate optional choice and is never implied by the Terms.
+  acceptTerms: z.boolean().optional(),
+  marketing: z.boolean().optional(),
 });
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ action: string }> }) {
   if ((await ctx.params).action === "2fa-status") return twoFactorStatus();
@@ -60,6 +64,7 @@ export async function POST(
   }
   try {
     const data = input.parse(await req.json());
+    if (action === "register" && data.acceptTerms !== true) return NextResponse.json({ error: "Accept the Terms of Service and acknowledge the Privacy Notice to create an account.", code: "terms-required" }, { status: 400 });
     secret();
     await db();
     let user;
@@ -83,6 +88,7 @@ export async function POST(
             ],
             { session },
           );
+          await recordConsent((user as unknown as { _id: string })._id, [{ kind: "terms", accepted: true }, ...(typeof data.marketing === "boolean" ? [{ kind: "marketing" as const, accepted: data.marketing }] : [])], "register", { session });
           if (data.role === "owner") {
             const [library] = await Library.create(
               [

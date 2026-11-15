@@ -18,6 +18,8 @@ const authSchema = z.object({
   library: z.string().optional(),
   referralCode: z.string().optional(),
   libraryCode: z.string().optional(),
+  acceptTerms: z.boolean().optional(),
+  marketing: z.boolean().optional(),
 });
 export function Auth({ register }: { register: boolean }) {
   const queryClient = useQueryClient();
@@ -203,6 +205,18 @@ export function Auth({ register }: { register: boolean }) {
                 <span className="field-error">{errors.password.message}</span>
               )}
             </label>
+            {register && (
+              <div className="consent-group">
+                <label className="consent-row">
+                  <input type="checkbox" required {...field("acceptTerms")} />
+                  <span>I accept the <Link href="/terms" target="_blank" rel="noopener">Terms of Service</Link> and have read the <Link href="/privacy" target="_blank" rel="noopener">Privacy Notice</Link>. <em>(required)</em></span>
+                </label>
+                <label className="consent-row">
+                  <input type="checkbox" {...field("marketing")} />
+                  <span>Optional: send me product news and offers by email. Not needed to use StudyQuest; change this any time under Security &amp; privacy.</span>
+                </label>
+              </div>
+            )}
             {error && (
               <div role="alert" className="form-error">
                 {error}
@@ -217,6 +231,7 @@ export function Auth({ register }: { register: boolean }) {
               <ArrowRight size={17} />
             </button>
             {!register && <p className="auth-switch"><Link href="/forgot-password">Forgot your password?</Link></p>}
+            <p className="auth-legal"><Link href="/terms">Terms of Service</Link> · <Link href="/privacy">Privacy Notice</Link></p>
           </form>
           <p className="auth-switch">
             {register ? "Already have a space?" : "New here?"}{" "}

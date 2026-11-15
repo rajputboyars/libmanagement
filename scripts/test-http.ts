@@ -81,6 +81,7 @@ async function main() {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: base },
         body: JSON.stringify({
+          acceptTerms: true,
           name: "Integration Person",
           email,
           password,
@@ -918,7 +919,7 @@ async function main() {
     // referrals: abuse prevention and idempotent credit
     const { evaluateReferral, creditBalance } = await import("../src/lib/referrals");
     const refCode = (await getJson("/api/billing", owner)).referral.code as string;
-    const register = (email: string, extra: object = {}) => fetch(base + "/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ name: "Referred Owner", email, password: rb(12).toString("hex"), role: "owner", library: "Referred Library", ...extra }) });
+    const register = (email: string, extra: object = {}) => fetch(base + "/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ acceptTerms: true, name: "Referred Owner", email, password: rb(12).toString("hex"), role: "owner", library: "Referred Library", ...extra }) });
     assert.equal((await register("friend@referred-lib.in", { referralCode: refCode })).status, 200);
     const friendOrg = await S.Organization.findOne({ referredByCode: refCode });
     const referral = await S.Referral.findOne({ referredOrgId: friendOrg!._id });
@@ -1021,7 +1022,7 @@ async function main() {
     assert.equal((await fetch(base + "/api/saas-admin?view=orgs", { headers: { cookie: await forge(sessionSecret, "-1h") } })).status, 403, "expired session is rejected");
     assert.equal((await fetch(base + "/api/saas-admin?view=orgs", { headers: { cookie: await forge(sessionSecret, "1h") } })).status, 200, "control: a valid admin token works");
     assert.equal((await send("/api/auth/login", { email: { $ne: "" }, password: "whatever-long-enough" }, { Origin: base })).status, 400, "operator injection in login is rejected");
-    assert.equal((await send("/api/auth/register", { name: "Evil", email: "evil@example.invalid", password: pw(), role: "super-admin" }, { Origin: base })).status, 400, "cannot self-register as admin");
+    assert.equal((await send("/api/auth/register", { acceptTerms: true, name: "Evil", email: "evil@example.invalid", password: pw(), role: "super-admin" }, { Origin: base })).status, 400, "cannot self-register as admin");
 
     // brute force protection and account lockout
     await account("student", "brute@example.invalid");
@@ -1126,8 +1127,13 @@ async function main() {
     const inviteRun = await pil(owner, "invite"); assert.ok(inviteRun.invited >= 3);
     const meena = await User.findOne({ email: "meena.pilot@example.invalid" });
     const inviteToken = rb(24).toString("base64url"); await ResetModel.create({ userId: meena!._id, tokenHash: hashToken(inviteToken), expiresAt: new Date(Date.now() + 600000) });
-    const activate = await send("/api/auth/reset", { token: inviteToken, password: pw() }, { Origin: base });
+    // an account created by a library must accept the Terms before activation; the link is not consumed by a refusal
+    const noTermsActivate = await send("/api/auth/reset", { token: inviteToken, password: pw() }, { Origin: base });
+    assert.equal(noTermsActivate.status, 400); assert.equal((await rawJson(noTermsActivate)).code, "terms-required");
+    assert.equal((await User.findById(meena!._id))!.invited, true, "still invited");
+    const activate = await send("/api/auth/reset", { token: inviteToken, password: pw(), acceptTerms: true }, { Origin: base });
     assert.equal(activate.status, 200);
+    assert.deepEqual(((await (await import("../src/lib/ops-models")).ConsentRecord.find({ userId: meena!._id }).lean())).map((r) => `${r.kind}:${r.source}`), ["terms:invite-activation"]);
     const meenaWs = await (await fetch(base + "/api/workspace", { headers: { cookie: (activate.headers.get("set-cookie") ?? "").split(";")[0] } })).json();
     assert.ok(meenaWs.memberships?.length === 1 || meenaWs.membership || meenaWs.user, "an invited student can open their workspace after activating");
     const otherImport = await pil(other, "validate", { csv: registerCsv });
@@ -1158,11 +1164,11 @@ async function main() {
     assert.equal((await fetch(`${base}/api/join?code=LIB-ZZZZZZ`, { headers: { cookie: student } })).status, 404);
     assert.equal((await fetch(`${base}/api/join?code=${libraryCode}`)).status, 401, "lookup requires sign-in");
     // a bad ID at registration does not block the account
-    const badReg = await send("/api/auth/register", { name: "Typo Student", email: "typo@join.invalid", password: pw(), role: "student", libraryCode: "LIB-ZZZZZZ" }, { Origin: base });
+    const badReg = await send("/api/auth/register", { acceptTerms: true, name: "Typo Student", email: "typo@join.invalid", password: pw(), role: "student", libraryCode: "LIB-ZZZZZZ" }, { Origin: base });
     assert.equal(badReg.status, 200); assert.notEqual((await rawJson(badReg)).join, "requested");
     // register with the Library ID → pending request
     const joinPassword = pw();
-    const reg1 = await send("/api/auth/register", { name: "Join Student", email: "join1@join.invalid", password: joinPassword, role: "student", libraryCode }, { Origin: base });
+    const reg1 = await send("/api/auth/register", { acceptTerms: true, name: "Join Student", email: "join1@join.invalid", password: joinPassword, role: "student", libraryCode }, { Origin: base });
     assert.equal(reg1.status, 200); assert.equal((await rawJson(reg1)).join, "requested");
     const joiner = (reg1.headers.get("set-cookie") ?? "").split(";")[0];
     const joinerUser = await User.findOne({ email: "join1@join.invalid" });
@@ -1233,7 +1239,7 @@ async function main() {
     await jr(libOwner, "set-policy", { punchPolicy: "qr" }); await jr(libOwner, "set-policy", { punchPolicy: "app" });
     await jr(joiner, "set-policy", { punchPolicy: "qr" }, 403);
     // rejection path
-    const reg2 = await send("/api/auth/register", { name: "Rejected Student", email: "join2@join.invalid", password: pw(), role: "student", libraryCode }, { Origin: base });
+    const reg2 = await send("/api/auth/register", { acceptTerms: true, name: "Rejected Student", email: "join2@join.invalid", password: pw(), role: "student", libraryCode }, { Origin: base });
     const rejCookie = (reg2.headers.get("set-cookie") ?? "").split(";")[0];
     const rejReq = (await getJson("/api/join?view=requests", libOwner)).requests[0]._id;
     await jr(libOwner, "reject", { id: rejReq, note: "Not in our batch list" });
@@ -1416,7 +1422,7 @@ async function main() {
     };
     const r9token = async (userId: unknown) => { const t = rb(24).toString("base64url"); await ResetModel.create({ userId, tokenHash: hashToken(t), expiresAt: new Date(Date.now() + 600000) }); return t; };
     // sign-up as an owner: no session, only a restricted enrolment token
-    const signup = await tfPost("register", { name: "Mandatory Owner", email: r9.email, password: r9.pass, role: "owner", library: "Mandatory Library" });
+    const signup = await tfPost("register", { acceptTerms: true, name: "Mandatory Owner", email: r9.email, password: r9.pass, role: "owner", library: "Mandatory Library" });
     assert.equal(signup.status, 200);
     assert.equal(signup.headers.get("set-cookie"), null, "owner sign-up creates no session");
     const signupBody = await rawJson(signup);
@@ -1797,6 +1803,111 @@ async function main() {
       assert.deepEqual([partialView.provider.name, partialView.provider.usable, partialView.provider.configured], ["razorpay", false, false]);
       assert.equal((await post(rzOwner, { checkoutId: String(checkout._id), outcome: "success" }, "PUT", partialSrv.base)).status, 403, "no sandbox payment path with partial settings");
       gateway.close();
+    }
+
+    // ---- R13: legal pages, consent capture and enforcement ----
+    {
+      const { ConsentRecord } = await import("../src/lib/ops-models");
+      const { LEGAL_VERSIONS } = await import("../src/lib/legal");
+      const consentVersion = `${LEGAL_VERSIONS.terms}|${LEGAL_VERSIONS.privacy}`;
+      const jsonOf = async (res: Response) => res.json().catch(() => ({}));
+      // legal pages are public, readable signed-out, and carry their version and the draft notice
+      for (const [path, heading] of [["/privacy", "Privacy Notice"], ["/terms", "Terms of Service"]] as const) {
+        const res = await fetch(base + path);
+        const html = await res.text();
+        assert.equal(res.status, 200, `${path} is public`);
+        assert.ok(html.includes(heading) && html.includes("Draft pending legal review"), `${path} states that it is an unreviewed draft`);
+        assert.ok(html.includes(`data-legal-version="${path === "/privacy" ? "privacy" : "terms"}">${path === "/privacy" ? LEGAL_VERSIONS.privacy : LEGAL_VERSIONS.terms}`), `${path} shows its version`);
+        assert.ok((html.match(/data-placeholder="true"/g) ?? []).length >= 8, `${path} marks the details the business must supply`);
+      }
+      // the public site footer and the sign-in / registration pages link to both documents
+      for (const path of ["/", "/login", "/register"]) { const html = await (await fetch(base + path)).text(); assert.ok(html.includes('href="/terms"') && html.includes('href="/privacy"'), `${path} links to the Terms and Privacy Notice`); }
+
+      // registration cannot bypass consent through the API
+      const reg = (body: Record<string, unknown>) => send("/api/auth/register", { name: "Consent Person", password: pw(), role: "student", ...body }, { Origin: base });
+      for (const [label, extra] of [["missing", {}], ["false", { acceptTerms: false }], ["string", { acceptTerms: "true" }]] as [string, Record<string, unknown>][]) {
+        const r = await reg({ email: `noterms-${label}@example.invalid`, ...extra });
+        assert.equal(r.status, 400, `${label}: refused`);
+        assert.equal(r.headers.get("set-cookie"), null);
+        if (label !== "string") assert.equal((await jsonOf(r)).code, "terms-required");
+        assert.equal(await User.countDocuments({ email: `noterms-${label}@example.invalid` }), 0, `${label}: no account was created`);
+      }
+      const ownerNoTerms = await reg({ email: "noterms-owner@example.invalid", role: "owner", library: "No Terms Library" });
+      assert.equal(ownerNoTerms.status, 400); assert.equal(await User.countDocuments({ email: "noterms-owner@example.invalid" }), 0);
+
+      // acceptance is recorded with version, timestamp, user reference and source; marketing is separate and never implied
+      const accepted = await reg({ email: "terms-only@example.invalid", acceptTerms: true });
+      assert.equal(accepted.status, 200);
+      const termsOnly = (await User.findOne({ email: "terms-only@example.invalid" }))!;
+      const rows = await ConsentRecord.find({ userId: termsOnly._id }).lean();
+      assert.deepEqual(rows.map((r) => [r.kind, r.version, r.accepted, r.source]), [["terms", consentVersion, true, "register"]], "accepting the Terms records NO marketing consent");
+      assert.ok(rows[0].createdAt instanceof Date);
+      const withMarketing = await reg({ email: "terms-marketing@example.invalid", acceptTerms: true, marketing: true });
+      const declined = await reg({ email: "terms-nomarketing@example.invalid", acceptTerms: true, marketing: false });
+      assert.equal(withMarketing.status, 200); assert.equal(declined.status, 200);
+      const kinds = async (email: string) => (await ConsentRecord.find({ userId: (await User.findOne({ email }))!._id }).sort({ kind: 1 }).lean()).map((r) => `${r.kind}:${r.accepted}`);
+      assert.deepEqual(await kinds("terms-marketing@example.invalid"), ["marketing:true", "terms:true"]);
+      assert.deepEqual(await kinds("terms-nomarketing@example.invalid"), ["marketing:false", "terms:true"]);
+
+      // the consent API: own records only, authenticated, same-origin
+      const cookieOf = (res: Response) => (res.headers.get("set-cookie") ?? "").split(";")[0];
+      const studentCookie = cookieOf(accepted);
+      assert.equal((await fetch(base + "/api/consent")).status, 401, "signed-out requests are refused");
+      assert.equal((await send("/api/consent", { action: "accept-terms", accept: true }, { Origin: base })).status, 401);
+      assert.equal((await send("/api/consent", { action: "accept-terms", accept: true }, { Origin: "http://evil.example", cookie: studentCookie })).status, 403, "cross-site writes are refused");
+      const mine = await (await fetch(base + "/api/consent", { headers: { cookie: studentCookie } })).json();
+      assert.deepEqual([mine.terms.accepted, mine.terms.current, mine.termsNeedAcceptance, mine.marketing], [true, true, false, null]);
+      assert.ok(!JSON.stringify(mine).includes("userId") && !JSON.stringify(mine).includes(String(termsOnly._id)), "the response carries no user identifiers");
+
+      // tenant isolation: another user (an owner of another library) never sees or changes someone else's records
+      const strangerOwner = await account("owner", "consent-stranger@example.invalid");
+      const strangerView = await (await fetch(base + "/api/consent", { headers: { cookie: strangerOwner } })).json();
+      assert.equal(strangerView.history, 1, "only the caller's own single record is visible, never anyone else's");
+      assert.ok(!JSON.stringify(strangerView).includes(String(termsOnly._id)));
+      const tamper = await send("/api/consent", { action: "marketing", value: true, userId: String(termsOnly._id) }, { Origin: base, cookie: strangerOwner });
+      assert.equal(tamper.status, 200);
+      assert.equal(await ConsentRecord.countDocuments({ userId: termsOnly._id }), 1, "a user id in the body is ignored: another user's history is untouched");
+      assert.equal(await ConsentRecord.countDocuments({ userId: (await User.findOne({ email: "consent-stranger@example.invalid" }))!._id, kind: "marketing" }), 1, "the change landed on the caller's own record");
+      assert.equal((await send("/api/consent", { action: "marketing", value: "yes" }, { Origin: base, cookie: strangerOwner })).status, 400);
+      assert.equal((await send("/api/consent", { action: "accept-terms", accept: false }, { Origin: base, cookie: strangerOwner })).status, 400, "acceptance can only be recorded as accepted");
+
+      // existing accounts are never locked out: no record = a prompt, not a block; accepting appends history
+      const legacy = await account("student", "legacy-no-consent@example.invalid");
+      const legacyUser = (await User.findOne({ email: "legacy-no-consent@example.invalid" }))!;
+      await ConsentRecord.deleteMany({ userId: legacyUser._id }); // an account created before consent was captured
+      const before = await (await fetch(base + "/api/consent", { headers: { cookie: legacy } })).json();
+      assert.deepEqual([before.terms, before.termsNeedAcceptance], [null, true]);
+      assert.equal((await fetch(base + "/api/workspace", { headers: { cookie: legacy } })).status, 200, "an account without a consent record keeps working");
+      assert.equal((await fetch(base + "/api/privacy", { headers: { cookie: legacy } })).status, 200);
+      const accept = await send("/api/consent", { action: "accept-terms", accept: true }, { Origin: base, cookie: legacy });
+      assert.equal((await jsonOf(accept)).termsNeedAcceptance, false);
+      const toggled = [true, false, true];
+      for (const value of toggled) await send("/api/consent", { action: "marketing", value }, { Origin: base, cookie: legacy });
+      const history = await ConsentRecord.find({ userId: legacyUser._id }).sort({ createdAt: 1 }).lean();
+      assert.deepEqual(history.map((r) => `${r.kind}:${r.accepted}:${r.source}`), ["terms:true:prompt", "marketing:true:settings", "marketing:false:settings", "marketing:true:settings"], "records are append-only: every decision is kept");
+      assert.equal((await (await fetch(base + "/api/consent", { headers: { cookie: legacy } })).json()).marketing.accepted, true, "the newest record wins");
+      // a new policy version asks again (prompt only)
+      await ConsentRecord.updateMany({ userId: legacyUser._id, kind: "terms" }, { $set: { version: "1999-01-01|1999-01-01" } });
+      const stale = await (await fetch(base + "/api/consent", { headers: { cookie: legacy } })).json();
+      assert.deepEqual([stale.terms.current, stale.termsNeedAcceptance], [false, true], "an older accepted version needs re-acceptance");
+      assert.equal((await fetch(base + "/api/workspace", { headers: { cookie: legacy } })).status, 200, "still not locked out");
+      // consent history is part of the person's own data export
+      const exported = await (await fetch(base + "/api/privacy", { headers: { cookie: legacy } })).json();
+      assert.ok(exported.sections.includes("consentRecords"));
+
+      // paying needs the CURRENT Terms: owners who have not accepted can do so at checkout, otherwise it is refused (no gateway call, no checkout record)
+      const payer = await account("owner", "consent-payer@example.invalid");
+      const payerUser = (await User.findOne({ email: "consent-payer@example.invalid" }))!;
+      const payerOrg = (await S.Organization.findOne({ billingEmail: "consent-payer@example.invalid" }))!;
+      assert.equal(await S.BillingCheckout.countDocuments({ organizationId: payerOrg._id }), 0);
+      await ConsentRecord.deleteMany({ userId: payerUser._id });
+      const refused = await fetch(base + "/api/billing", { method: "POST", headers: { cookie: payer, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action: "checkout", data: { planKey: "starter", interval: "monthly" } }) });
+      assert.equal(refused.status, 400); assert.equal((await refused.json()).code, "terms-required");
+      assert.equal(await S.BillingCheckout.countDocuments({ organizationId: payerOrg._id }), 0, "no checkout without acceptance");
+      const allowed = await fetch(base + "/api/billing", { method: "POST", headers: { cookie: payer, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action: "checkout", data: { planKey: "starter", interval: "monthly", acceptTerms: true } }) });
+      assert.equal(allowed.status, 200);
+      assert.equal(await S.BillingCheckout.countDocuments({ organizationId: payerOrg._id }), 1);
+      assert.deepEqual((await ConsentRecord.find({ userId: payerUser._id }).lean()).map((r) => `${r.kind}:${r.source}`), ["terms:checkout"]);
     }
 
     // ---- R8: Content-Security-Policy on public and authenticated pages (production build) ----

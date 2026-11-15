@@ -15,7 +15,7 @@ async function main() {
   for (let i = 0; i < 60; i++) { try { if ((await fetch(base)).ok) break; } catch {} await new Promise((r) => setTimeout(r, 500)); }
   await mongoose.connect(replica.getUri());
   const { User, SyllabusNode, StudentExam, Library } = await import("../src/lib/models");
-  const reg = async (email: string, role: string, library?: string) => { const r = await fetch(base + "/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ name: "Demo Person", email, password: PASSWORD, role, library }) }); const set = r.headers.get("set-cookie");
+  const reg = async (email: string, role: string, library?: string) => { const r = await fetch(base + "/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ acceptTerms: true, name: "Demo Person", email, password: PASSWORD, role, library }) }); const set = r.headers.get("set-cookie");
     if (set) return set.split(";")[0].split("=")[1];
     // Owners get no session until they enrol (R9). Seeding needs one, so enrol-by-flag for seeding only; the owner is reset to unenrolled below.
     const row = await mongoose.model("User").findOneAndUpdate({ email }, { $set: { twoFactorEnabled: true } }, { new: true });

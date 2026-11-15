@@ -19,7 +19,7 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 | 7 | Reliability | PASS (automated) · load NOT TESTED | Medium |
 | 8 | Backups / restoration | Encrypted off-site backup, checks and verified restore IMPLEMENTED and drilled on a disposable database · **BLOCKED** (no production backup, bucket, key or Atlas Cloud Backup configured) | Critical |
 | 9 | Monitoring | Logging, scrubbing, health, deduplicated alerting and backup monitoring IMPLEMENTED and tested locally · **BLOCKED** (no external monitoring configured or verified) | Critical |
-| 10 | Documentation | PASS (legal pages are placeholders) | High |
+| 10 | Documentation / legal | Privacy Notice and Terms drafted from the real data practices, with consent capture · **BLOCKED**: not reviewed by a lawyer or CA; owner details missing | High |
 | 11 | Deployment | PARTIAL (image built, nothing deployed) | High |
 | 12 | Pilot acceptance | **NOT TESTED** | High |
 
@@ -30,7 +30,7 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 |---|---|---|
 | Typecheck | PASS | `npm run typecheck` |
 | Lint | PASS | `npm run lint`, 0 errors, 0 warnings |
-| Unit tests | PASS | 205 tests: 201 pass, 0 fail, 4 skipped (the database tests, which run in the integration suite) |
+| Unit tests | PASS | 209 tests: 205 pass, 0 fail, 4 skipped (the database tests, which run in the integration suite) |
 | Integration | PASS | 5 pass: tenant scope and concurrent seat writes, token signing, backup→restore drill, encrypted backup → check → verified restore, billing webhook pipeline (atomicity, idempotency, validation, tenants, reconciliation) |
 | HTTP workflow ("E2E") | PASS | `npm run test:http`: one continuous workflow against a production build and real MongoDB replica set |
 | Production build | PASS | `npm run build` |
@@ -142,9 +142,16 @@ Implemented and tested (docs/MONITORING.md is the runbook and operator checklist
 - Tests: `tests/monitoring.test.ts` (scrubbing, dedup/cooldown/storm/recovery, delivery failure/hang/bad URL, cross-instance claim, error-rate, classification, heartbeat, backup status) and the HTTP suite (the **entire** suite, including sign-in and payments, runs while the alert webhook returns HTTP 500; health endpoints and leakage; an instance with an unreachable database keeps liveness up, fails readiness fast with no internals, answers users with generic errors, sends exactly one `db.unavailable` alert and logs no URI or secret).
 - **BLOCKED / UNVERIFIED (Critical):** no monitoring provider is chosen (hosting undecided), no uptime probe, dead-man's-switch, log collector, alert destination or recipients exist, and **no alert has been delivered to a real destination** (delivery was verified only against a local HTTPS test sink). An error-tracking SaaS was not added (Next.js 16 / hosting compatibility unverified). Action: complete the checklist and verification procedure in docs/MONITORING.md and record evidence here.
 
-### 10. Documentation — PASS (legal placeholders)
-Present: README, DEPLOYMENT, BACKUP_RESTORE, MONITORING, SECURITY, PILOT, `.env.example` (no secrets), PROGRESS.
-Privacy Policy and Terms of Service pages exist **as placeholders explicitly requiring legal review**. Severity High. Action: lawyer-reviewed text (DPDP Act 2023, children's data, payments, tax), named grievance contact.
+### 10. Documentation and legal — DRAFTED (R13) · BLOCKED (legal review)
+Present: README, DEPLOYMENT, BACKUP_RESTORE, MONITORING, BILLING, SECURITY, PILOT, **LEGAL_COMPLIANCE**, `.env.example` (no secrets), PROGRESS.
+- **Implemented (R13):** full **Privacy Notice** (`/privacy`) and **Terms of Service** (`/terms`) written from the traced implementation (data inventory, processors, cookies, retention, rights, children, platform fees vs library fees, payments/refunds, conduct, termination); public, responsive, versioned (`src/lib/legal.ts`) with a visible draft banner and highlighted placeholders; linked from the public footer, sign-in, registration, invitation activation, student join, billing and Security & privacy.
+- **Consent:** append-only `ConsentRecord` (user, kind, version, accepted, source, timestamp). Registration, library-created account activation and subscribing **require acceptance on the server** (direct API calls cannot bypass it); marketing consent is separate, optional and never implied; existing users get a dismissible prompt, **never a lock-out**; a user can read only their own records; consent history is in the data export. Tested (unit + HTTP): public routes, enforcement, version changes, append-only history, tenant isolation, no lock-out.
+- **NOT done / BLOCKED (High):** nothing has been reviewed by a qualified lawyer or chartered accountant, so the pages must stay marked as a draft and **no compliance or certification claim may be made**. Open items (full list and checklist: docs/LEGAL_COMPLIANCE.md):
+  - **Owner-supplied details (all placeholders):** legal entity and address, CIN/registration, privacy/support contacts, **Grievance Officer**, effective date, hosting/database region and email/WhatsApp/backup/monitoring providers, retention periods, breach-notification wording, trial and **refund policy**, GST statement, liability cap period, dispute-resolution and jurisdiction.
+  - **DPDP Act 2023 / DPDP Rules 2025** (notified November 2025; main fiduciary obligations phased in about 18 months later, around May 2027, per secondary sources): counsel to verify the Gazette text and dates, decide the StudyQuest-vs-library fiduciary/processor roles, and confirm notice/consent wording, retention, breach reporting and grievance handling. Until then IT Act s.43A / SPDI Rules context applies.
+  - **Children's data:** the platform does not verify age or collect general guardian consent (only the optional community feature collects guardian details for minors). Counsel must decide age gating, verifiable parental consent and whether libraries qualify for the narrow educational-institution exemption before under-18s are onboarded at scale.
+  - **GST / invoicing (CA):** applicability and rate on subscriptions, GSTIN/HSN-SAC, place of supply and tax split, customer GSTIN capture, credit notes for refunds, e-invoicing thresholds, invoice retention.
+  - Data-processing terms with library owners, cross-border transfer position once providers are chosen, CERT-In/breach process, intermediary-rules review of community features.
 
 ### 11. Deployment — PARTIAL
 Done: Dockerfile (web and worker targets), `.dockerignore`, GitHub Actions CI (verify, dependency audit, image build), health/readiness endpoints, environment validation (rejects weak secrets, non-https `APP_URL`, enabled sandbox billing in production), worker, deployment/rollback procedures, staging/production configuration table.
@@ -160,7 +167,7 @@ Tooling is ready and tested: validated CSV import with duplicate detection, seat
 2. **Monitoring/alerting:** create the alert webhook and recipients, external uptime probes on `/api/ready` and `/api/health`, the three heartbeat monitors and Atlas Alerts; verify a real `db.unavailable` alert and recovery and a missed-heartbeat alert, and record the evidence (checklist in docs/MONITORING.md).
 3. **Payments:** run Razorpay **test mode** end to end on staging with real test credentials (the R12 verification used a local simulator only), reconcile with `npm run billing:reconcile`, complete the tax/GST and payment-compliance review, set `BILLING_EXPECT_MODE=live` and obtain written approval before any live key or live transaction (docs/BILLING.md checklist).
 4. **Security:** set `TWO_FACTOR_KEY` (mandatory two-step sign-in is enforced since R9), enrol two platform admins, independent security review/penetration test.
-5. **Legal:** lawyer-reviewed Privacy Policy and Terms; DPDP consent and children's-data review.
+5. **Legal:** lawyer-reviewed Privacy Notice and Terms (the R13 text is an unreviewed draft); supply every placeholder (entity, grievance officer, contacts, providers, retention, refund and GST policy); DPDP role and children's-data decisions; CA sign-off on GST/invoices. Checklist: docs/LEGAL_COMPLIANCE.md.
 6. **Infrastructure:** production database cluster, domain and TLS, reverse proxy with `TRUST_PROXY=1`, secrets manager, email provider, run CI on the hosted service, create staging.
 7. **Performance:** meet the landing-page targets (≥ 90, LCP ≤ 2.5 s) and measure large-table and API latency under load.
 8. **Pilot:** complete the hometown-library pilot and record acceptance.

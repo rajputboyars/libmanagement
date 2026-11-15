@@ -9,6 +9,9 @@ import { PlanError, accessForLibrary, activeStudentCount, audit, currentPlan, en
 import { creditBalance } from "@/lib/referrals";
 import { getProvider, providerConfig, ingestSandbox, sandboxEvent } from "@/lib/billing";
 import { Library } from "@/lib/models";
+import { ConsentRecord } from "@/lib/ops-models";
+import { recordConsent } from "@/lib/consent";
+import { termsNeedAcceptance, type ConsentRow } from "@/lib/legal";
 
 const err = (message: string, status = 400, code?: string) => NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
 const interval = z.enum(["monthly", "annual"]);
@@ -72,7 +75,7 @@ export async function POST(request: NextRequest) {
     if (!sub) throw new Error("Subscription not found");
 
     if (body.action === "coupon-check" || body.action === "checkout") {
-      const v = z.object({ planKey: z.string().min(2).max(30), interval, couponCode: z.string().trim().max(30).optional() }).parse(body.data);
+      const v = z.object({ planKey: z.string().min(2).max(30), interval, couponCode: z.string().trim().max(30).optional(), acceptTerms: z.boolean().optional() }).parse(body.data);
       const plan = await SaaSPlan.findOne({ key: v.planKey, current: true, isPublic: true }).lean<Lean & { key: string; version: number; monthlyPaise: number; annualPaise: number; providerPlanIds: Record<string, Record<string, string>> }>();
       if (!plan) throw new Error("Plan not found");
       const list = price(plan, v.interval);
@@ -86,6 +89,13 @@ export async function POST(request: NextRequest) {
         if (problem) throw new Error(problem);
         if (await CouponRedemption.exists({ couponId: coupon._id, organizationId: orgId })) throw new Error("Your organization has already used this code");
         discount = couponDiscount(c, list);
+      }
+      if (body.action === "checkout") {
+        // Paying needs the CURRENT Terms (billing section). Owners who registered earlier can accept right here; the answer is recorded.
+        if (termsNeedAcceptance(await ConsentRecord.find({ userId: user._id }).select("kind version accepted createdAt").lean<ConsentRow[]>())) {
+          if (v.acceptTerms !== true) return err("Accept the current Terms of Service to subscribe.", 400, "terms-required");
+          await recordConsent(user._id, [{ kind: "terms", accepted: true }], "checkout");
+        }
       }
       const cfg = providerConfig();
       if (body.action === "coupon-check") return NextResponse.json({ ok: true, listPaise: list, discountPaise: discount, payablePaise: list - discount, ...(coupon && cfg.provider === "razorpay" && !coupon.providerOfferId ? { warning: "This code cannot be applied to live gateway billing yet." } : {}) });

@@ -76,6 +76,12 @@ Status key: **Implemented** (code + test evidence), **Partial**, **Not implement
 - **Reconciliation:** daily provider-vs-local comparison (report-only) and `npm run billing:reconcile`; alerts on mismatch, rejected events, repeated signature failures, payments needing review.
 - **Residual risks / unverified:** nothing has been exercised against Razorpay itself or with real money (local simulator only); the key pair can still create subscriptions if leaked, so rotate on suspicion; the 24-hour provider retry window means a long outage needs manual replay from the dashboard; tax/GST treatment is unreviewed. See docs/BILLING.md.
 
+## Consent and legal pages (R13)
+
+- Consent decisions are stored in an append-only `ConsentRecord` (user reference, kind, version, accepted, source, timestamp; no IP address). `GET /api/consent` takes no user parameter and returns only the caller's own state; writes ignore any user id in the body, require a session and a same-origin request, and can only record an acceptance of the Terms or a boolean marketing choice. Records are not tenant data: library owners cannot read students' consent records.
+- Registration, activation of a library-created account and subscribing require acceptance **server-side**; existing accounts are prompted, never locked out.
+- The legal pages are static server-rendered pages (CSP unchanged). See docs/LEGAL_COMPLIANCE.md; the texts are unreviewed drafts.
+
 ## Reporting
 
 Security reports should go to a monitored address (to be defined by the business) and be triaged within 2 business days.

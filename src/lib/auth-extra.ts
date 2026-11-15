@@ -1,4 +1,5 @@
 import { reportUnexpected } from "./api-errors";
+import { recordConsent } from "./consent";
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -47,16 +48,20 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
       return NextResponse.json({ ok: true, message: "If that account exists, a reset link has been sent.", ...(sandboxToken ? { sandboxToken, notice: "Local sandbox: no email provider is configured." } : {}) });
     }
     if (action === "reset") {
-      const v = z.object({ token: z.string().min(20).max(100), password }).parse(await req.json());
+      const v = z.object({ token: z.string().min(20).max(100), password, acceptTerms: z.boolean().optional(), marketing: z.boolean().optional() }).parse(await req.json());
       if (await limitedShared(`reset:ip:${ip}`, ipLimit(ip, 20), 3600)) return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
       const record = await PasswordReset.findOne({ tokenHash: hashToken(v.token), usedAt: { $exists: false }, expiresAt: { $gt: new Date() } });
       if (!record) { warnAuth("reset_invalid_token", { ip }); return NextResponse.json({ error: "This reset link is invalid or has expired." }, { status: 400 }); }
+      // A person whose library created their account (import or invitation) has never seen the Terms: activating it requires accepting them. The link is not consumed if they have not.
+      const invitedUser = await User.findById(record.userId).select("invited").lean<{ invited?: boolean }>();
+      if (invitedUser?.invited && v.acceptTerms !== true) return NextResponse.json({ error: "Accept the Terms of Service and acknowledge the Privacy Notice to activate your account.", code: "terms-required" }, { status: 400 });
       const claimed = await PasswordReset.findOneAndUpdate({ _id: record._id, usedAt: { $exists: false } }, { usedAt: new Date() });
       if (!claimed) return NextResponse.json({ error: "This reset link was already used." }, { status: 400 });
       const user = await User.findByIdAndUpdate(record.userId, { passwordHash: await bcrypt.hash(v.password, 12), $inc: { sessionVersion: 1 }, invited: false }, { new: true });
       await PasswordReset.updateMany({ userId: record.userId, usedAt: { $exists: false } }, { usedAt: new Date() });
       if (!user) return NextResponse.json({ error: "Account not found" }, { status: 400 });
       log("info", "auth.password_reset", { userId: String(user._id) });
+      if (invitedUser?.invited) await recordConsent(user._id, [{ kind: "terms", accepted: true }, ...(typeof v.marketing === "boolean" ? [{ kind: "marketing" as const, accepted: v.marketing }] : [])], "invite-activation");
       // A reset link proves access to the mailbox, not to the authenticator: accounts with two-step sign-in still need the second factor.
       if (user.twoFactorEnabled) return NextResponse.json({ ok: true, twoFactorRequired: true, challenge: await issueChallenge(String(user._id), user.sessionVersion ?? 0) });
       const enroll = await enrollmentRequired(user);

@@ -8,6 +8,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { AlertTriangle, Building2, Check, CheckCircle2, CreditCard, Download, Gift, LifeBuoy } from "lucide-react";
 import { fmtDate, getJson, inr, post, type Json } from "./prep-api";
 import { useCan } from "./v2/can";
+import { useConsentStatus } from "./legal-consent";
 import { EmptyState, ErrorState, Skeleton as V2Skeleton } from "./v2/primitives";
 
 const Empty = ({ title, text }: { title: string; text: string }) => <EmptyState icon={Building2} title={title} text={text || undefined} />;
@@ -28,6 +29,9 @@ export function OwnerBilling({ notify }: { notify: (m: string) => void }) {
   const act = useAct(notify, ["billing", "org"]);
   const [page, setPage] = useState(1);
   const [interval, setInterval] = useState<"monthly" | "annual">("monthly");
+  const consent = useConsentStatus().data;
+  const [termsTicked, setTermsTicked] = useState(false);
+  const needTerms = !!consent?.termsNeedAcceptance;
   const [coupon, setCoupon] = useState("");
   const [preview, setPreview] = useState<Json | null>(null);
   const [busy, setBusy] = useState("");
@@ -38,7 +42,7 @@ export function OwnerBilling({ notify }: { notify: (m: string) => void }) {
   const readOnly = d.role !== "owner";
   const checkout = async (planKey: string) => {
     setBusy(planKey);
-    const r = await act("/api/billing", "checkout", { planKey, interval, couponCode: coupon || undefined });
+    const r = await act("/api/billing", "checkout", { planKey, interval, couponCode: coupon || undefined, acceptTerms: termsTicked || undefined });
     if (r?.checkoutUrl) window.location.assign(r.checkoutUrl);
     setBusy("");
   };
@@ -69,6 +73,8 @@ export function OwnerBilling({ notify }: { notify: (m: string) => void }) {
         {(["monthly", "annual"] as const).map((i) => <button key={i} className={interval === i ? "active" : ""} aria-pressed={interval === i} onClick={() => setInterval(i)}>{i === "monthly" ? "Monthly" : "Annual (2 months free)"}</button>)}
         <input className="pr-select" placeholder="Coupon code" aria-label="Coupon code" value={coupon} onChange={(ev) => { setCoupon(ev.target.value.toUpperCase()); setPreview(null); }} maxLength={30} />
       </div>
+      <p className="pr-hint">These are StudyQuest platform fees, paid to StudyQuest through Razorpay. Fees your students pay your library are separate and are not handled here. See the <Link href="/terms#fees" target="_blank" rel="noopener">Terms</Link> and <Link href="/privacy" target="_blank" rel="noopener">Privacy Notice</Link>.</p>
+      {needTerms && <label className="consent-row"><input type="checkbox" checked={termsTicked} onChange={(ev) => setTermsTicked(ev.target.checked)} /><span>I accept the current <Link href="/terms" target="_blank" rel="noopener">Terms of Service</Link> (including billing and refunds) and have read the <Link href="/privacy" target="_blank" rel="noopener">Privacy Notice</Link>. Needed to subscribe.</span></label>}
       <div className="sq-plans">{(d.plans as Json[]).map((p) => {
         const price = interval === "annual" ? p.annualPaise : p.monthlyPaise;
         const current = sub?.planKey === p.key && ["active", "trialing", "past_due"].includes(sub?.status ?? "");
@@ -81,7 +87,7 @@ export function OwnerBilling({ notify }: { notify: (m: string) => void }) {
             <p className="pr-hint">{p.description}</p>
             <ul>{[`${p.limits.activeStudents.toLocaleString("en-IN")} active students`, `${p.limits.branches} branch${p.limits.branches === 1 ? "" : "es"}`, ...(p.features as string[]).map((f) => label(f))].map((f) => <li key={f}><Check size={14} />{f}</li>)}</ul>
             {!readOnly && (price === 0 ? <button className="button secondary" disabled={sub?.planKey === "free"} onClick={() => act("/api/billing", "switch-free", {}, "Switched to Free.")}>{sub?.planKey === "free" ? "Current plan" : "Choose Free"}</button>
-              : <div className="queue-actions"><button className="button" disabled={busy === p.key || (current && sub?.source === "provider" && sub?.status === "active")} onClick={() => checkout(p.key)}><CreditCard size={14} /> {current && sub?.status === "past_due" ? "Retry payment" : current ? "Active" : sub?.planKey && sub.planKey !== "free" ? "Switch plan" : "Upgrade"}</button>{coupon && <button className="button secondary" onClick={() => checkCoupon(p.key)}>Apply code</button>}</div>)}
+              : <div className="queue-actions"><button className="button" disabled={busy === p.key || (needTerms && !termsTicked) || (current && sub?.source === "provider" && sub?.status === "active")} onClick={() => checkout(p.key)}><CreditCard size={14} /> {current && sub?.status === "past_due" ? "Retry payment" : current ? "Active" : sub?.planKey && sub.planKey !== "free" ? "Switch plan" : "Upgrade"}</button>{coupon && <button className="button secondary" onClick={() => checkCoupon(p.key)}>Apply code</button>}</div>)}
           </article>);
       })}</div>
       <p className="pr-hint">Prices in INR. {d.tax.mode === "none" ? "Tax is not configured; invoices show no tax line." : `Invoices include tax at ${d.tax.rateBps / 100}%.`} Upgrades and downgrades take effect only after the gateway confirms payment.</p>

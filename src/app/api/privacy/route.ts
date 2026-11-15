@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { Membership, Payment, User } from "@/lib/models";
-import { DataRequest } from "@/lib/ops-models";
+import { ConsentRecord, DataRequest } from "@/lib/ops-models";
 import { SupportTicket } from "@/lib/saas-models";
 import { audit, ensureOrganizationForLibrary } from "@/lib/saas-server";
 import { log } from "@/lib/log";
@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
     const rows = await model.find({ [field]: user._id }).limit(5000).lean();
     if (rows.length) data[name] = name === "Doubt" ? rows.map((r: Record<string, unknown>) => ({ ...r, image: r.image ? "[image omitted]" : undefined })) : rows;
   }
+  data.consentRecords = await ConsentRecord.find({ userId: user._id }).select("kind version accepted source createdAt -_id").lean();
   if (user.role === "student") {
     data.memberships = await Membership.find({ userId: user._id }).lean();
     data.payments = await Payment.find({ userId: user._id }).select("-key").lean();

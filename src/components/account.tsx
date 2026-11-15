@@ -5,6 +5,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { clearClientCaches } from "./pwa";
 import { send } from "./prep-api";
+import { ConsentPanel } from "./legal-consent";
 import { EnrollmentStep, TwoFactorSettings, TwoFactorStep, useTwoFactorStatus } from "./two-factor-ui";
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
@@ -55,7 +56,7 @@ export function ResetPassword() {
     if (f.get("password") !== f.get("confirm")) return setError("The passwords do not match.");
     setBusy(true);
     try {
-      const r = await send("/api/auth/reset", "POST", { token, password: f.get("password") });
+      const r = await send("/api/auth/reset", "POST", { token, password: f.get("password"), acceptTerms: f.get("acceptTerms") === "on" });
       // The reset link proves the mailbox only; accounts with two-step sign-in still need their authenticator.
       if (r.twoFactorRequired) { setChallenge(r.challenge); setBusy(false); return; }
       if (r.twoFactorEnrollmentRequired) { setEnroll({ token: r.enrollmentToken, role: r.role }); setBusy(false); return; }
@@ -70,6 +71,7 @@ export function ResetPassword() {
         <p className="pr-hint">Resetting signs you out everywhere else.</p>
         <label>New password<input name="password" type="password" required minLength={10} maxLength={100} autoComplete="new-password" /></label>
         <label>Confirm password<input name="confirm" type="password" required minLength={10} maxLength={100} autoComplete="new-password" /></label>
+        <label className="consent-row"><input type="checkbox" name="acceptTerms" /><span>If this is the first time you are activating this account: I accept the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and have read the <a href="/privacy" target="_blank" rel="noopener">Privacy Notice</a>. (Needed for accounts created for you by a library; not needed for a forgotten password.)</span></label>
         {error && <p className="cm-note danger" role="alert">{error}</p>}
         <button className="button" disabled={busy || !token}>{busy ? "Saving…" : "Set new password"}</button>
         {!token && <p className="cm-note danger">This link is missing its token. Request a new one.</p>}
@@ -96,6 +98,7 @@ export function AccountSecurity({ role, notify }: { role: string; notify: (m: st
         <button className="button" disabled={busy === "pw"}>Change password</button>
       </form>
       <TwoFactorSettings notify={notify} />
+      <ConsentPanel notify={notify} />
       <div className="queue-actions">
         <button className="button secondary" disabled={busy === "all"} onClick={() => run("all", async () => { await send("/api/auth/logout-all", "POST", {}); await clearClientCaches(); router.push("/login"); router.refresh(); })}>Sign out of all devices</button>
         <a className="button secondary" href="/api/privacy?download=1" download>Download my data</a>

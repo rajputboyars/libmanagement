@@ -90,6 +90,7 @@ export function StudentJoin({ notify }: { notify: (m: string) => void }) {
             <form className="sq-v2-panel" style={{ maxWidth: 560 }} onSubmit={(e) => { e.preventDefault(); void send(String(new FormData(e.currentTarget).get("message") || "")); }}>
               <h2 className="sq-v2-h2"><Building2 size={18} aria-hidden="true" /> {preview.library.name}{preview.library.city ? ` · ${preview.library.city}` : ""}</h2>
               <Field label="Message for the owner (optional)" hint="Only the library owner sees your request. Your study data stays private."><TextInput name="message" maxLength={300} placeholder="Name, batch or exam you are preparing for" /></Field>
+              <p className="pr-hint">If the library accepts you, it records your membership, seat, fees and attendance for its own accounts, and its team can see them. Your private study data is not shared. See the <a href="/privacy" target="_blank" rel="noopener">Privacy Notice</a> and <a href="/terms#students" target="_blank" rel="noopener">Terms</a>.</p>
               <Btn type="submit" disabled={busy}>Send request to this library</Btn>
             </form>
           )}

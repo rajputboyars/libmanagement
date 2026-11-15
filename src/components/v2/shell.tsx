@@ -2,6 +2,7 @@
 import { Bell, CalendarDays, ChevronRight, HelpCircle, LogOut, Menu, Moon, Settings, Sun, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
+import { LegalBanner } from "../legal-consent";
 import { ResponsiveDialog } from "./dialog";
 import { LayoutProvider, useMeasuredLayout, type LayoutMode } from "./layout";
 import { MOBILE_PRIMARY_COUNT, NAV_GROUPS, PRIMARY_NAV, RAIL_PRIMARY_COUNT, groupNav, pickPrimary, type Role } from "./nav-config";
@@ -202,7 +203,7 @@ export function AppShell(p: CoreProps) {
               </Link>
             </div>
           </header>
-          <div className="sq-v2-content">{p.children}</div>
+          <div className="sq-v2-content"><LegalBanner />{p.children}</div>
         </div>
         {mode === "mobile" && (
           <nav className="sq-v2-bottom" aria-label="Main">
