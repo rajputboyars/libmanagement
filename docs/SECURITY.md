@@ -66,6 +66,16 @@ Status key: **Implemented** (code + test evidence), **Partial**, **Not implement
 - **Crash handling:** an uncaught exception is logged and alerted, then the process exits with code 1 (same as Node's default); rejections are logged and alerted without stopping the process.
 - **Residual risks:** monitoring is not active until the operator checklist in docs/MONITORING.md is completed; alert state is per process (shared MongoDB claim reduces duplicates but fails open); the webhook is the only notification path, so also use an external uptime monitor and dead-man's-switches that alert independently of this application.
 
+## Payment gateway security (R12)
+
+- **Provider:** Razorpay Subscriptions (INR, paise). Secret keys and the webhook secret are server-side only; never returned by any API, never logged (scrubbed in logs, errors and alerts), never part of validation messages.
+- **Trust model:** only **signature-verified** gateway events change invoices, payments or subscriptions. The signature (HMAC-SHA256, hex, constant-time) is checked over the raw body before any parsing or storage; unverified requests are not stored. There is no client-side "payment succeeded" path, and the sandbox completion endpoint is closed when gateway keys are configured.
+- **Validation of verified events:** positive whole-paise amount (≤ ₹10,00,000), currency `INR`, payment id format, payment status matching the event, and agreement of organization, checkout and subscription ids; failures change nothing, are stored as `rejected`, acknowledged (no retry storm) and alerted. Amounts that differ from the plan price are recorded and flagged for finance review. Refunds are idempotent by refund id, capped at the payment, and tenant-checked.
+- **Atomicity and idempotency:** unique event ids and provider payment ids; invoice + payment written in one transaction; concurrent duplicate deliveries record one payment and one receipt.
+- **Configuration safety:** partial gateway settings disable billing (no sandbox fallback); live keys are refused outside `NODE_ENV=production` or without https `APP_URL`; `BILLING_EXPECT_MODE` catches test/live mix-ups; the API base can only be overridden for test keys; the webhook secret must differ from the key secret and be long. Violations fail readiness and raise `config.invalid`.
+- **Reconciliation:** daily provider-vs-local comparison (report-only) and `npm run billing:reconcile`; alerts on mismatch, rejected events, repeated signature failures, payments needing review.
+- **Residual risks / unverified:** nothing has been exercised against Razorpay itself or with real money (local simulator only); the key pair can still create subscriptions if leaked, so rotate on suspicion; the 24-hour provider retry window means a long outage needs manual replay from the dashboard; tax/GST treatment is unreviewed. See docs/BILLING.md.
+
 ## Reporting
 
 Security reports should go to a monitored address (to be defined by the business) and be triaged within 2 business days.

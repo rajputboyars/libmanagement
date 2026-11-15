@@ -1591,6 +1591,214 @@ async function main() {
       assert.ok(/api\.unexpected_error|alert\.db\.unavailable/.test(deadLog), "the failures were logged for operators");
     }
 
+    // ---- R12: payment gateway (Razorpay) pipeline against a LOCAL gateway simulator. NOT the provider's own sandbox: that needs real test keys. ----
+    {
+      const { createServer: createPlainServer } = await import("node:http");
+      const KEY_ID = "rzp_test_HttpSuite01", KEY_SECRET = "httpsuite-key-secret-0123456789", HOOK_SECRET = "httpsuite-webhook-secret-0123456789";
+      const gw = { mode: "up" as "up" | "down", calls: [] as { method: string; path: string; auth: string; body: { plan_id?: string; notes?: { organizationId?: string } } }[], payments: [] as Record<string, unknown>[], subs: 0 };
+      const gateway = createPlainServer((req, res) => {
+        let data = ""; req.on("data", (c) => { data += c; });
+        req.on("end", () => {
+          const path = (req.url ?? "").split("?")[0];
+          gw.calls.push({ method: req.method ?? "", path, auth: String(req.headers.authorization ?? ""), body: data ? JSON.parse(data) : {} });
+          const good = req.headers.authorization === `Basic ${Buffer.from(`${KEY_ID}:${KEY_SECRET}`).toString("base64")}`;
+          if (gw.mode === "down") { res.writeHead(503); return res.end("{}"); }
+          if (!good) { res.writeHead(401, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { description: "Authentication failed" } })); }
+          res.writeHead(200, { "Content-Type": "application/json" });
+          if (req.method === "POST" && path === "/v1/subscriptions") return res.end(JSON.stringify({ id: `sub_Http${String(++gw.subs).padStart(6, "0")}`, short_url: `https://rzp.io/i/sim${gw.subs}` }));
+          if (req.method === "POST" && /^\/v1\/subscriptions\/[\w]+\/cancel$/.test(path)) return res.end("{}");
+          if (req.method === "GET" && path === "/v1/payments") return res.end(JSON.stringify({ items: gw.payments }));
+          res.end("{}");
+        });
+      });
+      await new Promise<void>((r) => gateway.listen(0, "127.0.0.1", r));
+      const gwBase = `http://127.0.0.1:${(gateway.address() as { port: number }).port}/v1`;
+      const startServer = async (port: number, env: Record<string, string>) => {
+        const proc = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", String(port), "--hostname", "127.0.0.1"], { env: { ...process.env, MONGODB_URI: replica.getUri(), SESSION_SECRET: sessionSecret, APP_URL: `http://127.0.0.1:${port}`, ...(okSink ? { ALERT_WEBHOOK_URL: okSink.url, NODE_TLS_REJECT_UNAUTHORIZED: "0" } : {}), ...env }, stdio: ["ignore", "pipe", "pipe"] });
+        extraServers.push(proc);
+        const box = { log: "" };
+        proc.stdout!.on("data", (c) => { box.log += c; }); proc.stderr!.on("data", (c) => { box.log += c; });
+        for (let i = 0; i < 80; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break; } catch { /* starting */ } await new Promise((r) => setTimeout(r, 500)); }
+        return { base: `http://127.0.0.1:${port}`, box };
+      };
+      const rz = await startServer(3103, { RAZORPAY_KEY_ID: KEY_ID, RAZORPAY_KEY_SECRET: KEY_SECRET, RAZORPAY_WEBHOOK_SECRET: HOOK_SECRET, RAZORPAY_API_BASE: gwBase });
+
+      const PRICE = (await S.SaaSPlan.findOne({ key: "starter", current: true }))!.monthlyPaise, THIRD = Math.round(PRICE / 3); // earlier admin tests re-price plans: always use the CURRENT list price
+      const ownerEmail = "rz-owner@example.invalid", otherEmail = "rz-other@example.invalid";
+      const rzOwner = await account("owner", ownerEmail), rzOther = await account("owner", otherEmail);
+      const org = (await S.Organization.findOne({ billingEmail: ownerEmail }))!, otherOrg = (await S.Organization.findOne({ billingEmail: otherEmail }))!;
+      await S.SaaSPlan.updateOne({ key: "starter", current: true }, { providerPlanIds: { razorpay: { monthly: "plan_StarterM01", annual: "plan_StarterA01" } } });
+      const post = (cookie: string, body: unknown, method = "POST", at = rz.base) => fetch(`${at}/api/billing`, { method, headers: { cookie, Origin: at, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+      // configuration is reported without secrets
+      const view = await (await fetch(`${rz.base}/api/billing`, { headers: { cookie: rzOwner } })).text();
+      const viewJson = JSON.parse(view);
+      assert.deepEqual([viewJson.provider.name, viewJson.provider.mode, viewJson.provider.configured, viewJson.provider.usable], ["razorpay", "sandbox", true, true], "rzp_test_ keys run in TEST mode");
+      assert.ok(!view.includes(KEY_SECRET) && !view.includes(HOOK_SECRET) && !view.includes(KEY_ID), "billing responses never contain gateway credentials");
+
+      // checkout: created at the gateway with the right credentials; nothing is paid or activated by creating it
+      const subBefore = await S.SaaSSubscription.findOne({ organizationId: org._id });
+      const ck = await (await post(rzOwner, { action: "checkout", data: { planKey: "starter", interval: "monthly" } })).json();
+      assert.equal(ck.ok, true, JSON.stringify(ck)); assert.equal(ck.checkoutUrl, "https://rzp.io/i/sim1"); assert.ok(!ck.sandbox);
+      const created = gw.calls.find((c) => c.path === "/v1/subscriptions")!;
+      assert.equal(created.auth, `Basic ${Buffer.from(`${KEY_ID}:${KEY_SECRET}`).toString("base64")}`, "server-side Basic auth with the key pair");
+      assert.equal(created.body.plan_id, "plan_StarterM01"); assert.equal(created.body.notes?.organizationId, String(org._id));
+      const checkout = (await S.BillingCheckout.findOne({ organizationId: org._id }))!;
+      assert.deepEqual([checkout.provider, checkout.mode, checkout.status], ["razorpay", "sandbox", "created"]);
+      const subId = checkout.providerSubscriptionId;
+      const sameSub = await S.SaaSSubscription.findOne({ organizationId: org._id });
+      assert.deepEqual([sameSub!.planKey, sameSub!.status], [subBefore!.planKey, subBefore!.status], "creating a checkout changes nothing about the plan");
+      // a gateway outage at checkout time fails cleanly and leaves no half-created record
+      gw.mode = "down";
+      const down = await post(rzOwner, { action: "checkout", data: { planKey: "starter", interval: "annual" } });
+      assert.equal(down.status, 400);
+      assert.equal(await S.BillingCheckout.countDocuments({ organizationId: org._id }), 1, "no checkout record without a gateway subscription");
+      gw.mode = "up";
+
+      // the browser can never declare a payment successful
+      assert.equal((await post(rzOwner, { checkoutId: String(checkout._id), outcome: "success" }, "PUT")).status, 403, "the sandbox completion endpoint is closed when a gateway is configured");
+      for (const action of ["payment-success", "confirm", "mark-paid", "complete-checkout"]) assert.equal((await post(rzOwner, { action, data: { checkoutId: String(checkout._id), paymentId: "pay_Browser0001", status: "captured" } })).status, 400, action);
+      assert.equal((await post(rzOther, { checkoutId: String(checkout._id), outcome: "success" }, "PUT")).status, 403);
+      const stillUnpaid = await S.SaaSSubscription.findOne({ organizationId: org._id });
+      assert.equal(stillUnpaid!.planKey, subBefore!.planKey); assert.equal(await S.BillingPayment.countDocuments({ organizationId: org._id }), 0);
+
+      // webhook signature and shape
+      const sigOf = (raw: string, secret = HOOK_SECRET) => signBody(raw, secret);
+      const hookRaw = (raw: string, eventId: string, signature: string | null) => fetch(`${rz.base}/api/billing/webhook`, { method: "POST", headers: { "Content-Type": "application/json", "x-razorpay-event-id": eventId, ...(signature === null ? {} : { "x-razorpay-signature": signature }) }, body: raw });
+      const rzHook = (payload: unknown, eventId = `evt_rz_${++rzN}`) => { const raw = JSON.stringify(payload); return hookRaw(raw, eventId, sigOf(raw)); };
+      let rzN = 0;
+      const charged = (paymentId: string, amount = PRICE, at = Math.floor(Date.now() / 1000), pay: Record<string, unknown> = {}) => ({ entity: "event", event: "subscription.charged", created_at: at, payload: { subscription: { entity: { id: subId, status: "active", current_start: at, current_end: at + 2592000 } }, payment: { entity: { id: paymentId, amount, currency: "INR", status: "captured", method: "card", notes: { organizationId: String(org._id), checkoutId: String(checkout._id) }, ...pay } } } });
+      const body0 = JSON.stringify(charged("pay_HttpBad0001"));
+      assert.equal((await hookRaw(body0, "evt_nosig", null)).status, 400, "missing signature");
+      assert.equal((await hookRaw(body0, "evt_wrongsig", "0".repeat(64))).status, 400, "wrong signature");
+      assert.equal((await hookRaw(body0, "evt_wrongkey", sigOf(body0, KEY_SECRET))).status, 400, "signed with the API key secret instead of the webhook secret");
+      assert.equal((await hookRaw(body0 + " ", "evt_tamper", sigOf(body0))).status, 400, "body changed after signing");
+      assert.equal((await hookRaw("{not json", "evt_junk", sigOf("{not json"))).status, 400, "malformed JSON with a valid signature");
+      assert.equal((await hookRaw("{}", "evt_empty", sigOf("{}"))).status, 400, "a signed body that is not an event");
+      assert.equal(await S.BillingWebhookEvent.countDocuments({ eventId: { $in: ["evt_nosig", "evt_wrongsig", "evt_wrongkey", "evt_tamper", "evt_junk", "evt_empty"] } }), 0, "unverified requests are never stored");
+      assert.equal(await S.BillingPayment.countDocuments({ organizationId: org._id }), 0, "an unverified webhook marks nothing paid");
+
+      // successful payment: verify the DATABASE, not a response
+      assert.equal((await rzHook({ entity: "event", event: "subscription.activated", created_at: Math.floor(Date.now() / 1000), payload: { subscription: { entity: { id: subId, status: "active", current_start: Math.floor(Date.now() / 1000), current_end: Math.floor(Date.now() / 1000) + 2592000 } } } })).status, 200);
+      const okEvent = charged("pay_HttpOk00001");
+      assert.equal((await rzHook(okEvent, "evt_ok_1")).status, 200);
+      const paid = await S.SaaSSubscription.findOne({ organizationId: org._id });
+      assert.deepEqual([paid!.planKey, paid!.status, paid!.provider, paid!.mode, paid!.source], ["starter", "active", "razorpay", "sandbox", "provider"]);
+      const inv = await S.BillingInvoice.findOne({ providerPaymentId: "pay_HttpOk00001" });
+      assert.deepEqual([inv!.status, inv!.totalPaise, inv!.amountPaidPaise, inv!.mode, String(inv!.organizationId)], ["paid", PRICE, PRICE, "sandbox", String(org._id)]);
+      assert.match(inv!.number, /^[A-Z]+-\d{4}-\d{6}$/);
+      const payment = await S.BillingPayment.findOne({ providerPaymentId: "pay_HttpOk00001" });
+      assert.deepEqual([payment!.status, payment!.amountPaise, payment!.currency, payment!.needsReview, String(payment!.invoiceId)], ["captured", PRICE, "INR", false, String(inv!._id)]);
+      assert.equal((await S.BillingCheckout.findById(checkout._id))!.status, "completed");
+      const mine = await (await fetch(`${rz.base}/api/billing`, { headers: { cookie: rzOwner } })).json();
+      assert.ok(mine.invoices.some((i: { providerPaymentId?: string }) => i.providerPaymentId === "pay_HttpOk00001"), "the owner sees the receipt");
+      const theirs = await (await fetch(`${rz.base}/api/billing`, { headers: { cookie: rzOther } })).json();
+      assert.ok(!JSON.stringify(theirs).includes("pay_HttpOk00001"), "another tenant never sees it");
+      assert.equal(await S.BillingPayment.countDocuments({ organizationId: otherOrg._id }), 0);
+
+      // duplicate delivery (same event id, and the same payment under another event id) records nothing twice
+      assert.equal((await (await rzHook(okEvent, "evt_ok_1")).json()).duplicate, true);
+      await rzHook(okEvent, "evt_ok_other_id");
+      await Promise.all([1, 2, 3, 4].map((i) => rzHook(okEvent, `evt_ok_parallel_${i}`)));
+      for (let i = 1; i <= 4; i++) await rzHook(okEvent, `evt_ok_parallel_${i}`);
+      assert.deepEqual([await S.BillingInvoice.countDocuments({ providerPaymentId: "pay_HttpOk00001" }), await S.BillingPayment.countDocuments({ providerPaymentId: "pay_HttpOk00001" })], [1, 1], "exactly one invoice and one payment");
+
+      // amount / currency / tenant / id mismatches are rejected without touching any record, and alert once
+      const stateOf = async () => JSON.stringify([await S.BillingInvoice.countDocuments({ organizationId: org._id }), await S.BillingPayment.countDocuments({ organizationId: org._id }), (await S.SaaSSubscription.findOne({ organizationId: org._id }))!.toObject().currentPeriodEnd]);
+      const frozen = await stateOf();
+      for (const [label, payload] of [
+        ["usd", charged("pay_HttpUsd0001", PRICE, undefined, { currency: "USD" })],
+        ["zero", charged("pay_HttpZero001", 0)],
+        ["negative", charged("pay_HttpNeg0001", -100)],
+        ["fraction", charged("pay_HttpFrac001", 100.5)],
+        ["badid", charged("order_HttpBad001")],
+        ["othertenant", charged("pay_HttpTen0001", PRICE, undefined, { notes: { organizationId: String(otherOrg._id) } })],
+        ["othersub", charged("pay_HttpSub0001", PRICE, undefined, { subscription_id: "sub_SomethingElse1" })],
+        ["authorized", charged("pay_HttpAut0001", PRICE, undefined, { status: "authorized" })],
+      ] as [string, unknown][]) {
+        const r = await rzHook(payload, `evt_mismatch_${label}`);
+        assert.equal(r.status, 200, `${label}: acknowledged so the gateway does not retry`);
+        assert.equal((await S.BillingWebhookEvent.findOne({ eventId: `evt_mismatch_${label}` }))!.status, "rejected", label);
+      }
+      assert.equal(await stateOf(), frozen, "no invoice, payment or subscription change from any rejected event");
+      for (let i = 0; i < 24 && !okSink?.hits.some((h) => String((h.body as { key?: string }).key).startsWith("billing.anomaly")); i++) await new Promise((r) => setTimeout(r, 250));
+      if (okSink) {
+        const anomalies = okSink.hits.filter((h) => String((h.body as { key?: string }).key).startsWith("billing.anomaly"));
+        assert.ok(anomalies.length >= 1 && anomalies.length <= 8, "rejections alert, deduplicated per cause");
+        assert.ok(!JSON.stringify(anomalies).includes(KEY_SECRET) && !JSON.stringify(anomalies).includes(HOOK_SECRET), "alerts carry no credentials");
+      }
+
+      // over-charge: real money is recorded and flagged for review, not discarded
+      assert.equal((await rzHook(charged("pay_HttpOver0001", PRICE * 2))).status, 200);
+      const over = await S.BillingPayment.findOne({ providerPaymentId: "pay_HttpOver0001" });
+      assert.equal(over!.needsReview, true); assert.match(over!.reviewReason!, /more than the plan price/);
+
+      // declined payment: failed record, plan and money untouched; the gateway later marks the subscription past due
+      const planBefore = await S.SaaSSubscription.findOne({ organizationId: org._id });
+      const failedEv = (id: string, extra: Record<string, unknown> = {}) => ({ entity: "event", event: "payment.failed", created_at: Math.floor(Date.now() / 1000) + 5, payload: { subscription: { entity: { id: subId } }, payment: { entity: { id, amount: PRICE, currency: "INR", status: "failed", error_description: "Your card was declined", notes: { organizationId: String(org._id) }, ...extra } } } });
+      assert.equal((await rzHook(failedEv("pay_HttpFail0001"))).status, 200);
+      await rzHook(failedEv("pay_HttpFail0001"), "evt_fail_dup");
+      assert.deepEqual([(await S.BillingPayment.findOne({ providerPaymentId: "pay_HttpFail0001" }))!.status, (await S.BillingInvoice.findOne({ providerPaymentId: "pay_HttpFail0001" }))!.status], ["failed", "failed"]);
+      assert.equal(await S.BillingPayment.countDocuments({ providerPaymentId: "pay_HttpFail0001" }), 1);
+      const planAfter = await S.SaaSSubscription.findOne({ organizationId: org._id });
+      assert.deepEqual([planAfter!.planKey, planAfter!.status, +planAfter!.currentPeriodEnd!], [planBefore!.planKey, "active", +planBefore!.currentPeriodEnd!], "a decline does not change the paid plan or period");
+      assert.equal((await S.BillingPayment.find({ organizationId: org._id, status: "captured" })).reduce((n, p) => n + p.amountPaise, 0), PRICE + PRICE * 2, "captured totals unchanged by the decline");
+      assert.equal((await rzHook({ entity: "event", event: "subscription.pending", created_at: Math.floor(Date.now() / 1000) + 10, payload: { subscription: { entity: { id: subId } } } })).status, 200);
+      assert.equal((await S.SaaSSubscription.findOne({ organizationId: org._id }))!.status, "past_due");
+
+      // refunds
+      const refundEv = (rid: string, amount: number, payment = "pay_HttpOk00001") => ({ entity: "event", event: "refund.processed", created_at: Math.floor(Date.now() / 1000) + 20, payload: { subscription: { entity: { id: subId } }, refund: { entity: { id: rid, payment_id: payment, amount, currency: "INR" } } } });
+      await rzHook(refundEv("rfnd_HttpRef01", THIRD)); await rzHook(refundEv("rfnd_HttpRef01", THIRD));
+      let refunded = await S.BillingPayment.findOne({ providerPaymentId: "pay_HttpOk00001" });
+      assert.deepEqual([refunded!.refundedPaise, refunded!.status], [THIRD, "partially_refunded"], "the same refund is counted once");
+      await rzHook(refundEv("rfnd_HttpRef02", (PRICE - THIRD)));
+      refunded = await S.BillingPayment.findOne({ providerPaymentId: "pay_HttpOk00001" });
+      assert.deepEqual([refunded!.refundedPaise, refunded!.status], [PRICE, "refunded"]);
+      assert.equal((await S.BillingInvoice.findOne({ providerPaymentId: "pay_HttpOk00001" }))!.status, "refunded");
+      assert.equal((await rzHook(refundEv("rfnd_HttpRef03", 100, "pay_HttpFail0001"))).status, 200);
+      assert.equal(await S.BillingPayment.countDocuments({ providerPaymentId: "pay_HttpFail0001", refundedPaise: { $gt: 0 } }), 0, "no refund against a failed payment");
+
+      // delayed delivery: an old payment after a newer cancellation is recorded but never revives the subscription
+      const now2 = Math.floor(Date.now() / 1000);
+      await rzHook({ entity: "event", event: "subscription.cancelled", created_at: now2 + 1000, payload: { subscription: { entity: { id: subId, current_end: now2 + 2592000 } } } });
+      assert.equal((await rzHook(charged("pay_HttpLate0001", PRICE, now2 + 500))).status, 200);
+      assert.equal((await S.SaaSSubscription.findOne({ organizationId: org._id }))!.status, "canceled");
+      assert.equal(await S.BillingPayment.countDocuments({ providerPaymentId: "pay_HttpLate0001" }), 1);
+
+      // reconciliation of the gateway's own list against the database (read-only)
+      const { reconcileWithProvider } = await import("../src/lib/billing-reconcile");
+      const local = await S.BillingPayment.find({ organizationId: org._id }).lean();
+      for (const p of local) gw.payments.push({ id: p.providerPaymentId, amount: p.amountPaise, currency: "INR", status: p.status === "failed" ? "failed" : p.refundedPaise >= p.amountPaise ? "refunded" : "captured", amount_refunded: p.refundedPaise });
+      const reconCfg = { provider: "razorpay" as const, mode: "sandbox" as const, keyId: KEY_ID, keySecret: KEY_SECRET, webhookSecret: HOOK_SECRET, configured: true, usable: true };
+      const clean = await reconcileWithProvider({ cfg: reconCfg, days: 3, fetch: ((u: string, i: RequestInit) => fetch(u.replace(/^https:\/\/api\.razorpay\.com\/v1/, gwBase), i)) as never });
+      assert.equal(clean.ok, true, JSON.stringify(clean.discrepancies));
+      gw.payments.push({ id: "pay_HttpGhost001", amount: PRICE, currency: "INR", status: "captured", amount_refunded: 0 }); // money at the gateway whose webhook never arrived
+      const broken = await reconcileWithProvider({ cfg: { ...reconCfg, mode: "sandbox" }, days: 3, fetch: ((u: string, i: RequestInit) => fetch(u.replace(/^https:\/\/api\.razorpay\.com\/v1/, gwBase), i)) as never });
+      assert.deepEqual(broken.discrepancies.map((d) => `${d.type}:${d.paymentId}`), ["missing-locally:pay_HttpGhost001"]);
+
+      // secrets stay out of logs and responses
+      for (const secret of [KEY_SECRET, HOOK_SECRET, KEY_ID, Buffer.from(`${KEY_ID}:${KEY_SECRET}`).toString("base64")]) assert.ok(!rz.box.log.includes(secret), "gateway credentials never appear in server logs");
+
+      // a LIVE key in a non-production-grade deployment (http APP_URL) is refused: checkouts stay disabled and no gateway call is made
+      const callsBefore = gw.calls.length;
+      const liveSrv = await startServer(3104, { RAZORPAY_KEY_ID: "rzp_live_HttpSuite01", RAZORPAY_KEY_SECRET: KEY_SECRET, RAZORPAY_WEBHOOK_SECRET: HOOK_SECRET, RAZORPAY_API_BASE: gwBase });
+      const liveView = await (await fetch(`${liveSrv.base}/api/billing`, { headers: { cookie: rzOwner } })).json();
+      assert.deepEqual([liveView.provider.mode, liveView.provider.usable], ["live", false], "live key without https APP_URL is not usable");
+      const liveCk = await post(rzOwner, { action: "checkout", data: { planKey: "starter", interval: "monthly" } }, "POST", liveSrv.base);
+      assert.equal(liveCk.status, 400);
+      assert.equal(gw.calls.length, callsBefore, "no request ever reached a gateway");
+      const liveReady = await (await fetch(`${liveSrv.base}/api/ready`)).json();
+      assert.equal(liveReady.checks.config.ok, false, "readiness reports the configuration error");
+      assert.ok(!JSON.stringify(liveReady).includes("rzp_live") && !liveSrv.box.log.includes(KEY_SECRET), "no credentials in readiness or logs");
+      assert.match(liveSrv.box.log, /config\.issue/);
+      // partial gateway settings never fall back to the sandbox
+      const partialSrv = await startServer(3105, { RAZORPAY_KEY_ID: KEY_ID });
+      const partialView = await (await fetch(`${partialSrv.base}/api/billing`, { headers: { cookie: rzOwner } })).json();
+      assert.deepEqual([partialView.provider.name, partialView.provider.usable, partialView.provider.configured], ["razorpay", false, false]);
+      assert.equal((await post(rzOwner, { checkoutId: String(checkout._id), outcome: "success" }, "PUT", partialSrv.base)).status, 403, "no sandbox payment path with partial settings");
+      gateway.close();
+    }
+
     // ---- R8: Content-Security-Policy on public and authenticated pages (production build) ----
     const cspOf = async (path: string, cookie?: string) => { const r = await fetch(base + path, { headers: cookie ? { cookie } : {} }); return { r, csp: r.headers.get("content-security-policy") ?? "", html: await r.text() }; };
     const nonces = new Set<string>();
@@ -1614,7 +1822,7 @@ async function main() {
     const apiCsp = (await fetch(base + "/api/health")).headers.get("content-security-policy");
     assert.equal(apiCsp, "default-src 'none'; frame-ancestors 'none'", "API responses allow nothing");
     console.log(
-      "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant, two-step sign-in (TOTP, recovery codes, replay, lockout, reset/change bypass), mandatory enrolment for owners and platform admins, nonce-based CSP, health endpoints, alert-delivery failure isolation, database-outage behaviour.",
+      "PASS: registration, sessions, role/tenant isolation, scoped staff grants/revocation, allocation conflicts, payment idempotency/overpayment, private receipts, aggregate totals, pagination, QR attendance, pause/resume, confirmed renewal, server timer validation, single XP grant, two-step sign-in (TOTP, recovery codes, replay, lockout, reset/change bypass), mandatory enrolment for owners and platform admins, nonce-based CSP, health endpoints, alert-delivery failure isolation, database-outage behaviour, payment gateway pipeline (signatures, idempotency, mismatches, declines, refunds, reconciliation, test/live safety).",
     );
   } finally {
     for (const x of extraServers) x.kill();

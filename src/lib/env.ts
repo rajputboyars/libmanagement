@@ -1,3 +1,4 @@
+import { billingConfigProblems } from "./billing-config";
 export type EnvIssue = { level: "error" | "warn"; key: string; message: string };
 
 /** Validates production configuration. Errors block readiness; warnings describe optional features that are not configured. */
@@ -19,6 +20,8 @@ export function checkEnv(env: NodeJS.ProcessEnv = process.env): EnvIssue[] {
   need("CRON_SECRET", "Scheduled jobs cannot be triggered over HTTP without it (the worker process does not need it)", "warn");
   if (!env.EMAIL_WEBHOOK_URL) issues.push({ level: prod ? "error" : "warn", key: "EMAIL_WEBHOOK_URL", message: "Password-reset, verification and billing emails will not be delivered" });
   else if (prod && !env.EMAIL_WEBHOOK_URL.startsWith("https://")) issues.push({ level: "error", key: "EMAIL_WEBHOOK_URL", message: "Must be an https:// endpoint in production" });
+  // Payment gateway: partial/invalid/test-vs-live mistakes are errors (messages name variables, never values).
+  for (const p of billingConfigProblems(env)) issues.push(p);
   need("ALERT_WEBHOOK_URL", "No alert destination: failures are logged but nobody is notified", "warn");
   return issues;
 }

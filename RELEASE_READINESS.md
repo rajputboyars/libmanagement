@@ -13,7 +13,7 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 | 1 | Functionality | PASS (automated) / pilot pending | Low |
 | 2 | Security | PARTIAL (TOTP two-step sign-in is mandatory for owners and platform admins since R9, nonce-based CSP since R8; an independent review remains) | Medium |
 | 3 | Data integrity | PASS (automated) | Low |
-| 4 | Payments | PASS in sandbox · **BLOCKED** for live | Critical |
+| 4 | Payments | Hardened (R12) and verified against a LOCAL gateway simulator and the local sandbox · **BLOCKED**: never verified against Razorpay (no credentials) and live payments pending | Critical |
 | 5 | Performance | **FAIL** on landing page target; others PASS | Medium |
 | 6 | Accessibility | PASS (automated) / manual NOT TESTED | Low |
 | 7 | Reliability | PASS (automated) · load NOT TESTED | Medium |
@@ -30,8 +30,8 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 |---|---|---|
 | Typecheck | PASS | `npm run typecheck` |
 | Lint | PASS | `npm run lint`, 0 errors, 0 warnings |
-| Unit tests | PASS | 183 tests: 180 pass, 0 fail, 3 skipped (the database tests, which run in the integration suite) |
-| Integration | PASS | 4 pass: tenant scope and concurrent seat writes, token signing, backup→restore drill, encrypted backup → check → verified restore |
+| Unit tests | PASS | 205 tests: 201 pass, 0 fail, 4 skipped (the database tests, which run in the integration suite) |
+| Integration | PASS | 5 pass: tenant scope and concurrent seat writes, token signing, backup→restore drill, encrypted backup → check → verified restore, billing webhook pipeline (atomicity, idempotency, validation, tenants, reconciliation) |
 | HTTP workflow ("E2E") | PASS | `npm run test:http`: one continuous workflow against a production build and real MongoDB replica set |
 | Production build | PASS | `npm run build` |
 | Production dependency audit | PASS | `npm audit --omit=dev`: 0 vulnerabilities |
@@ -69,12 +69,13 @@ Remaining (mandatory before launch):
 - Reconciliation checks (memberships ↔ payments ↔ seat assignments ↔ dues) pass on imported pilot-shaped data and on the restored database in the backup drill.
 - Existing-database migration (`migrate:orgs`) is additive and idempotent; tested lazily through registration and the organization workflow. **Not run against a production-sized copy** (NOT TESTED) — do so on staging with a restored copy before release.
 
-### 4. Payments — PASS (sandbox) · BLOCKED (live)
-Library fee payments and SaaS billing are separate code paths.
-- Library fees: server-side amounts, partial payments, overpayment blocked, idempotency keys, receipts scoped to owner/payer, duplicate concurrent requests safe.
-- SaaS billing (sandbox + Razorpay-shaped signed events): invalid signature rejected (400); duplicate and concurrent deliveries deduplicated; out-of-order events cannot revive a cancelled subscription; refund-before-payment retried; failed payment leaves the current plan untouched and records a failed invoice; past-due grace then restriction; checkout alone never activates a plan; plan changes only after a verified payment; invoice tax derived only from configuration; coupon and credit rules; referral credit only after a verified live payment, idempotent. Reconciliation job reports (never silently fixes) discrepancies.
-- **BLOCKED:** no Razorpay credentials were available. The real gateway request format, webhook payload shapes and signature header behaviour are implemented from documentation but **untested against Razorpay's test mode**. Live credentials were not requested or used.
-Required actions: obtain `rzp_test_` keys; run checkout + webhook end to end on staging; obtain tax/GST and payment-compliance review; written approval before live keys. Severity Critical.
+### 4. Payments — HARDENED (R12), verified on a simulator · BLOCKED (real gateway, live)
+Provider: **Razorpay Subscriptions** (INR, integer paise) with a local sandbox for development. Library fee payments (recorded by owners) are a separate path from SaaS billing. Full audit, runbook and checklist: **docs/BILLING.md**.
+- **Security findings fixed in R12:** payment currency/amount/id were not validated; tenant/subscription/checkout cross-checks were missing; invoice and payment were separate writes (a failure between them left an orphan invoice that made retries fail forever); refunds were not idempotent by refund id; partial gateway settings silently fell back to the sandbox and live/test keys were not guarded; no provider-side reconciliation; abandoned checkouts never closed; webhook route had no outage handling. All fixed and tested. Unchanged: signature verification (HMAC-SHA256 over the raw body, constant time), event-id de-duplication, forward-only lifecycle, financial calculations, tenant ownership of billing data.
+- **No browser-side confirmation exists**: only signed gateway events change invoices, payments or subscriptions; the sandbox completion endpoint is closed whenever gateway credentials are configured.
+- **Scenarios verified (database state checked, not just responses):** successful payment, declined payment (plan, period and captured totals untouched), abandoned checkout, delayed webhook, duplicate and concurrent webhooks (one invoice/payment), invalid/missing/wrong-key signatures, malformed bodies, currency/amount/payment-id/tenant/subscription mismatches (rejected, nothing recorded, one alert), over-charge (recorded and flagged), temporary database failure mid-write (rolled back, retried once), gateway outage at checkout, partial/duplicate/excess refunds, provider reconciliation (missing either side, amount, refund), live-key refusal without https, partial settings never sandboxed, no credentials in logs/responses/alerts.
+- **What this does NOT prove:** every gateway interaction above ran against a **local simulator written from Razorpay's documentation**, not Razorpay's own test environment. Acceptance of real requests, real webhook payload shapes and headers, real payment methods/3-D Secure/mandates, real declines and refunds, tax/GST correctness and bank settlement are **unverified**. **No real transaction has ever been made; live verification is pending** and must not be started without explicit written approval.
+- **BLOCKED (Critical):** obtain Razorpay test keys, link plans, pay with the provider's test cards/UPI on staging, observe real webhook deliveries, run `npm run billing:reconcile`, record evidence; GST/payment-compliance review; then an approved low-value live transaction with refund. Set `BILLING_EXPECT_MODE=live` in production.
 
 ### 5. Performance — FAIL on the landing page target
 Lighthouse mobile emulation (simulated 4× CPU / slow 4G), production build served locally, no database:
@@ -157,7 +158,7 @@ Tooling is ready and tested: validated CSV import with duplicate detection, seat
 
 1. **Backups:** enable Atlas Cloud Backup (or accept the 24-hour RPO in writing), create the bucket, encryption key and read-only backup user, schedule and observe a real backup, verify alerting, and complete a recorded restore of that real backup into staging (checklist in docs/BACKUP_RESTORE.md).
 2. **Monitoring/alerting:** create the alert webhook and recipients, external uptime probes on `/api/ready` and `/api/health`, the three heartbeat monitors and Atlas Alerts; verify a real `db.unavailable` alert and recovery and a missed-heartbeat alert, and record the evidence (checklist in docs/MONITORING.md).
-3. **Payments:** run Razorpay test-mode end to end on staging; tax/GST and payment-compliance review; written approval before any live key.
+3. **Payments:** run Razorpay **test mode** end to end on staging with real test credentials (the R12 verification used a local simulator only), reconcile with `npm run billing:reconcile`, complete the tax/GST and payment-compliance review, set `BILLING_EXPECT_MODE=live` and obtain written approval before any live key or live transaction (docs/BILLING.md checklist).
 4. **Security:** set `TWO_FACTOR_KEY` (mandatory two-step sign-in is enforced since R9), enrol two platform admins, independent security review/penetration test.
 5. **Legal:** lawyer-reviewed Privacy Policy and Terms; DPDP consent and children's-data review.
 6. **Infrastructure:** production database cluster, domain and TLS, reverse proxy with `TRUST_PROXY=1`, secrets manager, email provider, run CI on the hosted service, create staging.
