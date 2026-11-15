@@ -1,8 +1,9 @@
 import { billingConfigProblems } from "./billing-config";
+import { profileProblems } from "./env-profile";
 export type EnvIssue = { level: "error" | "warn"; key: string; message: string };
 
 /** Validates production configuration. Errors block readiness; warnings describe optional features that are not configured. */
-export function checkEnv(env: NodeJS.ProcessEnv = process.env): EnvIssue[] {
+export function checkEnv(env: Record<string, string | undefined> = process.env): EnvIssue[] {
   const issues: EnvIssue[] = [];
   const prod = env.NODE_ENV === "production";
   const need = (key: string, message: string, level: "error" | "warn" = "error") => { if (!env[key]) issues.push({ level, key, message }); };
@@ -22,6 +23,11 @@ export function checkEnv(env: NodeJS.ProcessEnv = process.env): EnvIssue[] {
   else if (prod && !env.EMAIL_WEBHOOK_URL.startsWith("https://")) issues.push({ level: "error", key: "EMAIL_WEBHOOK_URL", message: "Must be an https:// endpoint in production" });
   // Payment gateway: partial/invalid/test-vs-live mistakes are errors (messages name variables, never values).
   for (const p of billingConfigProblems(env)) issues.push(p);
+  // An explicit APP_ENV (staging or production) turns on the stricter deployment profile; readiness then fails until it is satisfied.
+  if (env.APP_ENV === "staging" || env.APP_ENV === "production") {
+    const seen = new Set(issues.map((i) => `${i.key}|${i.message}`));
+    for (const p of profileProblems(env, env.APP_ENV)) if (!seen.has(`${p.key}|${p.message}`)) issues.push(p);
+  }
   need("ALERT_WEBHOOK_URL", "No alert destination: failures are logged but nobody is notified", "warn");
   return issues;
 }

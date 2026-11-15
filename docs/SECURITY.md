@@ -82,6 +82,12 @@ Status key: **Implemented** (code + test evidence), **Partial**, **Not implement
 - Registration, activation of a library-created account and subscribing require acceptance **server-side**; existing accounts are prompted, never locked out.
 - The legal pages are static server-rendered pages (CSP unchanged). See docs/LEGAL_COMPLIANCE.md; the texts are unreviewed drafts.
 
+## Deployment safety (R14)
+
+- `APP_ENV` profiles (`src/lib/env-profile.ts`): with `staging` or `production` set, web and worker **refuse to start** on configuration errors and `/api/ready` fails. Rules include https canonical `APP_URL`, a managed non-local database, strong distinct `SESSION_SECRET`, a **dedicated `TWO_FACTOR_KEY`**, `TRUST_PROXY=1`, https alert/email webhooks, no sandbox billing, **no backup/restore credentials on web or worker**, **staging limited to `rzp_test_` keys**, production declaring `BILLING_EXPECT_MODE`. Messages name variables only and never print values.
+- Post-deploy verification (`npm run smoke`) checks HTTPS/HSTS, nonce CSP, security headers, signed-out API refusal, error hygiene and session cookie flags. It is read-only.
+- Demo data (`[DEMO]`, `isTest`, `@demo.invalid`) is refused in production and purgeable only by its flags; pilot metrics are aggregate counts with no personal data.
+
 ## Reporting
 
 Security reports should go to a monitored address (to be defined by the business) and be triaged within 2 business days.

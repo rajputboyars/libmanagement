@@ -3,12 +3,19 @@
 StudyQuest is a Next.js 16 application plus an optional background worker, backed by MongoDB (a replica set is required for transactions).
 Nothing in this repository deploys itself or creates infrastructure. Every step below is run by a person with authority over the target environment.
 
+## 0. Supported deployment path (decision)
+
+The repository contains both a container setup and a Vercel cron entry. **The supported path is the container (`web` + `worker` targets of the `Dockerfile`, standalone output) behind a TLS reverse proxy.** The worker is required for the periodic jobs, the backup job needs a fixed egress IP for the Atlas allow-list, and CI builds exactly these images. Vercel is **not** a supported pilot path (no worker, no tests or runbooks exercise it; `vercel.json` is a leftover single daily cron). `npm start` is for development. The actual host/provider is still an **open owner decision**, and nothing has been deployed or built into an image on the preparing machine. Full pilot procedure: docs/PILOT_RUNBOOK.md.
+
+**Set `APP_ENV=staging` or `APP_ENV=production` on every process.** With it the web and worker refuse to start on configuration errors (staging may only use `rzp_test_` keys, production must declare `BILLING_EXPECT_MODE`, a dedicated `TWO_FACTOR_KEY` is required, backup credentials must not be on web/worker, etc.). Check first with `npm run env:check -- --profile <staging|production> --role <web|worker|backup> --env-file <file>`; verify after deploying with `npm run smoke -- --url https://<host>`; the combined entry gate is `npm run pilot:gate`.
+
 ## 1. Environments
 
 | | Development | Staging | Production |
 |---|---|---|---|
 | Purpose | local work | rehearsal with production-like config | real users |
 | `NODE_ENV` | development | production | production |
+| `APP_ENV` | unset | `staging` | `production` |
 | `APP_URL` | `http://127.0.0.1:3000` | `https://staging.<domain>` | `https://<domain>` |
 | MongoDB | local replica set or Atlas dev cluster | separate cluster/database, **never** production data | production cluster with backups |
 | Razorpay | unset (local sandbox) | `rzp_test_*` keys | `rzp_live_*` keys, enabled only with written approval |
@@ -68,6 +75,9 @@ On Vercel, `vercel.json` runs the jobs daily at 08:00 IST via Vercel Cron (`GET 
 3. Take a fresh database backup (see BACKUP_RESTORE.md) and record its location in the release notes.
 4. Run `npm run migrate:orgs -- --dry`; review the output; apply only with approval. Migrations are additive (new collections and fields), so the previous release keeps working against the migrated database.
 5. Deploy production with a rolling or blue/green strategy; watch `/api/ready`, the error rate and the webhook failure alert for 30 minutes.
+
+### Post-deployment smoke test
+`npm run smoke -- --url https://<host>` (read-only) checks HTTPS/HSTS, liveness and readiness, nonce-based CSP, security headers, public legal routes signed out, signed-out API refusal, error hygiene and (with a dedicated smoke account) session cookie flags. Manual steps it cannot cover (mandatory two-step enrolment of a new owner, email delivery) are in docs/PILOT_RUNBOOK.md §5.2.
 
 ## 7. Rollback
 

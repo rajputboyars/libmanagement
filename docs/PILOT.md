@@ -1,5 +1,7 @@
 # Hometown library pilot (50–100 fixed seats)
 
+> The deployment, safeguards, entry gate, support and exit procedure for a controlled pilot are in **docs/PILOT_RUNBOOK.md** (start there). This document keeps the register-import and parallel-run detail.
+
 Goal: run one real library on StudyQuest, in parallel with its paper register, until the numbers match and the owner is confident. Nothing here should be done for a live library without that library's explicit agreement.
 
 ## Roles

@@ -8,6 +8,7 @@ import { reportDatabase } from "../src/lib/api-errors";
 import { runAllJobs } from "../src/lib/jobs";
 import { log, serializeError } from "../src/lib/log";
 import { installProcessHandlers } from "../src/lib/process-monitor";
+import { mustRefuseToStart } from "../src/lib/env-profile";
 
 const minutes = Math.max(1, Number(process.env.JOB_INTERVAL_MINUTES || 15));
 let stopping = false;
@@ -29,6 +30,8 @@ async function tick() {
 }
 async function main() {
   if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is required");
+  const gate = mustRefuseToStart(process.env, "worker");
+  if (gate.refuse) { for (const p of gate.problems.filter((x) => x.level === "error")) log("error", "config.refused", { key: p.key, message: p.message }); throw new Error("Invalid configuration for APP_ENV=" + process.env.APP_ENV + ": the worker refuses to start"); }
   installProcessHandlers("worker");
   await mongoose.connect(process.env.MONGODB_URI);
   log("info", "worker.started", { intervalMinutes: minutes });

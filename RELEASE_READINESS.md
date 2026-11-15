@@ -20,8 +20,8 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 | 8 | Backups / restoration | Encrypted off-site backup, checks and verified restore IMPLEMENTED and drilled on a disposable database · **BLOCKED** (no production backup, bucket, key or Atlas Cloud Backup configured) | Critical |
 | 9 | Monitoring | Logging, scrubbing, health, deduplicated alerting and backup monitoring IMPLEMENTED and tested locally · **BLOCKED** (no external monitoring configured or verified) | Critical |
 | 10 | Documentation / legal | Privacy Notice and Terms drafted from the real data practices, with consent capture · **BLOCKED**: not reviewed by a lawyer or CA; owner details missing | High |
-| 11 | Deployment | PARTIAL (image built, nothing deployed) | High |
-| 12 | Pilot acceptance | **NOT TESTED** | High |
+| 11 | Deployment | Supported path decided (container), environment profiles, fail-safe start, smoke test and runbook IMPLEMENTED · **NOT VERIFIED**: nothing deployed, no image built locally, no host chosen | High |
+| 12 | Pilot acceptance | Pilot tooling and runbook READY (R14) · **NOT READY to start**: `pilot:gate` = 0 pass, 2 fail, 15 not verified; no real library onboarded | High |
 
 ## Evidence
 
@@ -30,8 +30,8 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 |---|---|---|
 | Typecheck | PASS | `npm run typecheck` |
 | Lint | PASS | `npm run lint`, 0 errors, 0 warnings |
-| Unit tests | PASS | 209 tests: 205 pass, 0 fail, 4 skipped (the database tests, which run in the integration suite) |
-| Integration | PASS | 5 pass: tenant scope and concurrent seat writes, token signing, backup→restore drill, encrypted backup → check → verified restore, billing webhook pipeline (atomicity, idempotency, validation, tenants, reconciliation) |
+| Unit tests | PASS | 219 tests: 214 pass, 0 fail, 5 skipped (the database tests, which run in the integration suite) |
+| Integration | PASS | 6 pass: tenant scope and concurrent seat writes, token signing, backup→restore drill, encrypted backup → check → verified restore, billing webhook pipeline (atomicity, idempotency, validation, tenants, reconciliation) |
 | HTTP workflow ("E2E") | PASS | `npm run test:http`: one continuous workflow against a production build and real MongoDB replica set |
 | Production build | PASS | `npm run build` |
 | Production dependency audit | PASS | `npm audit --omit=dev`: 0 vulnerabilities |
@@ -161,6 +161,32 @@ Not done (needs authorization/infrastructure): CI has never run on the hosted se
 ### 12. Pilot acceptance — NOT TESTED
 Tooling is ready and tested: validated CSV import with duplicate detection, seat/shift/plan mapping, control totals, all-or-nothing commit, idempotency, reconciliation view, invitations and activation (docs/PILOT.md, staff training guide, acceptance criteria). **No real library has been onboarded**; none of the pilot acceptance criteria (correct memberships for real students, dues reconciling with paper, daily owner operation, student activation) has been evidenced. Severity High.
 
+## Pilot readiness matrix (R14, 2026-11-16)
+
+Produced by `npm run pilot:gate -- --profile production` on the developer machine plus the checks listed. **PASS only with evidence; FAIL = checked and wrong; NOT VERIFIED = could not be checked here (needs infrastructure, credentials or a person).** The pilot **may not begin** until every row is PASS and the approvals in docs/PILOT_RUNBOOK.md §3 are given.
+
+| # | Launch blocker | Status | Evidence / what is missing |
+|---|---|---|---|
+| 1 | Deployment target decided | **PASS (decision)** / host **NOT VERIFIED** | Container path chosen from the repository (docs/DEPLOYMENT.md §0); actual provider/host/region undecided; images never built locally (`docker` absent), CI config only |
+| 2 | Deployment configuration valid for its profile | **FAIL** | `env:check` on `.env.production`: missing `APP_ENV`, `TWO_FACTOR_KEY`, `EMAIL_WEBHOOK_URL`, `ALERT_WEBHOOK_URL`; no payment keys. Staging environment does not exist |
+| 3 | Fail-safe start, test/live payment separation | **PASS (tested)** | Unit + HTTP: production profile with bad config exits 1; staging with a live key refuses; no secrets in refusal logs |
+| 4 | Deployed smoke test (HTTPS, HSTS, CSP, cookies, legal routes) | **NOT VERIFIED** (deployed) / **PASS** (local build) | Smoke tool passes the local production build except where the harness is deliberately imperfect; no deployed URL exists |
+| 5 | Mandatory 2FA, CSP, session settings, legal routes | **PASS (automated, local)** | HTTP suite (R9/R8/R13); manual new-owner enrolment check on a deployed host still to do |
+| 6 | Tenant isolation / onboarding rehearsal | **PASS (automated)** | Two brand-new libraries set up, join flow, exports, cross-tenant refusals (HTTP R14 block); manual spot-check on the pilot still required |
+| 7 | Synthetic demo data safe | **PASS (tested)** | `[DEMO]`/isTest tenants never touch real data; purge exact; refused in production (integration test) |
+| 8 | Backup configured, fresh, integrity-checked | **NOT VERIFIED** | No storage, key or read-only user configured |
+| 9 | **Restore into isolated staging from a real backup** | **NOT VERIFIED** | Only disposable-database drills (R10) |
+| 10 | Atlas Cloud Backup/PITR (or written limitation) | **NOT VERIFIED** | Tier unknown; Atlas not contacted |
+| 11 | Uptime probes, delivered alert + recovery, heartbeats | **NOT VERIFIED** | No destination, probe or heartbeat monitor exists |
+| 12 | Razorpay test mode with real credentials, webhook deliveries, reconciliation | **NOT VERIFIED** | No credentials; only the local simulator (R12) |
+| 13 | Export and account closure | **PASS (automated)** / staging **NOT VERIFIED** | Exports and deletion tested locally; not exercised on a staging host |
+| 14 | Legal review, placeholders filled | **FAIL** | Draft text; owner details missing (docs/LEGAL_COMPLIANCE.md) |
+| 15 | Rollback rehearsed | **NOT VERIFIED** | Procedure written (runbook §5.3); never rehearsed |
+| 16 | Two platform admins enrolled; staff trained; support contacts named; participants' written agreement | **NOT VERIFIED** | No people or participants exist in this repository; none invented |
+| 17 | Pilot quality tooling (severity, playbooks, metrics without PII) | **PASS (ready)** | docs/PILOT_RUNBOOK.md; `npm run pilot:metrics` tested for no personal data |
+
+**Verdict: the pilot is NOT ready to begin.** No external service was contacted and no real pilot activity exists. Preparation is complete; execution needs the owner's decisions and accounts listed above.
+
 ## Exact blockers to READY
 
 1. **Backups:** enable Atlas Cloud Backup (or accept the 24-hour RPO in writing), create the bucket, encryption key and read-only backup user, schedule and observe a real backup, verify alerting, and complete a recorded restore of that real backup into staging (checklist in docs/BACKUP_RESTORE.md).
@@ -170,6 +196,6 @@ Tooling is ready and tested: validated CSV import with duplicate detection, seat
 5. **Legal:** lawyer-reviewed Privacy Notice and Terms (the R13 text is an unreviewed draft); supply every placeholder (entity, grievance officer, contacts, providers, retention, refund and GST policy); DPDP role and children's-data decisions; CA sign-off on GST/invoices. Checklist: docs/LEGAL_COMPLIANCE.md.
 6. **Infrastructure:** production database cluster, domain and TLS, reverse proxy with `TRUST_PROXY=1`, secrets manager, email provider, run CI on the hosted service, create staging.
 7. **Performance:** meet the landing-page targets (≥ 90, LCP ≤ 2.5 s) and measure large-table and API latency under load.
-8. **Pilot:** complete the hometown-library pilot and record acceptance.
+8. **Pilot:** satisfy every row of the pilot readiness matrix (docs/PILOT_RUNBOOK.md), run the controlled pilot, record acceptance and the exit decision.
 
 READY requires every item above to be PASS with evidence. This document must be updated, not replaced, as evidence arrives.

@@ -6,6 +6,17 @@ export async function register() {
   const { alerts, notify } = await import("./lib/alerts");
   const { installProcessHandlers } = await import("./lib/process-monitor");
   installProcessHandlers("web");
+  // Fail safe: with an explicit APP_ENV profile, a deployment with configuration errors refuses to start instead of serving traffic.
+  const { mustRefuseToStart } = await import("./lib/env-profile");
+  const gate = mustRefuseToStart(process.env, "web");
+  if (gate.refuse) {
+    const errors = gate.problems.filter((p) => p.level === "error");
+    for (const p of errors) log("error", "config.refused", { key: p.key, message: p.message });
+    log("error", "server.refused_to_start", { profile: process.env.APP_ENV, errors: errors.length });
+    await Promise.race([alerts.raise("config.refused", "Deployment refused to start: invalid configuration", { profile: process.env.APP_ENV, keys: errors.map((e) => e.key) }, { severity: "critical" }), new Promise((r) => setTimeout(r, 3000))]);
+    process.exit(1);
+  }
+  if (process.env.NODE_ENV === "production" && !process.env.APP_ENV) log("warn", "config.app_env_missing", { note: "Set APP_ENV=staging or production to enable the deployment profile checks" });
   const issues = checkEnv();
   for (const i of issues) log(i.level === "error" ? "error" : "warn", "config.issue", { key: i.key, message: i.message });
   const errors = issues.filter((i) => i.level === "error");

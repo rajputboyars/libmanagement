@@ -1910,6 +1910,76 @@ async function main() {
       assert.deepEqual((await ConsentRecord.find({ userId: payerUser._id }).lean()).map((r) => `${r.kind}:${r.source}`), ["terms:checkout"]);
     }
 
+    // ---- R14: deployment safety, smoke test, pilot onboarding rehearsal ----
+    {
+      // the smoke test against this (deliberately imperfect, plain-http) test deployment: it must see what is right AND what is wrong
+      const { runSmoke } = await import("../src/lib/smoke");
+      const smoke = await runSmoke(base, { allowHttp: true });
+      const by = Object.fromEntries(smoke.checks.map((c) => [c.name, c.status]));
+      for (const name of ["liveness /api/health", "readiness body is coarse", "CSP: nonce-based scripts, no unsafe-inline/eval", "security headers", "no X-Powered-By", "API responses allow nothing (CSP)", "public page /login", "public page /register", "signed-out API refused: /api/workspace", "signed-out API refused: /api/billing", "signed-out API refused: /api/consent", "signed-out API refused: /api/saas-admin?view=orgs", "error hygiene", "failed sign-in sets no session", "robots.txt keeps private areas out of search"]) assert.equal(by[name], "pass", `smoke: ${name}`);
+      assert.equal(by["legal page /privacy (signed out)"], "warn", "legal pages are reachable signed out but still flagged as a draft");
+      assert.equal(by["legal page /terms (signed out)"], "warn");
+      assert.equal(by["HTTPS"], "warn"); assert.equal(by["HSTS"], "skip");
+      assert.equal(by["readiness /api/ready"], "fail", "this harness is intentionally misconfigured (http APP_URL, sandbox billing): readiness is correctly reported as failing");
+      assert.equal(by["session cookie flags"], "skip", "no smoke account supplied: reported as not verified, not as a pass");
+      assert.equal(smoke.ok, false);
+      // with a dedicated smoke account the cookie flags are really checked
+      const smokeEmail = "smoke-student@example.invalid";
+      await account("student", smokeEmail);
+      const withLogin = await runSmoke(base, { allowHttp: true, smokeLogin: { email: smokeEmail, password } });
+      assert.equal(withLogin.checks.find((c) => c.name === "session cookie flags")!.status, "pass", "HttpOnly, SameSite=Lax, 7-day session cookie verified from a real sign-in");
+
+      // a deployment with an explicit profile and invalid configuration refuses to start; staging can never run on a live payment key
+      const refuse = (env: Record<string, string>, port: number) => new Promise<{ code: number | null; log: string }>((resolve) => {
+        const proc = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", String(port), "--hostname", "127.0.0.1"], { env: { ...process.env, MONGODB_URI: replica.getUri(), SESSION_SECRET: sessionSecret, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+        extraServers.push(proc);
+        let log = "";
+        proc.stdout!.on("data", (c) => { log += c; }); proc.stderr!.on("data", (c) => { log += c; });
+        const t = setTimeout(() => { proc.kill(); resolve({ code: null, log }); }, 60000);
+        proc.on("exit", (code) => { clearTimeout(t); resolve({ code, log }); });
+      });
+      const prodBroken = await refuse({ APP_ENV: "production", APP_URL: "http://127.0.0.1:3107" }, 3107);
+      assert.equal(prodBroken.code, 1, "a production deployment with missing/invalid configuration exits instead of serving");
+      assert.match(prodBroken.log, /server\.refused_to_start/);
+      for (const key of ["TWO_FACTOR_KEY", "APP_URL", "EMAIL_WEBHOOK_URL", "ALERT_WEBHOOK_URL", "BILLING_EXPECT_MODE", "MONGODB_URI"].filter((k) => k !== "BILLING_EXPECT_MODE")) assert.match(prodBroken.log, new RegExp(`"key":"${key}"`), `refusal names ${key}`);
+      assert.ok(!prodBroken.log.includes(sessionSecret) && !prodBroken.log.includes(replica.getUri()), "the refusal log contains no secret or connection string");
+      const stagingLive = await refuse({ APP_ENV: "staging", NODE_ENV: "production", APP_URL: "https://staging.example.in", TRUST_PROXY: "1", EMAIL_WEBHOOK_URL: "https://mail.example.in", ALERT_WEBHOOK_URL: "https://hooks.example.in", TWO_FACTOR_KEY: "t".repeat(40), RAZORPAY_KEY_ID: "rzp_live_StagingMistake1", RAZORPAY_KEY_SECRET: "keysecretkeysecret1234", RAZORPAY_WEBHOOK_SECRET: "webhooksecret-1234567" }, 3108);
+      assert.equal(stagingLive.code, 1, "staging with a LIVE payment key refuses to start");
+      assert.match(stagingLive.log, /"key":"RAZORPAY_KEY_ID"/);
+      assert.ok(!stagingLive.log.includes("rzp_live_StagingMistake1") && !stagingLive.log.includes("keysecretkeysecret1234"), "no key material in the refusal log");
+
+      // pilot onboarding rehearsal: two brand-new libraries set up from scratch; nothing of one is visible to the other
+      const pilotA = await account("owner", "pilot-a@example.invalid"), pilotB = await account("owner", "pilot-b@example.invalid");
+      const pilotApi = (cookie: string, path: string, action: string, data: unknown = {}, status = 200) => api(path, cookie, action, data, status);
+      await pilotApi(pilotA, "/api/onboarding", "seats", { prefix: "A", count: 6 });
+      await pilotApi(pilotA, "/api/onboarding", "shifts", { items: [{ name: "Morning", start: 360, end: 720 }] });
+      await pilotApi(pilotA, "/api/onboarding", "fees", { items: [{ name: "Monthly", rupees: 900, days: 30 }] });
+      const wsA = await getJson("/api/workspace", pilotA), wsB = await getJson("/api/workspace", pilotB);
+      assert.equal(wsA.seats.length, 6); assert.equal(wsB.seats.length, 0, "a brand-new organization starts empty and sees none of another's setup");
+      assert.equal(wsA.students.length, 0); assert.equal(wsB.students.length, 0);
+      const codeA = (await getJson("/api/join?view=requests", pilotA)).code as string;
+      assert.match(codeA, /^LIB-/);
+      // a student joins library A with its ID; only A's owner can see and decide the request
+      const pilotStudent = await tfPost("register", { acceptTerms: true, name: "Pilot Student", email: "pilot-student@example.invalid", password: "pilot-student-pass-1", role: "student", libraryCode: codeA });
+      assert.equal(pilotStudent.status, 200);
+      const pending = (await getJson("/api/join?view=requests", pilotA)).requests.filter((r: { status: string }) => r.status === "pending");
+      assert.equal(pending.length, 1);
+      assert.equal((await getJson("/api/join?view=requests", pilotB)).requests.filter((r: { status: string }) => r.status === "pending").length, 0, "library B does not see library A's join request");
+      await pilotApi(pilotB, "/api/join", "approve", { id: pending[0]._id }, 400); // another tenant cannot decide it
+      await pilotApi(pilotA, "/api/join", "approve", { id: pending[0]._id });
+      const studentUser = (await User.findOne({ email: "pilot-student@example.invalid" }))!;
+      assert.equal(String(studentUser.libraryId), String((await User.findOne({ email: "pilot-a@example.invalid" }))!.libraryId), "the student now belongs to library A only");
+      const studentCookie = (pilotStudent.headers.get("set-cookie") ?? "").split(";")[0];
+      assert.ok([401, 403].includes((await fetch(base + "/api/billing", { headers: { cookie: studentCookie } })).status), "a student never reads the library's billing");
+      assert.equal((await getJson("/api/workspace", pilotB)).students.length, 0, "library B still sees no students");
+      // data export: each owner gets only their own library's rows; a student is refused
+      const csvA = await (await fetch(base + "/api/export?resource=students", { headers: { cookie: pilotA } })).text();
+      const csvB = await (await fetch(base + "/api/export?resource=students", { headers: { cookie: pilotB } })).text();
+      assert.ok(csvA.includes("pilot-student@example.invalid"), "owner A can export their own student list");
+      assert.ok(!csvB.includes("pilot-student@example.invalid"), "owner B's export contains none of library A's students");
+      assert.equal((await fetch(base + "/api/export?resource=students", { headers: { cookie: studentCookie } })).status, 403);
+    }
+
     // ---- R8: Content-Security-Policy on public and authenticated pages (production build) ----
     const cspOf = async (path: string, cookie?: string) => { const r = await fetch(base + path, { headers: cookie ? { cookie } : {} }); return { r, csp: r.headers.get("content-security-policy") ?? "", html: await r.text() }; };
     const nonces = new Set<string>();
