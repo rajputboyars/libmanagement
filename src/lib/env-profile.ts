@@ -1,4 +1,5 @@
 import { billingConfigProblems } from "./billing-config";
+import { parsePoolSize } from "./db-config";
 
 export type Profile = "staging" | "production";
 export type Role = "web" | "worker" | "backup";
@@ -85,10 +86,52 @@ export function profileProblems(env: Env, profile: Profile, role: Role = "web"):
   return out;
 }
 
-/** True when the process must refuse to start: an explicit APP_ENV profile is set and it has errors. */
+/** True when the process must refuse to start: an explicit APP_ENV profile with errors, or a Vercel environment guard violation (checked even without APP_ENV). */
 export function mustRefuseToStart(env: Env, role: Role = "web") {
   const profile = env.APP_ENV;
-  if (profile !== "staging" && profile !== "production") return { refuse: false as const, problems: [] as ProfileProblem[] };
-  const problems = profileProblems(env, profile, role);
-  return { refuse: problems.some((p) => p.level === "error"), problems };
+  const problems = [...vercelProblems(env), ...(profile === "staging" || profile === "production" ? profileProblems(env, profile, role) : [])];
+  const seen = new Set<string>();
+  const unique = problems.filter((p) => { const k = `${p.key}|${p.message}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  return { refuse: unique.some((p) => p.level === "error"), problems: unique };
 }
+
+/**
+ * Vercel environment separation (VERCEL_ENV is set by the platform: production | preview | development). These guards run even when APP_ENV is unset,
+ * because Preview deployments are created for every pushed branch and must never be able to touch production data:
+ *  - a Production deployment must be labelled APP_ENV=production, a Preview deployment must never be;
+ *  - a Preview deployment's MONGODB_URI must not point at a protected (production) database listed in PROTECTED_DB_TARGETS
+ *    (non-secret "host1,host2/dbname" or full URIs, separated by ";"; set it in the Preview scope);
+ *  - a Preview deployment can never run on a live payment key or with the demo/sandbox switches of production.
+ * Scoping the variables in Vercel is still the primary control; this is the safety net that refuses to start when the scoping is wrong.
+ */
+export function vercelProblems(env: Env): ProfileProblem[] {
+  const out: ProfileProblem[] = [];
+  const err = (key: string, message: string) => out.push({ level: "error", key, message });
+  const where = env.VERCEL_ENV;
+  if (where === "production") {
+    if (env.APP_ENV !== "production") err("APP_ENV", "A Vercel Production deployment must set APP_ENV=production (scope the variable to Production)");
+  } else if (where === "preview") {
+    if (env.APP_ENV === "production") err("APP_ENV", "A Vercel Preview deployment must never be labelled production: scope APP_ENV=production to the Production environment only");
+    if (env.RAZORPAY_KEY_ID?.startsWith("rzp_live_")) err("RAZORPAY_KEY_ID", "A LIVE payment key is present in a Preview deployment: scope live keys to Production only");
+    if (env.PROTECTED_DB_TARGETS && env.MONGODB_URI) {
+      let mine = "";
+      try { mine = fingerprintOf(env.MONGODB_URI); } catch { /* not a mongodb uri: reported elsewhere */ }
+      for (const part of env.PROTECTED_DB_TARGETS.split(/;|\n+/).map((x) => x.trim()).filter(Boolean)) {
+        const p = /^mongodb/.test(part) ? safeFingerprint(part) : normalizeTarget(part);
+        if (mine && p && (p.hosts === mine.split("/")[0] && (!p.db || p.db === mine.split("/")[1]))) { err("MONGODB_URI", "A Preview deployment points at a protected (production) database: give Preview its own database credentials (Vercel Preview scope)"); break; }
+      }
+    }
+    if (!env.APP_ENV) out.push({ level: "warn", key: "APP_ENV", message: "Set APP_ENV=staging for Preview deployments so the staging profile checks apply" });
+    if (!env.PROTECTED_DB_TARGETS) out.push({ level: "warn", key: "PROTECTED_DB_TARGETS", message: "Set PROTECTED_DB_TARGETS (production database host/name, no credentials) in the Preview scope so a mis-scoped production URI is refused" });
+  }
+  const pool = parsePoolSize(env);
+  if (pool.invalid) out.push({ level: "warn", key: "MONGODB_POOL_SIZE", message: `${pool.invalid}; the default (${pool.size}) is used` });
+  return out;
+}
+const normalizeTarget = (t: string) => { const [h, d] = t.toLowerCase().split("/"); return { hosts: h.split(",").map((x) => x.trim().replace(/:27017$/, "")).sort().join(","), db: d ?? "" }; };
+function fingerprintOf(uri: string) {
+  const m = /^mongodb(?:\+srv)?:\/\/(?:[^@/]*@)?([^/?]+)(?:\/([^?]*))?/.exec(uri.trim());
+  if (!m) throw new Error("not a mongodb uri");
+  return `${m[1].toLowerCase().split(",").map((h) => h.replace(/:27017$/, "")).sort().join(",")}/${m[2] ?? ""}`;
+}
+function safeFingerprint(uri: string) { try { const f = fingerprintOf(uri); const [hosts, db] = f.split("/"); return { hosts, db }; } catch { return null; } }

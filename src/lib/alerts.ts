@@ -1,3 +1,4 @@
+import { defer } from "./defer";
 import { log, redact, scrubText } from "./log";
 
 /**
@@ -147,8 +148,8 @@ async function sharedClaim(key: string, cooldownSec: number) {
 
 export const alerts = createAlertManager({ claim: sharedClaim });
 
-/** Fire-and-forget wrapper for request paths: alert delivery is never awaited by business code. */
-export function notify(promise: Promise<unknown>) { void promise.catch(() => undefined); }
+/** Wrapper for request paths: alert delivery is never awaited by business code. On Vercel it runs through after() so the invocation stays alive until it finishes. */
+export function notify(promise: Promise<unknown>) { defer(promise, { label: "alert" }); }
 
 /** POSTs to a dead-man's-switch / heartbeat URL (healthchecks-style). Never throws. */
 export async function ping(url: string | undefined, opts: { fetch?: typeof fetch; timeoutMs?: number } = {}) {

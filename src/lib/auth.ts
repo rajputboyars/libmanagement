@@ -16,14 +16,22 @@ export type AuthUser = {
   suspendedAt?: Date;
   twoFactorEnabled?: boolean;
 };
-export function validOrigin(request: Request) {
+/**
+ * Origins accepted for state-changing requests. Production and local runs accept exactly the canonical origin (APP_URL, or the request host when it is
+ * unset). Only a Vercel PREVIEW deployment additionally accepts its own deployment URLs (they differ per deployment and cannot be known in advance);
+ * VERCEL_ENV=production never does, so production origin validation is not weakened.
+ */
+export function allowedOrigins(request: Request, env: Record<string, string | undefined> = process.env) {
+  const expected = env.APP_URL || `${new URL(request.url).protocol}//${request.headers.get("host")}`;
+  const list = [new URL(expected).origin];
+  if (env.VERCEL_ENV === "preview") for (const host of [env.VERCEL_URL, env.VERCEL_BRANCH_URL]) if (host && /^[a-z0-9.-]+$/i.test(host)) list.push(`https://${host}`);
+  return list;
+}
+export function validOrigin(request: Request, env: Record<string, string | undefined> = process.env) {
   const origin = request.headers.get("origin");
   // Browsers always send Origin on cross-site writes; a missing Origin is only accepted from same-origin or non-browser callers.
   if (!origin) return request.headers.get("sec-fetch-site") !== "cross-site";
-  const expected =
-    process.env.APP_URL ||
-    `${new URL(request.url).protocol}//${request.headers.get("host")}`;
-  return origin === new URL(expected).origin;
+  return allowedOrigins(request, env).includes(origin);
 }
 export function secret() {
   const value = process.env.SESSION_SECRET;

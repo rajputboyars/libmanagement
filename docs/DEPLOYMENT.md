@@ -5,7 +5,7 @@ Nothing in this repository deploys itself or creates infrastructure. Every step 
 
 ## 0. Supported deployment path (decision)
 
-The repository contains both a container setup and a Vercel cron entry. **The supported path is the container (`web` + `worker` targets of the `Dockerfile`, standalone output) behind a TLS reverse proxy.** The worker is required for the periodic jobs, the backup job needs a fixed egress IP for the Atlas allow-list, and CI builds exactly these images. Vercel is **not** a supported pilot path (no worker, no tests or runbooks exercise it; `vercel.json` is a leftover single daily cron). `npm start` is for development. The actual host/provider is still an **open owner decision**, and nothing has been deployed or built into an image on the preparing machine. Full pilot procedure: docs/PILOT_RUNBOOK.md.
+The deployment actually in use is **Vercel + MongoDB Atlas** (R16): web/API run as Vercel Functions, the periodic jobs run from the daily **Vercel Cron** entry in `vercel.json` (`GET /api/jobs/run`, `CRON_SECRET` required, heartbeat and `cron.failed` alerting), and backups run in **GitHub Actions** (separate from Vercel Cron). There is no permanent worker on Vercel. Vercel plan/terms (Hobby is NOT approved for commercial SaaS), region, env scoping per Production/Preview/Development and Atlas network access are **external decisions to confirm in the dashboards**: see docs/PILOT_RUNBOOK.md section 1-2. The `web` + `worker` container path (`Dockerfile`, standalone output, TLS reverse proxy) remains in the repository as an alternative and is the only path CI builds. `npm start` is for development. Nothing has been deployed by this change.
 
 **Set `APP_ENV=staging` or `APP_ENV=production` on every process.** With it the web and worker refuse to start on configuration errors (staging may only use `rzp_test_` keys, production must declare `BILLING_EXPECT_MODE`, a dedicated `TWO_FACTOR_KEY` is required, backup credentials must not be on web/worker, etc.). Check first with `npm run env:check -- --profile <staging|production> --role <web|worker|backup> --env-file <file>`; verify after deploying with `npm run smoke -- --url https://<host>`; the combined entry gate is `npm run pilot:gate`.
 
@@ -35,7 +35,7 @@ Use a different `SESSION_SECRET` in every environment (`openssl rand -base64 48`
 - `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` (all three or none) and `BILLING_EXPECT_MODE=live|test` — to take subscription payments; separate test and live credentials per environment. See docs/BILLING.md.
 - `EMAIL_WEBHOOK_URL` (+ `EMAIL_WEBHOOK_TOKEN`) — **required in production** (`/api/ready` reports an error without it). An `https://` endpoint that accepts `POST {to, subject, text}` (JSON) with `Idempotency-Key` and optional `Authorization: Bearer <token>` headers and answers 2xx when the email is accepted. Without it, password reset and owner email verification return `503 email-not-configured`; nothing is reported as sent.
 - `ALERT_WEBHOOK_URL` — Slack/Teams/PagerDuty-compatible incoming webhook for alerts.
-- `CRON_SECRET` — only if jobs are triggered over HTTP instead of by the worker.
+- `CRON_SECRET` — required on Vercel (Production scope): Vercel Cron sends it as the Bearer token to `/api/jobs/run`; also used when jobs are triggered over HTTP instead of by the worker.
 
 ## 3. Build and run
 

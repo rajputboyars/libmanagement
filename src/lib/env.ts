@@ -1,5 +1,5 @@
 import { billingConfigProblems } from "./billing-config";
-import { profileProblems } from "./env-profile";
+import { profileProblems, vercelProblems } from "./env-profile";
 export type EnvIssue = { level: "error" | "warn"; key: string; message: string };
 
 /** Validates production configuration. Errors block readiness; warnings describe optional features that are not configured. */
@@ -23,6 +23,7 @@ export function checkEnv(env: Record<string, string | undefined> = process.env):
   else if (prod && !env.EMAIL_WEBHOOK_URL.startsWith("https://")) issues.push({ level: "error", key: "EMAIL_WEBHOOK_URL", message: "Must be an https:// endpoint in production" });
   // Payment gateway: partial/invalid/test-vs-live mistakes are errors (messages name variables, never values).
   for (const p of billingConfigProblems(env)) issues.push(p);
+  for (const p of vercelProblems(env)) issues.push(p); // Preview/Production separation and pool-size validation
   // An explicit APP_ENV (staging or production) turns on the stricter deployment profile; readiness then fails until it is satisfied.
   if (env.APP_ENV === "staging" || env.APP_ENV === "production") {
     const seen = new Set(issues.map((i) => `${i.key}|${i.message}`));

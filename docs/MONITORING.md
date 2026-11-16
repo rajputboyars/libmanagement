@@ -79,6 +79,12 @@ External uptime monitoring: probe `GET https://<domain>/api/ready` every 1 minut
 ### Alert: process
 `process.crash`: the supervisor should have restarted the process; confirm with `/api/health`. Search logs for `process.crash` (scrubbed stack frames). Repeated crashes: roll back. `process.unhandled_rejection`: a bug (no restart); file it with the log line.
 
+### Alert: cron (`cron.failed`, `cron.unauthorized`)
+On Vercel the jobs run from **Vercel Cron** (`GET /api/jobs/run`, daily). If any job fails or the run throws, the route raises one critical `cron.failed` alert (cooldown 6 h), pings `JOBS_HEARTBEAT_URL/fail` and answers HTTP 500 (Vercel shows the cron run as failed). The success heartbeat (`JOBS_HEARTBEAT_URL`, falls back to `WORKER_HEARTBEAT_URL`) is sent only after **all** jobs succeeded; a run skipped because another run holds the lock sends nothing. The first fully successful run after a failure sends one recovery notice. Give the heartbeat monitor a ~26 h grace period (Hobby cron may fire any time in its hour). `cron.unauthorized` means repeated calls without the right `CRON_SECRET` (rotated secret not redeployed, or probing). Re-running is safe: the jobs are idempotent.
+
+### Post-response work and logs on Vercel
+Alerts, push notifications and index creation run through `after()` (`src/lib/defer.ts`) so they finish after the response; a failure inside deferred work is logged as `deferred.failed` (scrubbed) and never reaches the user. Hobby keeps runtime logs for **1 hour** (Pro 1 day): export logs through a log drain or collector and treat the alert webhook as the primary signal. Confirm retention in the dashboard.
+
 ### Alert: worker / job / billing
 `worker.tick`: check the worker process and database connectivity; `/api/ready` `degraded:true` indicates stale jobs. `job.failed`: the alert names the job (`JobRun` records the error); jobs are idempotent and can be re-run (`POST /api/jobs/run` with the cron secret). `billing.reconciliation`: follow DEPLOYMENT/BILLING notes and the Admin → Billing view.
 

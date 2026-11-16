@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { NextResponse } from "next/server";
-import { alerts } from "@/lib/alerts";
+import { alerts, notify } from "@/lib/alerts";
 import { reportDatabase } from "@/lib/api-errors";
 import { db } from "@/lib/db";
 import { checkEnv } from "@/lib/env";
@@ -36,7 +36,7 @@ export async function GET() {
     checks.database = { ok: false, detail: "unreachable" };
     reportDatabase(false, "readiness probe failed");
   }
-  void alerts.sweep().catch(() => undefined);
+  notify(alerts.sweep());
   const ok = checks.config.ok && checks.database.ok;
   return NextResponse.json({ status: ok ? "ready" : "not-ready", degraded: !!checks.jobs && !checks.jobs.ok, alerting: process.env.ALERT_WEBHOOK_URL ? "configured" : "not-configured", checks }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
 }

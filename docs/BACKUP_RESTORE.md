@@ -39,6 +39,8 @@ The plaintext exists only in the temporary directory while a run is in progress 
 
 ### Where it runs (important)
 
+**Vercel Cron and these backups are different things.** Vercel Cron only calls `/api/jobs/run` (application jobs). Backups and integrity checks run in **GitHub Actions** (`backup.yml`); there is no worker host in the Vercel architecture. Vercel functions have no fixed outbound IP unless the paid Static IPs add-on is used, so the web app cannot be allow-listed in Atlas by IP either: if Atlas needs an IP access list, `0.0.0.0/0` with strong credentials and TLS is the only option without a fixed-IP host. This trade-off is an external decision to confirm in Atlas.
+
 GitHub-hosted runners have changing IP addresses and Atlas blocks unknown addresses. Choose one:
 (a) run `npm run backup:run` from a fixed-IP host (your worker VM or a self-hosted runner) whose address is on the Atlas **IP access list** and call it from cron, or
 (b) allow GitHub's runner ranges in Atlas (broad, not recommended). The workflow in the repository is the template for (a) with a self-hosted runner: set `runs-on` accordingly.

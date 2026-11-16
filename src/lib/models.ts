@@ -1,3 +1,4 @@
+import { defer } from "./defer";
 import mongoose, { Schema, type SchemaDefinition } from "mongoose";
 export const id = Schema.Types.ObjectId;
 const tenant = { libraryId: { type: id, required: true, index: true } };
@@ -212,16 +213,11 @@ export const Notification = model(
     });
     schema.post("save", function (doc) {
       if (!doc.$locals.wasNew) return;
-      void import("./push")
-        .then((m) =>
-          m.pushForNotification({
-            userId: doc.get("userId"),
-            libraryId: doc.get("libraryId"),
-            title: String(doc.get("title") ?? ""),
-            message: String(doc.get("message") ?? ""),
-          }),
-        )
-        .catch(() => {});
+      // Phone notification: deferred with after() on serverless hosts so it finishes even though the request has already been answered.
+      defer(
+        () => import("./push").then((m) => m.pushForNotification({ userId: doc.get("userId"), libraryId: doc.get("libraryId"), title: String(doc.get("title") ?? ""), message: String(doc.get("message") ?? "") })),
+        { label: "push-notification" },
+      );
     });
   },
 );

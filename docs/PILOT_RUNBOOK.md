@@ -6,15 +6,18 @@
 > **no real library, owner or student has been onboarded.** A staging deployment that boots is not "production-ready", and passing the gate
 > is necessary but never sufficient: the approvals in section 3 are also required. Role names below are placeholders until the business names people. The concrete remaining actions, owners and evidence are in **docs/GO_LIVE_CHECKLIST.md** (R15 final audit: pilot NO-GO).
 
-## 1. Supported deployment path (decision, from the repository)
+## 1. Deployment architecture (as found: Vercel + GitHub Actions)
 
-| Option found | Verdict for the pilot | Why |
+The application is hosted on **Vercel** (Git-connected; plan and terms are **external decisions to confirm in the Vercel dashboard**) with **MongoDB Atlas**. R16 made the code serverless-compatible; nothing was deployed or changed in Vercel by that change.
+
+| Concern | Where it runs | Notes |
 |---|---|---|
-| **Container: `Dockerfile` `web` + `worker` targets (standalone Next.js output), behind a TLS reverse proxy** | **Supported path** | Both processes are needed: the worker runs jobs every 15 min, the web image uses `output: "standalone"` (`next start` is *not* the supported start command: use `node server.js` in the image), CI builds both images, health checks exist, and the backup job needs a fixed egress IP that Atlas can allow-list. |
-| Vercel (`vercel.json` has one cron entry only) | **Not supported for the pilot** | No worker (jobs would run once a day via cron), standalone output is not Vercel's model, no tests or documentation exercise it, and the backup/IP-allow-list story is undefined. Revisit only with a written decision. |
-| Plain Node (`npm start`) | Development only | Not the configuration CI builds or the images use. |
+| Web + API | Vercel Functions | Post-response work (alerts, push, index build) uses Next.js `after()` so it completes after the response (`src/lib/defer.ts`). |
+| Scheduled jobs | **Vercel Cron**: daily `30 2 * * *` UTC -> `GET /api/jobs/run` with `Authorization: Bearer CRON_SECRET` | One run per day is the Hobby-compatible cadence (Hobby may run it any time inside the scheduled hour). Jobs are idempotent and a shared lock prevents overlapping runs. No permanent worker exists on Vercel; the `worker` container target is **not** part of this architecture. |
+| Backups / integrity checks | **GitHub Actions** (`.github/workflows/backup.yml`) | Separate from Vercel Cron. Needs Atlas network access from GitHub runners (docs/BACKUP_RESTORE.md). |
+| Database | MongoDB Atlas | Tier, backups, network access and connection limit: **NOT VERIFIED**, confirm in Atlas. |
 
-**Not yet verified:** the images have been built only by CI configuration (`docker` is not installed on the preparing machine, so no image was built or run here), and nothing is deployed. Choosing the actual host/provider (VM, container service, region) is an **owner decision still open**; it determines the egress IP for the Atlas allow-list, the TLS proxy, the secret manager and the log collector.
+**Open external decisions (cannot be verified from the repository):** whether the Vercel Hobby plan is acceptable for a commercial service (Hobby terms restrict use to personal, non-commercial use: **Hobby is NOT approved for commercial SaaS here**; confirm plan and terms in the dashboard, Pro is the likely requirement), the Production Branch, function region (deliberately not hard-coded; default `iad1`: choose one close to Atlas), Node version, Deployment Protection, and Hobby runtime-log retention (1 hour, so logs must be exported: docs/MONITORING.md). The Dockerfile/worker/container path remains in the repository as an alternative but is not the verified architecture.
 
 ## 2. Environments and configuration safety
 
@@ -23,6 +26,24 @@
 - What the profiles enforce: https `APP_URL` on a public domain; managed (non-local) `MONGODB_URI`; strong distinct `SESSION_SECRET`; a **dedicated `TWO_FACTOR_KEY`** (mandatory two-step sign-in for owners/admins depends on it); `TRUST_PROXY=1`; https `EMAIL_WEBHOOK_URL` and `ALERT_WEBHOOK_URL`; no sandbox billing; **backup/restore credentials only on the backup host**; **staging may only use `rzp_test_` keys and `BILLING_EXPECT_MODE=test`**; production must state `BILLING_EXPECT_MODE=live|test` explicitly and a mismatching key is an error; test keys are flagged as "no real money" and can never be treated as live (`src/lib/billing-config.ts`).
 - Separate secrets, databases and webhooks for staging and production. **Staging must never point at the production database.**
 - Result on the real files in this repository (names only): `.env.production` is **NOT READY** (missing `APP_ENV`, `TWO_FACTOR_KEY`, `EMAIL_WEBHOOK_URL`, `ALERT_WEBHOOK_URL`; no payment keys); `.env.local` is a development file. The Atlas cluster those files point to was **not contacted** and its purpose (dev/staging/prod) is unknown.
+
+### Vercel environment-variable scoping (set in the dashboard; never in the repository)
+
+Vercel provides `VERCEL_ENV` (`production` | `preview` | `development`) itself. The application cross-checks it and **refuses to start** on a mismatch (`src/lib/env-profile.ts`).
+
+| Variable | Production | Preview | Development |
+|---|---|---|---|
+| `APP_ENV` | `production` (required: a Production deployment without it is refused) | `staging` (never `production`) | unset |
+| `APP_URL` | the production `https://` domain | the staging domain, or unset: Preview deployment URLs (`VERCEL_URL`, `VERCEL_BRANCH_URL`) are then trusted for origin checks **in Preview only** | unset |
+| `MONGODB_URI` | production cluster/database | **a separate staging database; never production credentials** | local database |
+| `PROTECTED_DB_TARGETS` | not needed | production `host/db` (a Preview whose `MONGODB_URI` matches it refuses to start) | production `host/db` |
+| `RAZORPAY_KEY_ID` / secret / webhook secret | live keys, Production only | **test keys only** (a `rzp_live_` key in Preview is refused) | test keys |
+| `CRON_SECRET` | set (Vercel sends it as the Bearer token) | not needed (crons run on Production only) | not needed |
+| `SESSION_SECRET`, `ALERT_WEBHOOK_URL`, encryption keys | distinct per scope | distinct per scope | distinct per scope |
+| `JOBS_HEARTBEAT_URL` | production monitor | unset | unset |
+| `MONGODB_POOL_SIZE` | optional (default 5 on Vercel) | optional | optional |
+
+Tick "Production" only for production secrets. After any change, redeploy and check `/api/ready` on that deployment. Production origin/CSRF validation is unchanged: only the canonical `APP_URL` origin is accepted.
 
 ## 3. Pilot safeguards, entry criteria and approvals
 
@@ -44,7 +65,7 @@ Evidence is recorded in `pilot-evidence.json` (copy of `docs/pilot-evidence.temp
 
 **Stop conditions: pause onboarding immediately and escalate (section 9) if any occurs:** a cross-tenant data exposure (S1); a payment recorded that did not happen or money taken without a record; data loss or corruption; a failed restore or no valid backup for 24 h; sign-in/2FA bypass; monitoring/alerting dead (no alert path) for more than 4 h; two S2 incidents in a week; a library or student asks to stop; legal/consent problem reported.
 
-## 5. Deployment, smoke test and rollback (container path)
+## 5. Deployment, smoke test and rollback (steps that mention images or a worker apply only to a container deployment; on Vercel use a Git deployment and Instant Rollback)
 
 1. CI green on the release commit; note the commit id.
 2. `npm run env:check` for each role (`web`, `worker`, `backup`) with the target environment's variables.
