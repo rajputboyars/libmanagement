@@ -54,3 +54,20 @@ export const JoinRequest = model(
     [{ userId: 1 }, { unique: true, partialFilterExpression: { status: "pending" } }],
   ],
 );
+
+/**
+ * Append-only consent log: who accepted/declined what, which version, when and where it was captured. Records belong to ONE user and are only
+ * ever read back for that user (no tenant or organization field: a library owner cannot see a student's consent records through the API).
+ * The newest record per kind is the current decision; history is kept as evidence.
+ */
+export const ConsentRecord = model(
+  "ConsentRecord",
+  {
+    userId: { type: id, required: true },
+    kind: { type: String, enum: ["terms", "marketing"], required: true },
+    version: { type: String, required: true, maxlength: 60 },
+    accepted: { type: Boolean, required: true },
+    source: { type: String, enum: ["register", "invite-activation", "prompt", "settings", "checkout"], required: true },
+  },
+  [[{ userId: 1, kind: 1, createdAt: -1 }, {}]],
+);

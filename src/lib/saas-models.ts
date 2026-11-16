@@ -15,6 +15,8 @@ export const Organization = model(
     referralCode: { type: String, unique: true, sparse: true, uppercase: true },
     referredByCode: { type: String, uppercase: true },
     onboardingStatus: { type: String, enum: ["pending", "complete"], default: "pending" },
+    // Modules the platform owner has made unavailable to this organization (separate from what the library turns off).
+    blockedModules: [{ type: String, maxlength: 30 }],
     billingEmail: { type: String, default: "", lowercase: true, trim: true },
     gstin: { type: String, default: "", trim: true, maxlength: 20 },
   },
@@ -142,6 +144,10 @@ export const BillingPayment = model(
     amountPaise: { type: Number, required: true, min: 0 },
     status: { type: String, enum: ["captured", "failed", "partially_refunded", "refunded"], required: true },
     refundedPaise: { type: Number, default: 0, min: 0 },
+    refundIds: { type: [String], default: [] },
+    currency: { type: String, default: "INR" },
+    needsReview: { type: Boolean, default: false },
+    reviewReason: String,
     method: String,
     mode: { type: String, enum: ["live", "sandbox"], required: true },
     capturedAt: Date,
@@ -158,7 +164,7 @@ export const BillingWebhookEvent = model(
     type: { type: String, required: true },
     mode: { type: String, enum: ["live", "sandbox"], required: true },
     providerCreatedAt: Date,
-    status: { type: String, enum: ["received", "processing", "processed", "ignored", "failed"], default: "received" },
+    status: { type: String, enum: ["received", "processing", "processed", "ignored", "failed", "rejected"], default: "received" },
     error: String,
     attempts: { type: Number, default: 0 },
     payload: { type: Mixed },
@@ -320,6 +326,8 @@ export const PlatformSettings = model("PlatformSettings", {
   premiumStudentFeatures: { type: [String], default: [] },
   // Trial run: while true, every student feature is free for everyone (premium rules are ignored).
   freeTrial: { type: Boolean, default: true },
+  // Modules the platform has switched off for every library.
+  blockedModules: { type: [String], default: [] },
 });
 export const VerificationCode = model(
   "VerificationCode",

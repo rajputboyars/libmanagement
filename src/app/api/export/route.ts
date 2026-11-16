@@ -12,7 +12,7 @@ const cell = (v: unknown) => {
 const SOURCES = {
   students: { find: (libraryId: unknown) => User.find({ role: "student", libraryId }).select("name email createdAt"), cols: ["name", "email", "createdAt"] },
   memberships: { find: (libraryId: unknown) => Membership.find({ libraryId }), cols: ["userId", "planId", "start", "end", "amount", "discount", "paid", "status"] },
-  payments: { find: (libraryId: unknown) => Payment.find({ libraryId }), cols: ["membershipId", "amount", "method", "receipt", "createdAt"] },
+  payments: { find: (libraryId: unknown) => Payment.find({ libraryId }), cols: ["membershipId", "amount", "method", "receipt", "createdAt", "reversedAt", "reversalReason"] },
   expenses: { find: (libraryId: unknown) => Expense.find({ libraryId }), cols: ["title", "category", "amount", "date"] },
   leads: { find: (libraryId: unknown) => AdmissionLead.find({ libraryId }), cols: ["name", "phone", "email", "source", "stage", "consentContact", "createdAt"] },
 } as const;

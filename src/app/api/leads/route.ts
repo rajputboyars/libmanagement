@@ -1,6 +1,9 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { limited, validOrigin } from "@/lib/auth";
+import { clientIp, ipLimit } from "@/lib/security";
+import { moduleStates } from "@/lib/access";
 import { db } from "@/lib/db";
 import { Library } from "@/lib/models";
 import { AdmissionLead, PlatformLead } from "@/lib/saas-models";
@@ -15,8 +18,8 @@ const text = (max: number) => z.string().trim().max(max).default("");
 /** Public, unauthenticated enquiry forms: library admission enquiries and StudyQuest demo bookings. */
 export async function POST(request: NextRequest) {
   if (!validOrigin(request)) return fail("Invalid origin", 403);
-  const ip = (request.headers.get("x-forwarded-for") || "local").split(",")[0].trim();
-  if (limited(`lead:${ip}`, 5)) return fail("Too many requests. Please try again in a minute.", 429);
+  const ip = clientIp(request);
+  if (limited(`lead:${ip}`, ipLimit(ip, 5))) return fail("Too many requests. Please try again in a minute.", 429);
   try {
     await db();
     const body = (await request.json()) as Record<string, unknown>;
@@ -31,6 +34,8 @@ export async function POST(request: NextRequest) {
     const library = await Library.findOne({ publicSlug: v.library, listingVisible: true }).select("_id organizationId").lean<{ _id: unknown; organizationId?: unknown }>();
     if (!library) return fail("This library is not accepting online enquiries", 404);
     const access = await accessForLibrary(library._id as never);
+    const crmOn = await moduleStates(library._id as never).then((m) => m.crm.enabled && m.discovery.enabled, () => false);
+    if (!crmOn) return fail("This library is not accepting online enquiries", 404);
     if (!access || access.org.status === "suspended" || !access.entitlements.features.includes("crm")) return fail("This library is not accepting online enquiries", 404);
     const key = leadKey(v.phone, v.email);
     if (!key) return fail("Enter a phone number (10 digits) or an email");
@@ -47,6 +52,7 @@ export async function POST(request: NextRequest) {
     await notifyOrg({ organizationId: access.org._id, key: `lead:${lead._id}`, kind: "lead", title: "New admission enquiry", message: `${v.name} enquired about your library.` }).catch(() => null);
     return ok();
   } catch (error) {
+    reportUnexpected(error, "/api/leads");
     return fail(error instanceof z.ZodError ? error.issues[0]?.message || "Check the form" : "Unable to send. Please try again.", error instanceof z.ZodError ? 422 : 400);
   }
 }

@@ -1,10 +1,13 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import bcrypt from "bcryptjs";
+import { verifySecondFactor } from "@/lib/two-factor-server";
+import { clientIp } from "@/lib/security";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { Membership, Payment, User } from "@/lib/models";
-import { DataRequest } from "@/lib/ops-models";
+import { ConsentRecord, DataRequest } from "@/lib/ops-models";
 import { SupportTicket } from "@/lib/saas-models";
 import { audit, ensureOrganizationForLibrary } from "@/lib/saas-server";
 import { log } from "@/lib/log";
@@ -33,6 +36,7 @@ export async function GET(request: NextRequest) {
     const rows = await model.find({ [field]: user._id }).limit(5000).lean();
     if (rows.length) data[name] = name === "Doubt" ? rows.map((r: Record<string, unknown>) => ({ ...r, image: r.image ? "[image omitted]" : undefined })) : rows;
   }
+  data.consentRecords = await ConsentRecord.find({ userId: user._id }).select("kind version accepted source createdAt -_id").lean();
   if (user.role === "student") {
     data.memberships = await Membership.find({ userId: user._id }).lean();
     data.payments = await Payment.find({ userId: user._id }).select("-key").lean();
@@ -49,9 +53,14 @@ export async function POST(request: NextRequest) {
   if (!user) return err("Sign in required", 401);
   if (limited(`privacy-post:${user._id}`, 5)) return err("Please slow down", 429);
   try {
-    const body = z.object({ action: z.enum(["delete-account", "request-organization-deletion"]), password: z.string().min(1).max(100), confirm: z.literal("DELETE") }).parse(await request.json());
+    const body = z.object({ action: z.enum(["delete-account", "request-organization-deletion"]), password: z.string().min(1).max(100), confirm: z.literal("DELETE"), code: z.string().trim().max(20).optional(), recoveryCode: z.string().trim().max(30).optional() }).parse(await request.json());
     const full = await User.findById(user._id).select("+passwordHash");
     if (!full || !(await bcrypt.compare(body.password, full.passwordHash))) return err("Your password is not correct");
+    if (full.twoFactorEnabled) {
+      if (!body.code && !body.recoveryCode) return NextResponse.json({ error: "Enter a code from your authenticator app to confirm.", twoFactorRequired: true }, { status: 400 });
+      const second = await verifySecondFactor(String(full._id), body, clientIp(request));
+      if (!second.ok) return err(second.error, second.status);
+    }
     if (body.action === "request-organization-deletion") {
       if (user.role !== "owner" || !user.libraryId) return err("Only organization owners can request this", 403);
       const orgId = await ensureOrganizationForLibrary(user.libraryId);
@@ -76,6 +85,7 @@ export async function POST(request: NextRequest) {
     response.cookies.delete("sq-session");
     return response;
   } catch (error) {
+    reportUnexpected(error, "/api/privacy");
     return err(error instanceof z.ZodError ? 'Type DELETE and your password to confirm' : error instanceof Error ? error.message : "Unable to complete the request", 400);
   }
 }

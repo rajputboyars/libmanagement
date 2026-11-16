@@ -1,8 +1,10 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { guardTeam } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { Library, Membership, MembershipPlan, Payment, Seat, SeatAssignment, Shift, StudentProfile, User } from "@/lib/models";
 import { ImportBatch, PasswordReset } from "@/lib/ops-models";
@@ -19,6 +21,9 @@ async function owner() {
   const user = await currentUser();
   if (!user) return { error: err("Sign in required", 401) };
   if (user.role !== "owner" || !user.libraryId) return { error: err("Owner access required", 403) };
+  // The register import creates memberships, seats and payments, so it needs those modules on.
+  const denied = await guardTeam(user, "fees", "fees.create");
+  if (denied) return { error: denied };
   return { user };
 }
 
@@ -43,7 +48,7 @@ export async function GET() {
   const [students, memberships, payments, assignments] = await Promise.all([
     User.find({ libraryId, role: "student", deletedAt: { $exists: false } }).select("_id").lean<Lean[]>(),
     Membership.find({ libraryId }).select("userId amount discount paid status").lean<(Lean & { userId: unknown; amount: number; discount?: number; paid?: number; status: string })[]>(),
-    Payment.aggregate([{ $match: { libraryId } }, { $group: { _id: "$membershipId", amount: { $sum: "$amount" } } }]),
+    Payment.aggregate([{ $match: { libraryId, reversedAt: { $exists: false } } }, { $group: { _id: "$membershipId", amount: { $sum: "$amount" } } }]),
     SeatAssignment.find({ libraryId, end: { $gt: new Date() } }).select("seatId start end shiftStart shiftEnd").lean<(Lean & ExistingAssignment)[]>(),
   ]);
   const report = integrityReport({
@@ -132,6 +137,7 @@ export async function POST(request: NextRequest) {
     await audit({ organizationId: orgId as never, actorId: user._id, actorRole: "org-owner", action: "pilot.import", details: { ...created, ...result.totals } });
     return NextResponse.json({ ok: true, created, totals: result.totals });
   } catch (error) {
+    reportUnexpected(error, "/api/pilot-import");
     if (error instanceof PlanError) return err(error.message, 402, { code: error.code });
     return err(error instanceof z.ZodError ? error.issues[0]?.message || "Check the request" : error instanceof Error ? error.message : "Import failed");
   }

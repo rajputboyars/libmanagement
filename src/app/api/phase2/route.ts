@@ -1,7 +1,10 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import type { StudentFeature } from "@/lib/student-access";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { accessFor, accessResponse, assertMember, assertTeam, can, moduleOn } from "@/lib/access";
+import type { ModuleKey } from "@/lib/modules";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import {
   ChallengeProgress,
@@ -48,6 +51,8 @@ const availabilitySchema = z.object({
 });
 
 function errorResponse(error: unknown) {
+  const denied = accessResponse(error);
+  if (denied) return denied;
   return NextResponse.json(
     { error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to complete request" },
     { status: error instanceof z.ZodError ? 422 : 400 },
@@ -69,15 +74,18 @@ export async function GET(req: NextRequest) {
 
   if (user.role !== "student") {
     const libraryId = user.libraryId;
+    const a = await accessFor(user);
+    const sees = (m: "feedback" | "events", p: "feedback.view" | "events.view") => moduleOn(a, m) && can(a, p);
     const [feedback, events, questions] = await Promise.all([
-      libraryId ? LibraryFeedback.find({ libraryId }).sort({ createdAt: -1 }).limit(100).lean() : [],
-      libraryId ? LibraryEvent.find({ libraryId }).sort({ startsAt: 1 }).limit(100).lean() : [],
+      libraryId && sees("feedback", "feedback.view") ? LibraryFeedback.find({ libraryId }).sort({ createdAt: -1 }).limit(100).lean() : [],
+      libraryId && sees("events", "events.view") ? LibraryEvent.find({ libraryId }).sort({ startsAt: 1 }).limit(100).lean() : [],
       user.role === "super-admin" ? Question.find({ examKey: selectedKey }).select("+correctIndex").sort({ createdAt: -1 }).limit(100).lean() : [],
     ]);
     return NextResponse.json({ exams, syllabus, feedback, events, questions, aiAvailable: Boolean(process.env.STUDYQUEST_AI_ENDPOINT) });
   }
 
   const now = new Date();
+  const mine = await accessFor(user);
   const [progress, plan, attempts, revisions, garden, friendships, challenges, rooms, feedback, events] = await Promise.all([
     TopicProgress.find({ userId: user._id }).lean(),
     StudyPlan.findOne({ userId: user._id, status: "active" }).sort({ createdAt: -1 }).lean(),
@@ -87,8 +95,8 @@ export async function GET(req: NextRequest) {
     Friendship.find({ $or: [{ requesterId: user._id }, { recipientId: user._id }] }).lean(),
     LearningChallenge.find({ $or: [{ creatorId: user._id }, { invitedUserIds: user._id }, { participantIds: user._id }], endsAt: { $gte: now } }).sort({ endsAt: 1 }).lean(),
     StudyRoom.find({ $or: [{ hostId: user._id }, { _id: { $in: await RoomParticipant.find({ userId: user._id, status: { $ne: "left" } }).distinct("roomId") } }], state: { $ne: "ended" } }).lean(),
-    user.libraryId ? LibraryFeedback.find({ libraryId: user.libraryId, userId: user._id }).sort({ createdAt: -1 }).lean() : [],
-    user.libraryId ? LibraryEvent.find({ libraryId: user.libraryId, status: "published", endsAt: { $gte: now } }).sort({ startsAt: 1 }).lean() : [],
+    user.libraryId && moduleOn(mine, "feedback") ? LibraryFeedback.find({ libraryId: user.libraryId, userId: user._id }).sort({ createdAt: -1 }).lean() : [],
+    user.libraryId && moduleOn(mine, "events") ? LibraryEvent.find({ libraryId: user.libraryId, status: "published", endsAt: { $gte: now } }).sort({ startsAt: 1 }).lean() : [],
   ]);
   const planRecord = plan as null | { _id: unknown };
   const gardenRecord = garden as null | { growthPoints?: number };
@@ -120,6 +128,20 @@ export async function POST(req: NextRequest) {
       "room-create": "social", "room-join": "social", "room-start": "social", "room-complete": "social",
       "garden-refresh": "garden", "garden-select": "garden",
     };
+    // Library modules: the action's module must be on for the person's library, and library staff need the matching permission.
+    const moduleByAction: Record<string, ModuleKey> = {
+      "exam-save": "learning", "topic-progress": "learning", "plan-generate": "learning", "plan-task": "learning", "quiz-start": "learning", "quiz-submit": "learning",
+      "revision-complete": "learning", "garden-refresh": "learning", "garden-select": "learning",
+      "friend-request": "community", "friend-respond": "community", "challenge-create": "community", "challenge-join": "community",
+      "room-create": "community", "room-join": "community", "room-start": "community", "room-complete": "community",
+      "feedback-create": "feedback", "feedback-respond": "feedback", "event-save": "events", "event-register": "events", "event-attendance": "events",
+    };
+    const gate = moduleByAction[body.action];
+    if (gate) {
+      if (body.action === "feedback-respond") await assertTeam(user, "feedback", "feedback.respond");
+      else if (body.action === "event-save" || body.action === "event-attendance") await assertTeam(user, "events", "events.manage");
+      else await assertMember(user, gate);
+    }
     if (premiumByAction[body.action]) {
       const blocked = await studentFeatureBlocked(user, premiumByAction[body.action]);
       if (blocked) return blocked;
@@ -302,6 +324,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, record });
   } catch (error) {
+    reportUnexpected(error, "/api/phase2");
     return errorResponse(error);
   }
 }

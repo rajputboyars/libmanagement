@@ -1,10 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Types } from "mongoose";
+import mongoose, { type Types } from "mongoose";
 import { BillingCheckout, Coupon, CouponRedemption, BillingInvoice, BillingPayment, BillingWebhookEvent, Organization, PlatformSettings, SaaSSubscription } from "./saas-models";
 import { computeInvoice, isStaleEvent, sign, verifySignature } from "./saas";
 import { audit, currentPlan, getSettings, snapshotOf } from "./saas-server";
 import { evaluateReferral } from "./referrals";
 import { notifyOrg } from "./saas-notify";
+import { alerts, notify } from "./alerts";
+import { log } from "./log";
+import { billingConfigProblems } from "./billing-config";
+import { reviewAmount, validatePaymentEntity, validateRefundEntity, type Verdict } from "./billing-validate";
 
 type Id = Types.ObjectId | string;
 export type Mode = "live" | "sandbox";
@@ -13,7 +17,13 @@ export type Mode = "live" | "sandbox";
 export type ProviderConfig = { provider: "razorpay" | "sandbox"; mode: Mode; keyId?: string; keySecret?: string; webhookSecret: string; configured: boolean; usable: boolean };
 export function providerConfig(): ProviderConfig {
   const keyId = process.env.RAZORPAY_KEY_ID, keySecret = process.env.RAZORPAY_KEY_SECRET, webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-  if (keyId && keySecret && webhookSecret) return { provider: "razorpay", mode: keyId.startsWith("rzp_live_") ? "live" : "sandbox", keyId, keySecret, webhookSecret, configured: true, usable: true };
+  if (keyId && keySecret && webhookSecret) {
+    // Fail closed: a malformed key, a live key outside production, a test/live expectation mismatch... disables checkouts (webhooks are still verified and applied).
+    const broken = billingConfigProblems(process.env).some((p) => p.level === "error");
+    return { provider: "razorpay", mode: keyId.startsWith("rzp_live_") ? "live" : "sandbox", keyId, keySecret, webhookSecret, configured: true, usable: !broken };
+  }
+  // Partial gateway settings must never silently turn into the sandbox: billing is off until the configuration is complete.
+  if (keyId || keySecret || webhookSecret) return { provider: "razorpay", mode: keyId?.startsWith("rzp_live_") ? "live" : "sandbox", keyId, keySecret, webhookSecret: webhookSecret ?? "", configured: false, usable: false };
   // Local sandbox: no money moves. Disabled in production unless explicitly enabled.
   const derived = createHash("sha256").update(`sandbox:${process.env.SESSION_SECRET ?? ""}`).digest("hex");
   return { provider: "sandbox", mode: "sandbox", webhookSecret: process.env.SANDBOX_WEBHOOK_SECRET || derived, configured: false, usable: process.env.NODE_ENV !== "production" || process.env.ALLOW_BILLING_SANDBOX === "1" };
@@ -26,11 +36,15 @@ export interface BillingProvider {
   cancelSubscription(providerSubscriptionId: string, atCycleEnd: boolean): Promise<void>;
 }
 
+/** The official API origin. Only a TEST key may be pointed elsewhere (a local gateway simulator); a live key can never be redirected. */
+export function razorpayBase(cfg: Pick<ProviderConfig, "keyId">, env: Record<string, string | undefined> = process.env) {
+  return cfg.keyId?.startsWith("rzp_test_") && env.RAZORPAY_API_BASE ? env.RAZORPAY_API_BASE.replace(/\/+$/, "") : "https://api.razorpay.com/v1";
+}
 class RazorpayProvider implements BillingProvider {
   name = "razorpay";
   constructor(private cfg: ProviderConfig) {}
   private async call(path: string, body: unknown) {
-    const response = await fetch(`https://api.razorpay.com/v1${path}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Basic ${Buffer.from(`${this.cfg.keyId}:${this.cfg.keySecret}`).toString("base64")}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(20000) });
+    const response = await fetch(`${razorpayBase(this.cfg)}${path}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Basic ${Buffer.from(`${this.cfg.keyId}:${this.cfg.keySecret}`).toString("base64")}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(20000) });
     const json = (await response.json().catch(() => ({}))) as { error?: { description?: string } } & Record<string, unknown>;
     if (!response.ok) throw new Error(json.error?.description || "The payment gateway rejected the request");
     return json;
@@ -54,7 +68,10 @@ class SandboxProvider implements BillingProvider {
 }
 export function getProvider(): BillingProvider {
   const cfg = providerConfig();
-  if (cfg.provider === "razorpay") return new RazorpayProvider(cfg);
+  if (cfg.provider === "razorpay") {
+    if (!cfg.usable) throw new Error("Billing is misconfigured. Contact support.");
+    return new RazorpayProvider(cfg);
+  }
   if (!cfg.usable) throw new Error("Billing is not configured. Set Razorpay credentials to accept payments.");
   return new SandboxProvider();
 }
@@ -65,7 +82,7 @@ export function sandboxEvent(type: string, i: SandboxInput) {
   const at = i.at ?? new Date();
   const start = Math.floor(at.getTime() / 1000), end = start + (i.periodDays ?? 30) * 86400;
   const body: Record<string, unknown> = { entity: "event", event: type, created_at: start, payload: { subscription: { entity: { id: i.subscriptionId, status: type.split(".")[1], current_start: start, current_end: end } } } };
-  if (i.paymentId) (body.payload as Record<string, unknown>).payment = { entity: { id: i.paymentId, amount: i.amount ?? 0, status: i.outcome ?? "captured", method: "sandbox", error_description: i.outcome === "failed" ? "Sandbox: simulated card decline" : undefined } };
+  if (i.paymentId) (body.payload as Record<string, unknown>).payment = { entity: { id: i.paymentId, amount: i.amount ?? 0, currency: "INR", status: i.outcome ?? "captured", method: "sandbox", error_description: i.outcome === "failed" ? "Sandbox: simulated card decline" : undefined } };
   if (i.refundId) (body.payload as Record<string, unknown>).refund = { entity: { id: i.refundId, payment_id: i.paymentId, amount: i.amount ?? 0 } };
   return { raw: JSON.stringify(body), eventId: `sbx_evt_${randomBytes(8).toString("hex")}` };
 }
@@ -84,10 +101,24 @@ function parse(raw: string): Parsed {
   return { type: body.event, at: new Date((body.created_at ?? Math.floor(Date.now() / 1000)) * 1000), subscription: body.payload?.subscription?.entity, payment: body.payload?.payment?.entity, refund: body.payload?.refund?.entity };
 }
 
+type Outcome = "applied" | "ignored" | { rejected: string; code: string };
+const reject = (v: Extract<Verdict, { ok: false }>): Outcome => ({ rejected: v.reason, code: v.code });
+
+/** Marks an event the application will never act on (and says why) without asking the provider to retry. */
+async function finishRejected(provider: string, id: string, type: string, outcome: { rejected: string; code: string }) {
+  await BillingWebhookEvent.updateOne({ provider, eventId: id }, { status: "rejected", processedAt: new Date(), error: `${outcome.code}: ${outcome.rejected}`.slice(0, 300) });
+  log("error", "billing.event_rejected", { eventId: id, type, code: outcome.code, reason: outcome.rejected });
+  notify(alerts.raise(`billing.anomaly.${outcome.code}`, "A payment event was REJECTED (nothing was recorded)", { eventId: id, type, code: outcome.code, reason: outcome.rejected, nextStep: "docs/BILLING.md#rejected-events" }, { severity: "critical", cooldownMs: 10 * 60_000 }));
+}
+
 /** Verifies the signature over the raw body, de-duplicates by event id, then processes idempotently. */
 export async function ingestWebhook(raw: string, signature: string | null, eventId: string | null) {
   const cfg = providerConfig();
-  if (!verifySignature(raw, signature, cfg.webhookSecret)) return { status: 400 as const, error: "Invalid signature" };
+  if (!verifySignature(raw, signature, cfg.webhookSecret)) {
+    log("warn", "billing.webhook_rejected", { reason: signature ? "bad-signature" : "missing-signature" });
+    notify(alerts.recordFailure("billing.webhook-signature", { title: "Billing webhooks keep failing signature verification", threshold: 10, windowMs: 10 * 60_000, details: { hint: "RAZORPAY_WEBHOOK_SECRET differs from the dashboard secret (for example after rotation), or someone is probing the endpoint" } }));
+    return { status: 400 as const, error: "Invalid signature" };
+  }
   let event: Parsed;
   try { event = parse(raw); } catch { return { status: 400 as const, error: "Malformed event" }; }
   const id = eventId || `body_${createHash("sha256").update(raw).digest("hex").slice(0, 32)}`;
@@ -100,6 +131,7 @@ export async function ingestWebhook(raw: string, signature: string | null, event
   }
   try {
     const outcome = await applyEvent(event, cfg.provider, cfg.mode);
+    if (typeof outcome === "object") { await finishRejected(cfg.provider, id, event.type, outcome); return { status: 200 as const, outcome: "rejected" as const }; }
     await BillingWebhookEvent.updateOne({ provider: cfg.provider, eventId: id }, { status: outcome === "ignored" ? "ignored" : "processed", processedAt: new Date(), error: undefined });
     return { status: 200 as const, outcome };
   } catch (error) {
@@ -112,9 +144,40 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 const sec = (v: unknown) => (num(v) ? new Date(num(v) * 1000) : undefined);
 
-async function nextInvoiceNumber() {
-  const s = await PlatformSettings.findOneAndUpdate({ key: "default" }, { $inc: { invoiceSeq: 1 }, $setOnInsert: { key: "default" } }, { upsert: true, new: true }).lean<{ invoiceSeq: number; invoicePrefix: string }>();
+async function nextInvoiceNumber(session?: mongoose.ClientSession) {
+  const s = await PlatformSettings.findOneAndUpdate({ key: "default" }, { $inc: { invoiceSeq: 1 }, $setOnInsert: { key: "default" } }, { upsert: true, new: true, session }).lean<{ invoiceSeq: number; invoicePrefix: string }>();
   return `${s!.invoicePrefix}-${new Date().getUTCFullYear()}-${String(s!.invoiceSeq).padStart(6, "0")}`;
+}
+
+/** Test seam only (never set by application code): lets a test fail the transaction between its two writes. */
+export const testHooks: { afterInvoice?: () => Promise<void> } = {};
+
+/**
+ * Creates the invoice AND the payment record in one transaction, so a database or network failure between the two writes can never leave an
+ * orphan invoice that blocks the retry. Returns false when this provider payment was already recorded (duplicate or concurrent delivery).
+ */
+async function recordPayment(o: { org: Id; subscriptionId: Id; provider: string; mode: Mode; providerPaymentId: string; providerSubscriptionId: string; at: Date; status: "captured" | "failed"; amountPaise: number; method?: string; failureReason?: string; planKey?: string; lineItems: { description: string; amountPaise: number }[]; subtotalPaise: number; discountPaise: number; tax?: { taxMode: string; taxRateBps: number; taxPaise: number }; period?: { start?: Date; end?: Date }; review?: string | null }) {
+  const session = await mongoose.startSession();
+  let created = false;
+  try {
+    await session.withTransaction(async () => {
+      created = false;
+      if (await BillingPayment.exists({ provider: o.provider, providerPaymentId: o.providerPaymentId }).session(session)) return;
+      const [invoice] = await BillingInvoice.create([{
+        organizationId: o.org, subscriptionId: o.subscriptionId, number: await nextInvoiceNumber(session), providerPaymentId: o.providerPaymentId, mode: o.mode, planKey: o.planKey,
+        periodStart: o.period?.start, periodEnd: o.period?.end, lineItems: o.lineItems, subtotalPaise: o.subtotalPaise, discountPaise: o.discountPaise,
+        taxMode: o.tax?.taxMode ?? "none", taxRateBps: o.tax?.taxRateBps ?? 0, taxPaise: o.tax?.taxPaise ?? 0, totalPaise: o.amountPaise,
+        amountPaidPaise: o.status === "captured" ? o.amountPaise : 0, status: o.status === "captured" ? "paid" : "failed", paidAt: o.status === "captured" ? o.at : undefined, failureReason: o.failureReason,
+      }], { session });
+      await testHooks.afterInvoice?.();
+      await BillingPayment.create([{ organizationId: o.org, invoiceId: invoice._id, provider: o.provider, providerPaymentId: o.providerPaymentId, providerSubscriptionId: o.providerSubscriptionId, amountPaise: o.amountPaise, currency: "INR", status: o.status, method: o.method, mode: o.mode, capturedAt: o.status === "captured" ? o.at : undefined, failureReason: o.failureReason, lastEventAt: o.at, needsReview: !!o.review, reviewReason: o.review ?? undefined }], { session });
+      created = true;
+    });
+  } catch (e) {
+    if ((e as { code?: number }).code === 11000) return false; // a concurrent delivery of the same payment won the race
+    throw e;
+  } finally { await session.endSession(); }
+  return created;
 }
 
 /** Switches the organization to the checked-out plan once the provider confirms it. */
@@ -144,7 +207,7 @@ async function activateCheckout(subDoc: InstanceType<typeof SaaSSubscription>, p
   return old;
 }
 
-async function applyEvent(ev: Parsed, provider: string, mode: Mode): Promise<"applied" | "ignored"> {
+async function applyEvent(ev: Parsed, provider: string, mode: Mode): Promise<Outcome> {
   const sub = ev.subscription ?? {};
   const pay = ev.payment ?? {};
   const providerSubId = str(sub.id) || str((pay.notes as Entity | undefined)?.providerSubscriptionId) || str(pay.subscription_id);
@@ -169,41 +232,58 @@ async function applyEvent(ev: Parsed, provider: string, mode: Mode): Promise<"ap
   const stale = isStaleEvent(subscription.lastProviderEventAt, ev.at);
   const type = ev.type;
 
-  // Payments and invoices are applied idempotently regardless of ordering.
-  if ((type === "subscription.charged" || type === "payment.captured") && str(pay.id)) {
+  // Payments and invoices are applied idempotently regardless of ordering. Nothing below runs for an event that fails validation.
+  if (type === "subscription.charged" || type === "payment.captured") {
+    const verdict = validatePaymentEntity(pay, { provider, kind: "captured", subscriptionOrgId: String(orgId), providerSubscriptionId: providerSubId, checkoutId: checkout ? String(checkout._id) : undefined, checkoutOrgId: checkout ? String(checkout.organizationId) : undefined });
+    if (!verdict.ok) return reject(verdict);
     const amount = num(pay.amount);
-    const exists = await BillingPayment.findOne({ provider, providerPaymentId: str(pay.id) });
-    if (!exists) {
-      const plan = subscription.planSnapshot as { name: string; monthlyPaise: number; annualPaise: number };
-      const checkoutPlan = checkout ? await currentPlan(checkout.planKey) : null;
-      const list = checkoutPlan ? (checkout!.interval === "annual" ? checkoutPlan.annualPaise : checkoutPlan.monthlyPaise) : subscription.interval === "annual" ? plan.annualPaise : plan.monthlyPaise;
-      const discount = list > amount ? list - amount : 0;
-      const taxed = computeInvoice({ subtotalPaise: amount, tax: { mode: settings.taxMode === "none" ? "none" : "inclusive", rateBps: settings.taxRateBps } }); // the gateway amount is what was charged, so tax is decomposed from it
-      const invoice = await BillingInvoice.create({
-        organizationId: orgId, subscriptionId: subscription._id, number: await nextInvoiceNumber(), providerPaymentId: str(pay.id), mode, planKey: checkout?.planKey ?? subscription.planKey,
-        periodStart: sec(sub.current_start), periodEnd: sec(sub.current_end),
-        lineItems: [{ description: `${checkoutPlan?.name ?? plan.name} plan (${checkout?.interval ?? subscription.interval})`, amountPaise: discount ? list : amount }, ...(discount ? [{ description: "Discount", amountPaise: -discount }] : [])],
-        subtotalPaise: amount + discount, discountPaise: discount, taxMode: taxed.taxMode, taxRateBps: taxed.taxRateBps, taxPaise: taxed.taxPaise, totalPaise: amount, amountPaidPaise: amount, status: "paid", paidAt: ev.at,
-      });
-      await BillingPayment.create({ organizationId: orgId, invoiceId: invoice._id, provider, providerPaymentId: str(pay.id), providerSubscriptionId: providerSubId, amountPaise: amount, status: "captured", method: str(pay.method), mode, capturedAt: ev.at, lastEventAt: ev.at });
+    const plan = subscription.planSnapshot as { name: string; monthlyPaise: number; annualPaise: number };
+    const checkoutPlan = checkout ? await currentPlan(checkout.planKey) : null;
+    const list = checkoutPlan ? (checkout!.interval === "annual" ? checkoutPlan.annualPaise : checkoutPlan.monthlyPaise) : subscription.interval === "annual" ? plan.annualPaise : plan.monthlyPaise;
+    const discount = list > amount ? list - amount : 0;
+    const taxed = computeInvoice({ subtotalPaise: amount, tax: { mode: settings.taxMode === "none" ? "none" : "inclusive", rateBps: settings.taxRateBps } }); // the gateway amount is what was charged, so tax is decomposed from it
+    const review = reviewAmount({ amountPaise: amount, listPaise: list, hasCoupon: !!(checkout?.couponCode || subscription.couponCode) });
+    const created = await recordPayment({
+      org: orgId, subscriptionId: subscription._id as Id, provider, mode, providerPaymentId: str(pay.id), providerSubscriptionId: providerSubId, at: ev.at, status: "captured", amountPaise: amount, method: str(pay.method),
+      planKey: checkout?.planKey ?? subscription.planKey, period: { start: sec(sub.current_start), end: sec(sub.current_end) },
+      lineItems: [{ description: `${checkoutPlan?.name ?? plan.name} plan (${checkout?.interval ?? subscription.interval})`, amountPaise: discount ? list : amount }, ...(discount ? [{ description: "Discount", amountPaise: -discount }] : [])],
+      subtotalPaise: amount + discount, discountPaise: discount, tax: taxed, review,
+    });
+    if (created) {
+      if (review) {
+        log("error", "billing.payment_needs_review", { paymentId: str(pay.id), reason: review });
+        notify(alerts.raise("billing.review", "A payment needs finance review (recorded, not blocked)", { paymentId: str(pay.id), reason: review, nextStep: "docs/BILLING.md#payments-needing-review" }, { severity: "warning", cooldownMs: 10 * 60_000 }));
+      }
       await evaluateReferral(orgId, mode === "live" && amount > 0);
     }
   }
-  if (type === "payment.failed" && str(pay.id)) {
+  if (type === "payment.failed") {
+    const verdict = validatePaymentEntity(pay, { provider, kind: "failed", subscriptionOrgId: String(orgId), providerSubscriptionId: providerSubId, checkoutId: checkout ? String(checkout._id) : undefined, checkoutOrgId: checkout ? String(checkout.organizationId) : undefined });
+    if (!verdict.ok) return reject(verdict);
     const amount = num(pay.amount);
-    const exists = await BillingPayment.findOne({ provider, providerPaymentId: str(pay.id) });
-    if (!exists) {
-      const plan = subscription.planSnapshot as { name: string };
-      const invoice = await BillingInvoice.create({ organizationId: orgId, subscriptionId: subscription._id, number: await nextInvoiceNumber(), providerPaymentId: str(pay.id), mode, planKey: subscription.planKey, lineItems: [{ description: `${plan.name} plan`, amountPaise: amount }], subtotalPaise: amount, totalPaise: amount, status: "failed", failureReason: str(pay.error_description) || "Payment failed" });
-      await BillingPayment.create({ organizationId: orgId, invoiceId: invoice._id, provider, providerPaymentId: str(pay.id), providerSubscriptionId: providerSubId, amountPaise: amount, status: "failed", mode, failureReason: str(pay.error_description) || "Payment failed", lastEventAt: ev.at });
-    }
+    const plan = subscription.planSnapshot as { name: string };
+    const reason = str(pay.error_description).slice(0, 200) || "Payment failed";
+    await recordPayment({ org: orgId, subscriptionId: subscription._id as Id, provider, mode, providerPaymentId: str(pay.id), providerSubscriptionId: providerSubId, at: ev.at, status: "failed", amountPaise: amount, failureReason: reason, planKey: subscription.planKey, lineItems: [{ description: `${plan.name} plan`, amountPaise: amount }], subtotalPaise: amount, discountPaise: 0 });
   }
-  if ((type === "refund.processed" || type === "payment.refunded") && ev.refund) {
-    const p = await BillingPayment.findOne({ provider, providerPaymentId: str(ev.refund.payment_id) });
+  if (type === "refund.processed" || type === "payment.refunded") {
+    const refund = ev.refund;
+    const verdict = refund ? validateRefundEntity(refund) : ({ ok: false, code: "refund", reason: "refund event carries no refund" } as const);
+    if (!verdict.ok) return reject(verdict);
+    const r = refund!;
+    const p = await BillingPayment.findOne({ provider, providerPaymentId: str(r.payment_id) });
     if (!p) throw new Error("Refund arrived before its payment; will retry");
-    const refunded = Math.min(p.amountPaise, p.refundedPaise + num(ev.refund.amount));
-    p.refundedPaise = refunded; p.status = refunded >= p.amountPaise ? "refunded" : "partially_refunded"; await p.save();
-    if (p.invoiceId) await BillingInvoice.updateOne({ _id: p.invoiceId }, { refundedPaise: refunded, status: refunded >= p.amountPaise ? "refunded" : "partially_refunded" });
+    if (String(p.organizationId) !== String(orgId)) return reject({ ok: false, code: "tenant", reason: "refund belongs to a payment of a different organization" });
+    if (p.status === "failed") return reject({ ok: false, code: "status", reason: "refund for a payment that never succeeded" });
+    // The same refund can be delivered under several event ids: it is counted once, keyed by the refund id.
+    if (!p.refundIds.includes(str(r.id))) {
+      const wanted = p.refundedPaise + num(r.amount);
+      const refunded = Math.min(p.amountPaise, wanted);
+      const status = refunded >= p.amountPaise ? "refunded" : "partially_refunded";
+      const applied = await BillingPayment.updateOne({ _id: p._id, refundedPaise: p.refundedPaise, refundIds: { $ne: str(r.id) } }, { $set: { refundedPaise: refunded, status, ...(wanted > p.amountPaise ? { needsReview: true, reviewReason: "refunds exceed the payment amount" } : {}) }, $push: { refundIds: str(r.id) } });
+      if (!applied.modifiedCount) throw new Error("Concurrent refund update; will retry");
+      if (p.invoiceId) await BillingInvoice.updateOne({ _id: p.invoiceId }, { refundedPaise: refunded, status });
+      if (wanted > p.amountPaise) notify(alerts.raise("billing.review", "Refunds exceed the payment amount (capped)", { paymentId: p.providerPaymentId, refundId: str(r.id) }, { severity: "warning", cooldownMs: 10 * 60_000 }));
+    }
   }
 
   // Lifecycle changes only move forward in provider time.
@@ -256,6 +336,7 @@ export async function reprocessEvent(eventId: string) {
   stored.status = "processing"; stored.attempts += 1; await stored.save();
   try {
     const outcome = await applyEvent(parse(JSON.stringify(stored.payload)), stored.provider, stored.mode as Mode);
+    if (typeof outcome === "object") { await finishRejected(stored.provider, stored.eventId, stored.type, outcome); return "rejected" as const; }
     stored.status = outcome === "ignored" ? "ignored" : "processed"; stored.processedAt = new Date(); stored.error = undefined; await stored.save();
     return outcome;
   } catch (error) {

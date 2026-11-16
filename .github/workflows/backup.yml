@@ -1,0 +1,70 @@
+# Scheduled encrypted backups + integrity checks. NOT ACTIVE until the repository secrets below exist; nothing here has run against a real
+# database or bucket. See docs/BACKUP_RESTORE.md ("Scheduled jobs") for the required Atlas network access and permissions.
+name: Database backup
+
+on:
+  schedule:
+    - cron: "30 20 * * *" # 02:00 IST daily: backup + retention + quick check
+    - cron: "30 21 * * 0" # Sunday 03:00 IST: deep check (decrypts the newest archive and verifies checksums)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "run | check | deep-check"
+        default: "run"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'run' || github.event.schedule == '30 20 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production-backup # protect the secrets with an environment that needs approval for changes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Backup, upload and apply retention
+        run: node --import tsx scripts/backup.ts run --prune
+        env:
+          BACKUP_SOURCE_URI: ${{ secrets.BACKUP_SOURCE_URI }} # read-only database user
+          BACKUP_ENCRYPTION_KEYS: ${{ secrets.BACKUP_ENCRYPTION_KEYS }}
+          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          BACKUP_S3_REGION: ${{ secrets.BACKUP_S3_REGION }}
+          BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          BACKUP_S3_PREFIX: ${{ secrets.BACKUP_S3_PREFIX }}
+          BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
+          BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          BACKUP_HEARTBEAT_URL: ${{ secrets.BACKUP_HEARTBEAT_URL }} # dead-man's-switch: a MISSING ping is the alert for a job that stopped running
+          NODE_ENV: production
+
+  check:
+    if: github.event_name == 'schedule' && github.event.schedule == '30 21 * * 0' || github.event_name == 'workflow_dispatch' && startsWith(inputs.mode, 'deep')  || github.event_name == 'workflow_dispatch' && inputs.mode == 'check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production-backup
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Check backups (deep on schedule and on deep-check)
+        run: node --import tsx scripts/backup.ts check ${{ (github.event_name == 'schedule' || inputs.mode == 'deep-check') && '--deep' || '' }}
+        env:
+          BACKUP_ENCRYPTION_KEYS: ${{ secrets.BACKUP_ENCRYPTION_KEYS }}
+          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          BACKUP_S3_REGION: ${{ secrets.BACKUP_S3_REGION }}
+          BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          BACKUP_S3_PREFIX: ${{ secrets.BACKUP_S3_PREFIX }}
+          BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
+          BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          BACKUP_CHECK_HEARTBEAT_URL: ${{ secrets.BACKUP_CHECK_HEARTBEAT_URL }}
+          NODE_ENV: production

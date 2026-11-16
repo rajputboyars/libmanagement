@@ -1,9 +1,12 @@
+import { moduleStates } from "./access";
 import type { Types } from "mongoose";
 import { Flashcard, Library, Membership, Notification, Payment, RevisionSchedule, User } from "./models";
-import { BillingInvoice, BillingPayment, BillingWebhookEvent, NotificationDelivery, Organization } from "./saas-models";
+import { BillingCheckout, BillingInvoice, BillingPayment, BillingWebhookEvent, NotificationDelivery, Organization } from "./saas-models";
 import { JobRun } from "./ops-models";
 import { runJobs as runSaasJobs } from "./saas-jobs";
-import { reprocessEvent } from "./billing";
+import { providerConfig, reprocessEvent } from "./billing";
+import { reconcileWithProvider } from "./billing-reconcile";
+import { alerts } from "./alerts";
 import { notifyOrg } from "./saas-notify";
 import { limitedShared } from "./security";
 import { alert, log } from "./log";
@@ -22,7 +25,11 @@ async function membershipExpiry(now: Date) {
 async function feeDueReminders(now: Date) {
   const rows = await Membership.find({ status: { $in: ["active", "paused"] }, $expr: { $gt: [{ $subtract: [{ $subtract: ["$amount", { $ifNull: ["$discount", 0] }] }, { $ifNull: ["$paid", 0] }] }, 0] } }).select("userId libraryId amount discount paid end").limit(2000).lean<{ _id: Types.ObjectId; userId: Types.ObjectId; libraryId: Types.ObjectId; amount: number; discount?: number; paid?: number }[]>();
   let sent = 0;
+  const feesOn = new Map<string, boolean>(); // libraries that turned fees off (or are not allowed them) get no fee reminders
   for (const m of rows) {
+    const lib = String(m.libraryId);
+    if (!feesOn.has(lib)) feesOn.set(lib, await moduleStates(m.libraryId as never).then((x) => x.fees.enabled, () => false));
+    if (!feesOn.get(lib)) continue;
     const due = m.amount - (m.discount ?? 0) - (m.paid ?? 0);
     const key = `feedue:${m._id}:${weekKey(now)}`;
     const fresh = await NotificationDelivery.updateOne({ key }, { $setOnInsert: { userId: m.userId, channel: "in-app", kind: "fee-due", status: "sent", attempts: 1 } }, { upsert: true });
@@ -69,9 +76,27 @@ async function billingReconciliation(now: Date) {
   const paidInvoices = await BillingInvoice.find({ status: "paid", mode: { $in: ["live", "sandbox"] }, createdAt: { $gte: since } }).select("providerPaymentId").lean<{ providerPaymentId?: string }[]>();
   const known = new Set((await BillingPayment.find({ providerPaymentId: { $in: paidInvoices.map((i) => i.providerPaymentId).filter(Boolean) as string[] } }).select("providerPaymentId").lean<{ providerPaymentId: string }[]>()).map((p) => p.providerPaymentId));
   const invoiceNoPayment = paidInvoices.filter((i) => i.providerPaymentId && !known.has(i.providerPaymentId)).length;
+  // Checkouts nobody completed are closed after a week; they never touched the subscription.
+  const abandoned = await BillingCheckout.updateMany({ status: "created", createdAt: { $lt: new Date(now.getTime() - 7 * day) } }, { status: "abandoned" });
+  const needReview = await BillingPayment.countDocuments({ needsReview: true });
+  // Provider-side reconciliation (gateway payments vs local records). Report-only; skipped when no gateway credentials are configured.
+  let provider: { checked: boolean; mismatches: number; error?: string } = { checked: false, mismatches: 0 };
+  try {
+    const cfg = providerConfig();
+    if (cfg.provider === "razorpay" && cfg.keyId && cfg.keySecret) {
+      const r = await reconcileWithProvider({ days: 7, now, cfg });
+      provider = { checked: true, mismatches: r.discrepancies.length };
+      if (r.discrepancies.length) await alerts.raise("billing.provider-mismatch", "Gateway payments do not match local records", { mismatches: r.discrepancies.length, sample: r.discrepancies.slice(0, 5), nextStep: "docs/BILLING.md#reconciliation-mismatches" });
+      else await alerts.resolve("billing.provider-mismatch");
+      await alerts.resolve("billing.reconcile-unavailable");
+    }
+  } catch (error) {
+    provider = { checked: false, mismatches: 0, error: error instanceof Error ? error.message.slice(0, 120) : "error" };
+    await alerts.raise("billing.reconcile-unavailable", "Could not reconcile with the payment gateway", { reason: provider.error }, { severity: "warning", cooldownMs: 6 * 3600_000 });
+  }
   const discrepancies = capturedNoInvoice + invoiceNoPayment;
   if (discrepancies || stillFailing) await alert("billing.reconciliation", { capturedNoInvoice, invoiceNoPayment, stillFailing });
-  return { resetStuck: stuck.modifiedCount, recovered, stillFailing, discrepancies };
+  return { resetStuck: stuck.modifiedCount, recovered, stillFailing, discrepancies, abandonedCheckouts: abandoned.modifiedCount, paymentsNeedingReview: needReview, provider };
 }
 
 /** One summary per organization per week, sent the first time jobs run in that week. */
@@ -81,7 +106,7 @@ async function weeklyReports(now: Date) {
   let sent = 0;
   for (const o of orgs) {
     const libs = (await Library.find({ organizationId: o._id }).select("_id").lean<{ _id: Types.ObjectId }[]>()).map((l) => l._id);
-    const [students, revenue] = await Promise.all([User.countDocuments({ role: "student", libraryId: { $in: libs } }), Payment.aggregate([{ $match: { libraryId: { $in: libs }, createdAt: { $gte: since } } }, { $group: { _id: null, t: { $sum: "$amount" } } }])]);
+    const [students, revenue] = await Promise.all([User.countDocuments({ role: "student", libraryId: { $in: libs } }), Payment.aggregate([{ $match: { libraryId: { $in: libs }, createdAt: { $gte: since }, reversedAt: { $exists: false } } }, { $group: { _id: null, t: { $sum: "$amount" } } }])]);
     const r = await notifyOrg({ organizationId: o._id, key: `weekly:${o._id}:${week}`, kind: "weekly-report", title: "Your weekly library summary", message: `${students} active students. ₹${((revenue[0]?.t ?? 0) / 100).toLocaleString("en-IN")} in fee payments recorded in the last 7 days.` });
     if (r.sent) sent++;
   }

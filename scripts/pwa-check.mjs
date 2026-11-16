@@ -125,7 +125,7 @@ if (ownerCookie && studentCookie) {
   check("P1 student opening an owner URL lands in /app", (await ev("location.pathname")) === "/app", await ev("location.pathname"));
   await send("Page.navigate", { url: `${base}/app/focus` }); await sleep(3500);
   await setOffline(true); await ev("window.dispatchEvent(new Event('offline'))"); await sleep(600);
-  const g = await ev(`(() => { const b=document.querySelector('.sq-offline')?.getBoundingClientRect(); const n=document.querySelector('.bottom-nav')?.getBoundingClientRect(); return { b: b ? [Math.round(b.top), Math.round(b.bottom)] : null, n: n ? [Math.round(n.top), Math.round(n.bottom)] : null, h: innerHeight }; })()`);
+  const g = await ev(`(() => { const b=document.querySelector('.sq-offline')?.getBoundingClientRect(); const n=document.querySelector('.bottom-nav, .sq-v2-bottom')?.getBoundingClientRect(); return { b: b ? [Math.round(b.top), Math.round(b.bottom)] : null, n: n ? [Math.round(n.top), Math.round(n.bottom)] : null, h: innerHeight }; })()`);
   check("P2 offline banner does not overlap the bottom navigation", !!g?.b && !!g?.n && g.b[1] <= g.n[0], JSON.stringify(g));
   await ev(`(() => { const b=[...document.querySelectorAll('button')].find(b=>/^start|begin/i.test(b.innerText.trim())); b && b.click(); })()`); await sleep(1500);
   const toast = await ev(`document.body.innerText`);

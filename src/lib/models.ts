@@ -1,3 +1,4 @@
+import { defer } from "./defer";
 import mongoose, { Schema, type SchemaDefinition } from "mongoose";
 export const id = Schema.Types.ObjectId;
 const tenant = { libraryId: { type: id, required: true, index: true } };
@@ -28,6 +29,14 @@ export const User = model("User", {
   // Set by the platform owner; a suspended account cannot sign in and its sessions end.
   suspendedAt: Date,
   suspendedReason: { type: String, trim: true, maxlength: 200 },
+  // Two-step sign-in (TOTP). Optional: accounts without these fields keep signing in with a password only.
+  // The seed is stored encrypted (AES-GCM), recovery codes only as salted scrypt hashes; none of these ever leave the server.
+  twoFactorEnabled: { type: Boolean, default: false },
+  twoFactorEnabledAt: Date,
+  twoFactorSecretEnc: { type: String, select: false },
+  twoFactorPendingEnc: { type: String, select: false },
+  twoFactorLastStep: { type: Number, select: false },
+  twoFactorRecovery: { type: [String], select: false },
 });
 export const Library = model("Library", {
   name: { type: String, required: true },
@@ -46,6 +55,10 @@ export const Library = model("Library", {
   },
   libraryCode: { type: String, uppercase: true, trim: true, unique: true, sparse: true },
   punchPolicy: { type: String, enum: ["app", "qr"], default: "app" },
+  // Modules the owner turned off. Data is never touched; an empty list means everything the plan allows is on.
+  disabledModules: [{ type: String, maxlength: 30 }],
+  // IANA zone used for attendance days. Libraries without one use India time.
+  timezone: { type: String, trim: true, maxlength: 60 },
   // Where the library is. When set, students can only punch in and out within PUNCH_RADIUS_M of this point.
   geofence: { lat: { type: Number, min: -90, max: 90 }, lng: { type: Number, min: -180, max: 180 } },
   organizationId: { type: id, index: true },
@@ -133,6 +146,10 @@ export const Payment = model(
     method: { type: String, enum: ["cash", "upi"], required: true },
     key: { type: String, required: true },
     receipt: String,
+    // A wrong payment is never deleted: it is marked reversed (who, when, why) and stops counting towards totals.
+    reversedAt: Date,
+    reversedBy: id,
+    reversalReason: { type: String, trim: true, maxlength: 200 },
   },
   [[{ libraryId: 1, key: 1 }, { unique: true }]],
 );
@@ -196,16 +213,11 @@ export const Notification = model(
     });
     schema.post("save", function (doc) {
       if (!doc.$locals.wasNew) return;
-      void import("./push")
-        .then((m) =>
-          m.pushForNotification({
-            userId: doc.get("userId"),
-            libraryId: doc.get("libraryId"),
-            title: String(doc.get("title") ?? ""),
-            message: String(doc.get("message") ?? ""),
-          }),
-        )
-        .catch(() => {});
+      // Phone notification: deferred with after() on serverless hosts so it finishes even though the request has already been answered.
+      defer(
+        () => import("./push").then((m) => m.pushForNotification({ userId: doc.get("userId"), libraryId: doc.get("libraryId"), title: String(doc.get("title") ?? ""), message: String(doc.get("message") ?? "") })),
+        { label: "push-notification" },
+      );
     });
   },
 );
@@ -244,8 +256,22 @@ export const AuditLog = model("AuditLog", {
 });
 export const StaffMembership = model(
   "StaffMembership",
-  { ...tenant, userId: id, permissions: [String] },
+  // `permissions` holds the older fixed words (attendance, students, payments, expenses); `roleId` points at a custom or preset role.
+  { ...tenant, userId: id, permissions: [String], roleId: id },
   [[{ libraryId: 1, userId: 1 }, { unique: true }]],
+);
+export const LibraryRole = model(
+  "LibraryRole",
+  {
+    ...tenant,
+    key: { type: String, required: true, lowercase: true, trim: true, maxlength: 40 },
+    name: { type: String, required: true, trim: true, maxlength: 40 },
+    description: { type: String, default: "", trim: true, maxlength: 200 },
+    permissions: [{ type: String, maxlength: 40 }],
+    preset: { type: Boolean, default: false },
+    createdBy: id,
+  },
+  [[{ libraryId: 1, key: 1 }, { unique: true }]],
 );
 export const StudyGoal = model(
   "StudyGoal",

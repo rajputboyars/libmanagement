@@ -1,0 +1,16 @@
+{
+  "_readme": "Copy to pilot-evidence.json (git-ignored) and fill in ONLY what has really been done. Each entry needs date (YYYY-MM-DD), by (a named person) and reference (a link, ticket, screenshot id or archive name). Leave null otherwise. The pilot gate treats anything missing as NOT VERIFIED.",
+  "stagingDeployment": null,
+  "backupRestoreDrill": null,
+  "atlasBackupOrPitr": null,
+  "uptimeProbes": null,
+  "alertDelivery": null,
+  "heartbeatMonitors": null,
+  "razorpayTestMode": null,
+  "paymentReconciliation": null,
+  "exportAndClosure": null,
+  "rollbackRehearsed": null,
+  "twoPlatformAdminsEnrolled": null,
+  "staffTraining": null,
+  "pilotParticipantsAuthorized": null
+}

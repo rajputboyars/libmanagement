@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -8,6 +9,9 @@ import { PlanError, accessForLibrary, activeStudentCount, audit, currentPlan, en
 import { creditBalance } from "@/lib/referrals";
 import { getProvider, providerConfig, ingestSandbox, sandboxEvent } from "@/lib/billing";
 import { Library } from "@/lib/models";
+import { ConsentRecord } from "@/lib/ops-models";
+import { recordConsent } from "@/lib/consent";
+import { termsNeedAcceptance, type ConsentRow } from "@/lib/legal";
 
 const err = (message: string, status = 400, code?: string) => NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
 const interval = z.enum(["monthly", "annual"]);
@@ -25,6 +29,8 @@ export async function GET(request: NextRequest) {
   const a = await authed();
   if ("error" in a) return a.error;
   const { user } = a;
+  // Invoices, credit and the referral code are the owner's: staff roles (including custom ones) never read billing.
+  if (user.role !== "owner") return err("Only the library owner can view billing", 403);
   await ensurePlans();
   const access = await accessForLibrary(user.libraryId!);
   if (!access) return err("Organization not found", 404);
@@ -69,7 +75,7 @@ export async function POST(request: NextRequest) {
     if (!sub) throw new Error("Subscription not found");
 
     if (body.action === "coupon-check" || body.action === "checkout") {
-      const v = z.object({ planKey: z.string().min(2).max(30), interval, couponCode: z.string().trim().max(30).optional() }).parse(body.data);
+      const v = z.object({ planKey: z.string().min(2).max(30), interval, couponCode: z.string().trim().max(30).optional(), acceptTerms: z.boolean().optional() }).parse(body.data);
       const plan = await SaaSPlan.findOne({ key: v.planKey, current: true, isPublic: true }).lean<Lean & { key: string; version: number; monthlyPaise: number; annualPaise: number; providerPlanIds: Record<string, Record<string, string>> }>();
       if (!plan) throw new Error("Plan not found");
       const list = price(plan, v.interval);
@@ -83,6 +89,13 @@ export async function POST(request: NextRequest) {
         if (problem) throw new Error(problem);
         if (await CouponRedemption.exists({ couponId: coupon._id, organizationId: orgId })) throw new Error("Your organization has already used this code");
         discount = couponDiscount(c, list);
+      }
+      if (body.action === "checkout") {
+        // Paying needs the CURRENT Terms (billing section). Owners who registered earlier can accept right here; the answer is recorded.
+        if (termsNeedAcceptance(await ConsentRecord.find({ userId: user._id }).select("kind version accepted createdAt").lean<ConsentRow[]>())) {
+          if (v.acceptTerms !== true) return err("Accept the current Terms of Service to subscribe.", 400, "terms-required");
+          await recordConsent(user._id, [{ kind: "terms", accepted: true }], "checkout");
+        }
       }
       const cfg = providerConfig();
       if (body.action === "coupon-check") return NextResponse.json({ ok: true, listPaise: list, discountPaise: discount, payablePaise: list - discount, ...(coupon && cfg.provider === "razorpay" && !coupon.providerOfferId ? { warning: "This code cannot be applied to live gateway billing yet." } : {}) });
@@ -148,6 +161,7 @@ export async function POST(request: NextRequest) {
     }
     throw new Error("Unsupported action");
   } catch (error) {
+    reportUnexpected(error, "/api/billing");
     if (error instanceof PlanError) return err(error.message, error.code === "forbidden" ? 403 : 402, error.code);
     return err(error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update billing", error instanceof z.ZodError ? 422 : 400);
   }
@@ -182,6 +196,7 @@ export async function PUT(request: NextRequest) {
     }
     return NextResponse.json({ ok: true, notice: "Sandbox result recorded. No real money was moved." });
   } catch (error) {
+    reportUnexpected(error, "/api/billing");
     return err(error instanceof Error ? error.message : "Sandbox action failed");
   }
 }

@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
@@ -78,6 +79,7 @@ export async function POST(request: NextRequest) {
     await ticket.save();
     return NextResponse.json({ ok: true, ticket });
   } catch (error) {
+    reportUnexpected(error, "/api/support");
     return err(error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update", error instanceof z.ZodError ? 422 : 400);
   }
 }

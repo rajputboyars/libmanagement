@@ -1,8 +1,10 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { libraryClock } from "@/lib/library-hours";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "node:crypto";
 import { z } from "zod";
+import { guardMember } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { ExamDate, ExamGoal, Flashcard, MistakeEntry, PlanTask, Question, StudentNote, StudyPlan, SyllabusNode, TestAnswer, TestAttempt, TestTemplate, TopicProgress, XPTransaction } from "@/lib/models";
 import { DAILY_COUNT, MINI_COUNT, attributedTime, acceptsAnswers, checkpoint, cohortStanding, flashNext, flashReview, officialDateStatus, remainingMs, seededOrder, spreadOverdue, topicStrength, type PlanItem } from "@/lib/prep";
@@ -28,6 +30,7 @@ export async function GET(request: NextRequest) {
   { const blocked = await studentFeatureBlocked(user, "exam-prep"); if (blocked) return blocked; }
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Student access required", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   const p = request.nextUrl.searchParams;
   const view = p.get("view") || "overview";
   const now = new Date();
@@ -216,6 +219,7 @@ export async function POST(request: NextRequest) {
   { const blocked = await studentFeatureBlocked(user, "exam-prep"); if (blocked) return blocked; }
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Student access required", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   if (limited(`prep:${user._id}`, 300)) return err("Please slow down", 429);
   try {
     const body = z.object({ action: z.string().min(1), data: z.unknown().default({}) }).parse(await request.json());
@@ -226,6 +230,7 @@ export async function POST(request: NextRequest) {
     async function create(doc: Record<string, unknown>) {
       try { return await TestAttempt.create({ userId: user!._id, libraryId: user!.libraryId, examKey: needExam().examKey, startedAt: now, ...doc }); }
       catch (e) {
+        reportUnexpected(e, "/api/prep");
         if ((e as { code?: number }).code !== 11000) throw e;
         const existing = await TestAttempt.findOne({ userId: user!._id, ...(doc.templateId ? { templateId: doc.templateId, state: { $in: ["in-progress", "scoring"] } } : { kind: doc.kind, day: doc.day }) });
         if (!existing) throw e;
@@ -440,6 +445,7 @@ export async function POST(request: NextRequest) {
       default: throw new Error("Unsupported action");
     }
   } catch (error) {
+    reportUnexpected(error, "/api/prep");
     return NextResponse.json({ error: error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update" }, { status: error instanceof z.ZodError ? 422 : 400 });
   }
 }

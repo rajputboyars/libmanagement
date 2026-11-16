@@ -3,12 +3,19 @@
 StudyQuest is a Next.js 16 application plus an optional background worker, backed by MongoDB (a replica set is required for transactions).
 Nothing in this repository deploys itself or creates infrastructure. Every step below is run by a person with authority over the target environment.
 
+## 0. Supported deployment path (decision)
+
+The deployment actually in use is **Vercel + MongoDB Atlas** (R16): web/API run as Vercel Functions, the periodic jobs run from the daily **Vercel Cron** entry in `vercel.json` (`GET /api/jobs/run`, `CRON_SECRET` required, heartbeat and `cron.failed` alerting), and backups run in **GitHub Actions** (separate from Vercel Cron). There is no permanent worker on Vercel. Vercel plan/terms (Hobby is NOT approved for commercial SaaS), region, env scoping per Production/Preview/Development and Atlas network access are **external decisions to confirm in the dashboards**: see docs/PILOT_RUNBOOK.md section 1-2. The `web` + `worker` container path (`Dockerfile`, standalone output, TLS reverse proxy) remains in the repository as an alternative and is the only path CI builds. `npm start` is for development. Nothing has been deployed by this change.
+
+**Set `APP_ENV=staging` or `APP_ENV=production` on every process.** With it the web and worker refuse to start on configuration errors (staging may only use `rzp_test_` keys, production must declare `BILLING_EXPECT_MODE`, a dedicated `TWO_FACTOR_KEY` is required, backup credentials must not be on web/worker, etc.). Check first with `npm run env:check -- --profile <staging|production> --role <web|worker|backup> --env-file <file>`; verify after deploying with `npm run smoke -- --url https://<host>`; the combined entry gate is `npm run pilot:gate`.
+
 ## 1. Environments
 
 | | Development | Staging | Production |
 |---|---|---|---|
 | Purpose | local work | rehearsal with production-like config | real users |
 | `NODE_ENV` | development | production | production |
+| `APP_ENV` | unset | `staging` | `production` |
 | `APP_URL` | `http://127.0.0.1:3000` | `https://staging.<domain>` | `https://<domain>` |
 | MongoDB | local replica set or Atlas dev cluster | separate cluster/database, **never** production data | production cluster with backups |
 | Razorpay | unset (local sandbox) | `rzp_test_*` keys | `rzp_live_*` keys, enabled only with written approval |
@@ -25,10 +32,10 @@ Use a different `SESSION_SECRET` in every environment (`openssl rand -base64 48`
 - `SESSION_SECRET` — at least 32 random characters.
 - `APP_URL` — canonical `https://` origin.
 - `TRUST_PROXY=1` — **only** when the app sits behind a proxy or load balancer that overwrites `X-Forwarded-For`; otherwise per-IP limits share one bucket.
-- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` — to take subscription payments.
+- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` (all three or none) and `BILLING_EXPECT_MODE=live|test` — to take subscription payments; separate test and live credentials per environment. See docs/BILLING.md.
 - `EMAIL_WEBHOOK_URL` (+ `EMAIL_WEBHOOK_TOKEN`) — **required in production** (`/api/ready` reports an error without it). An `https://` endpoint that accepts `POST {to, subject, text}` (JSON) with `Idempotency-Key` and optional `Authorization: Bearer <token>` headers and answers 2xx when the email is accepted. Without it, password reset and owner email verification return `503 email-not-configured`; nothing is reported as sent.
 - `ALERT_WEBHOOK_URL` — Slack/Teams/PagerDuty-compatible incoming webhook for alerts.
-- `CRON_SECRET` — only if jobs are triggered over HTTP instead of by the worker.
+- `CRON_SECRET` — required on Vercel (Production scope): Vercel Cron sends it as the Bearer token to `/api/jobs/run`; also used when jobs are triggered over HTTP instead of by the worker.
 
 ## 3. Build and run
 
@@ -68,6 +75,9 @@ On Vercel, `vercel.json` runs the jobs daily at 08:00 IST via Vercel Cron (`GET 
 3. Take a fresh database backup (see BACKUP_RESTORE.md) and record its location in the release notes.
 4. Run `npm run migrate:orgs -- --dry`; review the output; apply only with approval. Migrations are additive (new collections and fields), so the previous release keeps working against the migrated database.
 5. Deploy production with a rolling or blue/green strategy; watch `/api/ready`, the error rate and the webhook failure alert for 30 minutes.
+
+### Post-deployment smoke test
+`npm run smoke -- --url https://<host>` (read-only) checks HTTPS/HSTS, liveness and readiness, nonce-based CSP, security headers, public legal routes signed out, signed-out API refusal, error hygiene and (with a dedicated smoke account) session cookie flags. Manual steps it cannot cover (mandatory two-step enrolment of a new owner, email delivery) are in docs/PILOT_RUNBOOK.md §5.2.
 
 ## 7. Rollback
 

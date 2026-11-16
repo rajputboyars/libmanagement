@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -6,12 +7,16 @@ import { db } from "@/lib/db";
 import { User, Library, StudentProfile } from "@/lib/models";
 import { createOrganization, ensurePlans, linkPendingStudent } from "@/lib/saas-server";
 import { attachReferral } from "@/lib/referrals";
+import { recordConsent } from "@/lib/consent";
 import { handleAuthExtra } from "@/lib/auth-extra";
+import { handleTwoFactor, twoFactorStatus } from "@/lib/two-factor-server";
 import { createJoinRequest } from "@/lib/join-request";
 import { newLibraryCode } from "@/lib/join";
-import { LOGIN_LIMITS, accountKey, clearLimit, clientIp, ipKey, isLocked, limitedShared, warnAuth } from "@/lib/security";
+import { LOGIN_LIMITS, accountKey, clearLimit, clientIp, ipKey, ipLimit, isLocked, limitedShared, warnAuth } from "@/lib/security";
 import {
   currentUser,
+  enrollmentRequired,
+  issueChallenge,
   issueSession,
   secret,
   validOrigin,
@@ -26,8 +31,12 @@ const input = z.object({
   library: z.string().min(2).max(100).optional(),
   referralCode: z.string().trim().max(20).optional(),
   libraryCode: z.string().trim().max(20).optional(),
+  // Required to register (enforced below, on the server). Marketing is a separate optional choice and is never implied by the Terms.
+  acceptTerms: z.boolean().optional(),
+  marketing: z.boolean().optional(),
 });
-export async function GET() {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ action: string }> }) {
+  if ((await ctx.params).action === "2fa-status") return twoFactorStatus();
   const user = await currentUser();
   return NextResponse.json({ user });
 }
@@ -43,16 +52,19 @@ export async function POST(
     response.cookies.delete("sq-session");
     return response;
   }
+  const twoFactor = await handleTwoFactor(action, req.clone());
+  if (twoFactor) return twoFactor;
   const extra = await handleAuthExtra(action, req.clone());
   if (extra) return extra;
   const ip = clientIp(req);
   if (action === "register") {
     await db().catch(() => null);
-    if (await limitedShared(`register:ip:${ip}`, 20, 3600).catch(() => false))
+    if (await limitedShared(`register:ip:${ip}`, ipLimit(ip, 20), 3600).catch(() => false))
       return NextResponse.json({ error: "Too many sign-ups from this network. Try again later." }, { status: 429 });
   }
   try {
     const data = input.parse(await req.json());
+    if (action === "register" && data.acceptTerms !== true) return NextResponse.json({ error: "Accept the Terms of Service and acknowledge the Privacy Notice to create an account.", code: "terms-required" }, { status: 400 });
     secret();
     await db();
     let user;
@@ -76,6 +88,7 @@ export async function POST(
             ],
             { session },
           );
+          await recordConsent((user as unknown as { _id: string })._id, [{ kind: "terms", accepted: true }, ...(typeof data.marketing === "boolean" ? [{ kind: "marketing" as const, accepted: data.marketing }] : [])], "register", { session });
           if (data.role === "owner") {
             const [library] = await Library.create(
               [
@@ -107,7 +120,7 @@ export async function POST(
       if (newOrgId && data.referralCode) await attachReferral(newOrgId as string, data.referralCode).catch(() => null);
     } else if (action === "login") {
       const acct = accountKey(data.email), ipk = ipKey(ip);
-      if ((await isLocked(acct, LOGIN_LIMITS.perAccount)) || (await isLocked(ipk, LOGIN_LIMITS.perIp))) {
+      if ((await isLocked(acct, LOGIN_LIMITS.perAccount)) || (await isLocked(ipk, ipLimit(ip, LOGIN_LIMITS.perIp)))) {
         warnAuth("login_locked", { ip });
         return NextResponse.json({ error: "Too many failed attempts. Try again in 15 minutes or reset your password." }, { status: 429 });
       }
@@ -116,15 +129,20 @@ export async function POST(
       const ok = await bcrypt.compare(data.password, user?.passwordHash ?? (await DUMMY_HASH()));
       if (!user || !ok || user.invited) {
         await limitedShared(acct, LOGIN_LIMITS.perAccount, LOGIN_LIMITS.windowSeconds);
-        await limitedShared(ipk, LOGIN_LIMITS.perIp, LOGIN_LIMITS.windowSeconds);
+        await limitedShared(ipk, ipLimit(ip, LOGIN_LIMITS.perIp), LOGIN_LIMITS.windowSeconds);
         warnAuth("login_failed", { ip });
         return NextResponse.json({ error: "Email or password is incorrect" }, { status: 401 });
       }
       await clearLimit(acct);
       // Only after a correct password, so this does not reveal which emails exist.
       if (user.suspendedAt) return NextResponse.json({ error: "This account is suspended. Contact StudyQuest support." }, { status: 403 });
+      // Two-step sign-in: the password alone never creates a session for an account that turned it on.
+      if (user.twoFactorEnabled) return NextResponse.json({ twoFactorRequired: true, challenge: await issueChallenge(String(user._id), user.sessionVersion ?? 0) });
     } else return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!user) throw new Error("Unable to create account");
+    // Owners and platform admins get no session until two-step sign-in is set up; they receive a restricted enrolment token instead.
+    const enroll = await enrollmentRequired(user);
+    if (enroll) return NextResponse.json(enroll);
     const response = NextResponse.json({ role: user.role, ...(joinResultOut ? { join: joinResultOut } : {}) });
     response.cookies.set("sq-session", await issueSession(String(user._id), user.sessionVersion ?? 0), {
       httpOnly: true,
@@ -135,6 +153,7 @@ export async function POST(
     });
     return response;
   } catch (error) {
+    reportUnexpected(error, "/api/auth/[action]");
     const message =
       error instanceof z.ZodError
         ? "Please check your entries. Passwords need at least 10 characters."

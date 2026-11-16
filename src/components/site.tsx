@@ -241,6 +241,8 @@ export function PublicPage({ path }: { path: string }) {
           <Link href="/coming-soon">{say(lang, copy.nav.soon)}</Link>
           <Link href="/pricing">{say(lang, copy.nav.pricing)}</Link>
           <Link href="/guide">{say(lang, copy.nav.guide)}</Link>
+          <Link href="/terms">Terms</Link>
+          <Link href="/privacy">Privacy</Link>
           <button className="text-link" onClick={() => setDemo(true)}>
             Request a demo
           </button>

@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -145,6 +146,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ ok: true, record });
   } catch (error) {
+    reportUnexpected(error, "/api/org");
     if (error instanceof PlanError) return err(error.message, error.code === "forbidden" ? 403 : 402, error.code);
     return err(error instanceof z.ZodError ? error.issues[0]?.message || "Check all fields" : error instanceof Error ? error.message : "Unable to update", error instanceof z.ZodError ? 422 : 400);
   }

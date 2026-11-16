@@ -9,7 +9,7 @@ async function main() {
     await new Promise<void>((resolve, reject) => {
       const child = spawn(
         process.execPath,
-        ["--import", "tsx", "--test", "tests/integration.test.ts", "tests/backup.integration.test.ts"],
+        ["--import", "tsx", "--test", "tests/integration.test.ts", "tests/backup.integration.test.ts", "tests/backup-ops.integration.test.ts", "tests/billing.integration.test.ts", "tests/pilot.integration.test.ts"],
         {
           stdio: "inherit",
           env: { ...process.env, TEST_MONGODB_URI: replica.getUri() },

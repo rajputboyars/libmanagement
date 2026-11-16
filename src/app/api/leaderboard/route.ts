@@ -1,5 +1,7 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { guardMember } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { StudentProfile, StudySession, User } from "@/lib/models";
 import { containsContactInfo } from "@/lib/community";
@@ -11,6 +13,7 @@ export async function GET() {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("The leaderboard is for students", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   const mine = await StudentProfile.findOne({ userId: user._id }).select("leaderboard leaderboardName").lean<{ leaderboard?: boolean; leaderboardName?: string }>();
   const base = { joined: !!mine?.leaderboard, name: mine?.leaderboardName || user.name.split(" ")[0], hasLibrary: !!user.libraryId };
   if (!user.libraryId) return NextResponse.json({ ...base, top: [], mine: null, players: 0, since: weekStart() });
@@ -38,6 +41,7 @@ export async function POST(request: NextRequest) {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("The leaderboard is for students", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   if (limited(`leaderboard:${user._id}`, 20)) return err("Please slow down", 429);
   try {
     const v = z.object({ join: z.boolean(), name: z.string().trim().min(2, "Use at least 2 characters").max(24).optional() }).parse((await request.json()).data);
@@ -50,6 +54,7 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json({ ok: true });
   } catch (e) {
+    reportUnexpected(e, "/api/leaderboard");
     if (e instanceof z.ZodError) return err(e.issues[0]?.message ?? "Invalid name");
     return err(e instanceof Error ? e.message : "Could not save");
   }

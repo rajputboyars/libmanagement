@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const FEATURES = {
-  basic: "Basic library management",
-  "fees-expenses": "Fee and expense management",
+  basic: "Basic library management (students, seats, attendance, fee collection and dues)",
+  "fees-expenses": "Expense tracking",
   crm: "Admission CRM",
   "qr-attendance": "QR attendance",
   "advanced-reports": "Advanced reporting",
@@ -14,8 +14,8 @@ export type FeatureKey = keyof typeof FEATURES;
 export type PlanSeed = { key: string; name: string; description: string; monthlyPaise: number; annualPaise: number; trialDays: number; limits: { activeStudents: number; branches: number }; features: FeatureKey[]; sortOrder: number };
 /** Proposed defaults. They are only seed values: live plans are read from the database and edited by platform admins. */
 export const DEFAULT_PLANS: PlanSeed[] = [
-  { key: "free", name: "Free", description: "Run a small library with the essentials.", monthlyPaise: 0, annualPaise: 0, trialDays: 0, limits: { activeStudents: 25, branches: 1 }, features: ["basic"], sortOrder: 0 },
-  { key: "starter", name: "Starter", description: "Add fee and expense management.", monthlyPaise: 29900, annualPaise: 299000, trialDays: 0, limits: { activeStudents: 100, branches: 1 }, features: ["basic", "fees-expenses", "crm"], sortOrder: 1 },
+  { key: "free", name: "Free", description: "Run a small library: students, seats, attendance and fee collection.", monthlyPaise: 0, annualPaise: 0, trialDays: 0, limits: { activeStudents: 25, branches: 1 }, features: ["basic"], sortOrder: 0 },
+  { key: "starter", name: "Starter", description: "Add expense tracking and admissions CRM.", monthlyPaise: 29900, annualPaise: 299000, trialDays: 0, limits: { activeStudents: 100, branches: 1 }, features: ["basic", "fees-expenses", "crm"], sortOrder: 1 },
   { key: "pro", name: "Pro", description: "QR attendance and advanced reporting.", monthlyPaise: 59900, annualPaise: 599000, trialDays: 14, limits: { activeStudents: 300, branches: 1 }, features: ["basic", "fees-expenses", "crm", "qr-attendance", "advanced-reports"], sortOrder: 2 },
   { key: "business", name: "Business", description: "Multiple branches with advanced controls.", monthlyPaise: 129900, annualPaise: 1299000, trialDays: 0, limits: { activeStudents: 2000, branches: 10 }, features: ["basic", "fees-expenses", "crm", "qr-attendance", "advanced-reports", "multi-branch", "advanced-controls"], sortOrder: 3 },
 ];

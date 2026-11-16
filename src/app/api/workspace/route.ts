@@ -1,8 +1,8 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { jwtVerify } from "jose";
-import { currentUser, limited, validOrigin, secret } from "@/lib/auth";
+import { currentUser, limited, validOrigin } from "@/lib/auth";
 import {
   Library,
   User,
@@ -29,10 +29,15 @@ import {
   ExamCatalog,
 } from "@/lib/models";
 import { punchIn } from "@/lib/punch";
+import { studentPunchIn } from "@/lib/punch-flow";
 import { JoinRequest } from "@/lib/ops-models";
 import { nudgePartners } from "@/lib/partner-nudge";
 import { studentAccessFor } from "@/lib/student-access-server";
 import { PlanError, requireFeature, requireStudentRoom, assertWritable } from "@/lib/saas-server";
+import { renewalTerms } from "@/lib/fees";
+import { AccessError, accessFor, assertMember, assertTeam, can, moduleOn } from "@/lib/access";
+import type { ModuleKey } from "@/lib/modules";
+import type { PermissionKey } from "@/lib/permissions";
 import { XP, reward, activeSeconds, focusLength, focusXP } from "@/lib/rules";
 
 /** The student's chosen exam and date, for the home-screen countdown. */
@@ -91,21 +96,21 @@ export async function GET(req: NextRequest) {
   if (!user)
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const owner = ["owner", "staff"].includes(user.role);
-  const staffRecord =
-    user.role === "staff"
-      ? await StaffMembership.findOne({
-          userId: user._id,
-          libraryId: user.libraryId,
-        })
-      : null;
-  const permissions: string[] = staffRecord?.permissions || [];
-  const readable = (key: string) =>
-    user.role !== "staff" ||
-    ["seats", "shifts", "plans", "notifications"].includes(key) ||
-    permissions.includes(key) ||
-    (key === "memberships" && permissions.includes("payments")) ||
-    (key === "students" &&
-      (permissions.includes("attendance") || permissions.includes("payments")));
+  const access = await accessFor(user);
+  // What each list needs: its module must be on for the library, and staff need the matching permission.
+  const READ: Record<string, [ModuleKey | null, PermissionKey]> = {
+    seats: ["seats", "seats.view"], shifts: ["seats", "seats.view"], plans: ["memberships", "plans.view"], memberships: ["memberships", "memberships.view"],
+    payments: ["fees", "fees.view"], expenses: ["expenses", "expenses.view"], attendance: ["attendance", "attendance.view"],
+    complaints: ["feedback", "feedback.view"], students: [null, "students.view"],
+  };
+  const readable = (key: string) => {
+    if (key === "notifications") return true;
+    const rule = READ[key];
+    if (!rule) return false;
+    if (access.kind === "none") return false;
+    if (rule[0] && !moduleOn(access, rule[0])) return false;
+    return user.role !== "staff" || can(access, rule[1]);
+  };
   const scope = owner ? { libraryId: user.libraryId } : { userId: user._id };
   const resource = req.nextUrl.searchParams.get("resource");
   if (resource) {
@@ -195,7 +200,7 @@ export async function GET(req: NextRequest) {
   }).lean();
   const libraries =
     user.role === "super-admin" ? await Library.find().limit(100).lean() : [];
-  const assignments = await SeatAssignment.find(
+  const assignments = !readable("seats") && !readable("memberships") && owner ? [] : await SeatAssignment.find(
     owner ? { libraryId: user.libraryId } : { userId: user._id },
   )
     .limit(200)
@@ -215,7 +220,7 @@ export async function GET(req: NextRequest) {
     await Promise.all([
       readable("payments")
         ? Payment.aggregate([
-            { $match: scope },
+            { $match: { ...scope, reversedAt: { $exists: false } } },
             { $group: { _id: null, total: { $sum: "$amount" } } },
           ])
         : [],
@@ -227,15 +232,16 @@ export async function GET(req: NextRequest) {
         : [],
       readable("memberships")
         ? Membership.aggregate([
-            { $match: scope },
+            // Only memberships still running can owe money here: cancelled and expired ones are closed out.
+            { $match: { ...scope, status: { $in: ["active", "paused"] }, end: { $gt: new Date() } } },
             {
               $group: {
                 _id: null,
                 total: {
                   $sum: {
-                    $subtract: [
-                      { $subtract: ["$amount", "$discount"] },
-                      "$paid",
+                    $max: [
+                      0,
+                      { $subtract: [{ $subtract: ["$amount", { $ifNull: ["$discount", 0] }] }, { $ifNull: ["$paid", 0] }] },
                     ],
                   },
                 },
@@ -293,8 +299,8 @@ export async function POST(req: NextRequest) {
     const owner = user.role === "owner";
     const libraryId = user.libraryId;
     if (action === "library-hours" || action === "holiday-add" || action === "holiday-remove") {
-      if (!owner || !libraryId)
-        return NextResponse.json({ error: "Only the library owner can change timings" }, { status: 403 });
+      if (!libraryId) return NextResponse.json({ error: "Only the library team can change timings" }, { status: 403 });
+      await assertTeam(user, null, "settings.manage");
       await assertWritable(libraryId);
       if (action === "library-hours") {
         const hours = z
@@ -346,27 +352,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     if (action === "check-in") {
-      const token = z.string().max(2000).parse(body.data?.token);
-      const { payload } = await jwtVerify(token, secret(), {
-        algorithms: ["HS256"],
-      });
-      if (
-        payload.purpose !== "attendance" ||
-        payload.libraryId !== String(libraryId) ||
-        user.role !== "student"
-      )
-        throw new Error("This check-in code is not for your library");
-      if (
-        !(await Membership.exists({
-          libraryId,
-          userId: user._id,
-          status: "active",
-          start: { $lte: new Date() },
-          end: { $gt: new Date() },
-        }))
-      )
-        throw new Error("An active library membership is required");
-      await punchIn({ libraryId, userId: user._id, method: "qr" });
+      if (user.role !== "student") throw new Error("This check-in code is not for your library");
+      await assertMember(user, "attendance");
+      const data = z.object({ token: z.string().max(2000), lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional(), accuracy: z.number().min(0).max(100000).optional() }).parse(body.data);
+      await studentPunchIn(user, data);
       return NextResponse.json({ ok: true });
     }
     if (action === "rest-day") {
@@ -573,22 +562,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, focus: result });
     }
     if (action === "complaints" && libraryId) {
+      await assertMember(user, "feedback");
       const data = schemas.complaints.parse(body.data);
       await Complaint.create({ ...data, libraryId, userId: user._id });
       return NextResponse.json({ ok: true });
     }
-    const staffPermission =
-      user.role === "staff"
-        ? await StaffMembership.findOne({ userId: user._id, libraryId })
-        : null;
-    if (
-      (!owner && !staffPermission?.permissions.includes(action)) ||
-      !libraryId
-    )
-      return NextResponse.json(
-        { error: "Owner permission required" },
-        { status: 403 },
-      );
+    // Every team action names the module it belongs to and the permission it needs. Unknown actions are for owners only.
+    const ACTIONS: Record<string, [ModuleKey | null, PermissionKey | "owner"]> = {
+      seats: ["seats", "seats.create"], shifts: ["seats", "seats.create"],
+      plans: ["memberships", "memberships.create"], memberships: ["memberships", "memberships.create"],
+      "membership-status": ["memberships", "memberships.update"], renew: ["memberships", "memberships.update"],
+      payments: ["fees", "fees.create"], "payment-reverse": ["fees", "fees.reverse"], expenses: ["expenses", "expenses.create"],
+      attendance: ["attendance", "attendance.mark"], resolve: ["feedback", "feedback.respond"],
+      notifications: [null, "notifications.create"], students: [null, "students.create"], staff: [null, "owner"],
+    };
+    const rule = ACTIONS[action];
+    if (!libraryId || (!rule && !owner)) return NextResponse.json({ error: "Owner permission required" }, { status: 403 });
+    if (rule) {
+      if (rule[1] === "owner" && !owner) throw new AccessError("Only the library owner can do this", "forbidden");
+      await assertTeam(user, rule[0], rule[1] === "owner" ? null : rule[1]);
+    }
     const session = await mongoose.startSession();
     try {
       await session.withTransaction(async () => {
@@ -599,7 +592,9 @@ export async function POST(req: NextRequest) {
           { $inc: { __v: 1 } },
           { session },
         );
-        if (action === "payments" || action === "expenses") await requireFeature(libraryId, "fees-expenses", "Fee and expense management");
+        // Collecting fees is part of the basic plan; expenses stay a paid-plan feature.
+        if (action === "payments" || action === "payment-reverse") await requireFeature(libraryId, "basic", "Fee management");
+        else if (action === "expenses") await requireFeature(libraryId, "fees-expenses", "Expense management");
         else if (action === "students") await requireStudentRoom(libraryId);
         else await assertWritable(libraryId);
         if (action === "staff") {
@@ -638,6 +633,8 @@ export async function POST(req: NextRequest) {
             throw new Error(
               "An active student membership cannot become a staff account",
             );
+          if (await StaffMembership.exists({ libraryId, userId: member._id, roleId: { $exists: true } }).session(session))
+            throw new Error("This person has a role. Change their access under Team & roles.");
           member.role = data.permission === "none" ? "student" : "staff";
           member.libraryId = libraryId;
           await member.save({ session });
@@ -698,6 +695,7 @@ export async function POST(req: NextRequest) {
             libraryId,
           }).session(session);
           if (!membership) throw new Error("Membership not found");
+          if (membership.status === "cancelled") throw new Error("This membership was cancelled, so no payment can be added to it");
           if (
             data.amount >
             membership.amount - membership.discount - membership.paid
@@ -715,6 +713,20 @@ export async function POST(req: NextRequest) {
             { session },
           );
           membership.paid += data.amount;
+          await membership.save({ session });
+        } else if (action === "payment-reverse") {
+          if (!owner) throw new Error("Only the library owner can reverse a payment");
+          const data = z.object({ paymentId: objectId, reason: z.string().trim().min(3).max(200) }).parse(body.data);
+          // Marking is conditional on "not reversed yet", so two simultaneous reversals cannot both succeed.
+          record = await Payment.findOneAndUpdate(
+            { _id: data.paymentId, libraryId, reversedAt: { $exists: false } },
+            { $set: { reversedAt: new Date(), reversedBy: user._id, reversalReason: data.reason } },
+            { new: true, session },
+          );
+          if (!record) throw new Error((await Payment.exists({ _id: data.paymentId, libraryId }).session(session)) ? "This payment was already reversed" : "Payment not found");
+          const membership = await Membership.findOne({ _id: record.membershipId, libraryId }).session(session);
+          if (!membership) throw new Error("Membership not found");
+          membership.paid = Math.max(0, membership.paid - record.amount);
           await membership.save({ session });
         } else if (action === "memberships") {
           const data = z
@@ -821,6 +833,7 @@ export async function POST(req: NextRequest) {
               method: z.enum(["cash", "upi"]),
               confirmation: z.literal("RECEIVED"),
               key: z.string().min(8),
+              discount: z.number().int().min(0).optional(),
             })
             .parse(body.data);
           if (
@@ -832,18 +845,27 @@ export async function POST(req: NextRequest) {
             libraryId,
           }).session(session);
           if (!previous) throw new Error("Membership not found");
-          if (previous.amount - previous.discount - previous.paid > 0)
+          if (previous.status === "cancelled") throw new Error("A cancelled membership cannot be renewed; create a new membership instead");
+          if (previous.status === "paused") throw new Error("Resume this membership before renewing it");
+          if (previous.amount - (previous.discount ?? 0) - (previous.paid ?? 0) > 0)
             throw new Error("Clear previous dues before renewing");
           const plan = await MembershipPlan.findOne({
             _id: previous.planId,
             libraryId,
           }).session(session);
+          // The seat the student holds now: seat changes end the old assignment and start a new one under the same membership.
           const assignment = await SeatAssignment.findOne({
             membershipId: previous._id,
             libraryId,
-          }).session(session);
+          })
+            .sort({ end: -1, start: -1 })
+            .session(session);
           if (!plan || !assignment)
             throw new Error("Choose a new membership plan and seat");
+          const seat = await Seat.findOne({ _id: assignment.seatId, libraryId }).session(session);
+          if (!seat) throw new Error("The student's seat no longer exists; create a new membership instead");
+          if (seat.operationalStatus === "maintenance") throw new Error(`Seat ${seat.label} is out of service for maintenance`);
+          const terms = renewalTerms(plan, previous.discount, data.discount);
           const start = new Date(Math.max(+previous.end, Date.now())),
             end = new Date(+start + plan.days * 86400000);
           if (
@@ -873,7 +895,8 @@ export async function POST(req: NextRequest) {
                 start,
                 end,
                 amount: plan.amount,
-                paid: plan.amount,
+                discount: terms.discount,
+                paid: terms.payable,
                 previousMembershipId: previous._id,
               },
             ],
@@ -894,20 +917,22 @@ export async function POST(req: NextRequest) {
             ],
             { session },
           );
-          await Payment.create(
-            [
-              {
-                libraryId,
-                membershipId: record._id,
-                userId: previous.userId,
-                amount: plan.amount,
-                method: data.method,
-                key: data.key,
-                receipt: `SQ-${Date.now()}`,
-              },
-            ],
-            { session },
-          );
+          // A fully discounted renewal takes no money, so there is no payment to record.
+          if (terms.payable > 0)
+            await Payment.create(
+              [
+                {
+                  libraryId,
+                  membershipId: record._id,
+                  userId: previous.userId,
+                  amount: terms.payable,
+                  method: data.method,
+                  key: data.key,
+                  receipt: `SQ-${Date.now()}`,
+                },
+              ],
+              { session },
+            );
         } else if (action === "attendance") {
           const data = z.object({ userId: objectId }).parse(body.data);
           if (
@@ -938,6 +963,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
+    reportUnexpected(error, "/api/workspace");
     return NextResponse.json(
       {
         error:
@@ -947,9 +973,9 @@ export async function POST(req: NextRequest) {
                 !/mongo|connection|server|buffer/i.test(error.message)
               ? error.message
               : "Unable to save. Check the database connection.",
-        ...(error instanceof PlanError ? { code: error.code } : {}),
+        ...(error instanceof PlanError || error instanceof AccessError ? { code: error.code } : {}),
       },
-      { status: error instanceof PlanError ? 402 : 400 },
+      { status: error instanceof PlanError ? 402 : error instanceof AccessError ? error.status : 400 },
     );
   }
 }

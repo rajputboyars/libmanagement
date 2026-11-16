@@ -1,10 +1,12 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
-import { Library, Notification, StaffMembership, StudentProfile, User } from "@/lib/models";
+import { Library, Notification, StudentProfile, User } from "@/lib/models";
 import { JoinRequest } from "@/lib/ops-models";
 import { ensureLibraryCode } from "@/lib/join";
+import { assertTeam } from "@/lib/access";
 import { PUNCH_RADIUS_M, normalizeLibraryCode } from "@/lib/punch";
 import { PlanError, assertWritable, audit, ensureOrganizationForLibrary, requireFeature, requireStudentRoom } from "@/lib/saas-server";
 import { limitedShared } from "@/lib/security";
@@ -34,12 +36,9 @@ async function linkStudent(req: JoinDoc, decidedBy: unknown, message: string) {
   } finally { await session.endSession(); }
 }
 
-/** Owners always; staff only with the students permission. */
+/** Owners always; staff with the "approve join requests" permission. */
 async function team(user: { _id: unknown; role: string; libraryId?: unknown }) {
-  if (user.role === "owner" && user.libraryId) return true;
-  if (user.role !== "staff" || !user.libraryId) return false;
-  const m = await StaffMembership.findOne({ userId: user._id, libraryId: user.libraryId }).lean<{ permissions: string[] }>();
-  return !!m?.permissions.includes("students");
+  try { await assertTeam(user as never, null, "students.approve"); return true; } catch { return false; }
 }
 
 export async function GET(request: NextRequest) {
@@ -155,6 +154,7 @@ export async function POST(request: NextRequest) {
     }
     throw new Error("Unsupported action");
   } catch (error) {
+    reportUnexpected(error, "/api/join");
     if (error instanceof PlanError) return err(error.message, 402, error.code);
     if ((error as { code?: number }).code === 11000) return err("You already have a pending request");
     return err(error instanceof z.ZodError ? error.issues[0]?.message || "Check your entries" : error instanceof Error ? error.message : "Unable to update", error instanceof z.ZodError ? 422 : 400);

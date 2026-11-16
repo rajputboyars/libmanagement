@@ -1,35 +1,17 @@
-import { jwtVerify } from "jose";
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { currentUser, limited, secret, validOrigin } from "@/lib/auth";
-import { Attendance, Library, Membership, Seat, SeatAssignment, StaffMembership, User } from "@/lib/models";
-import { PUNCH_RADIUS_M, checkGeofence, dayKey, openSession, punchIn, punchOut, sessionMinutes, closeStaleSessions, type Session } from "@/lib/punch";
+import { currentUser, limited, validOrigin } from "@/lib/auth";
+import { Attendance, Library, Seat, SeatAssignment, User } from "@/lib/models";
+import { PUNCH_RADIUS_M, assertInside, dayKey, hasFence, libraryTimeZone, openSession, punchOut, sessionMinutes, closeStaleSessions, type Fence, type Session } from "@/lib/punch";
+import { activeMembership, studentPunchIn } from "@/lib/punch-flow";
+import { accessResponse, assertMember, guardMember, guardTeam } from "@/lib/access";
 import { PlanError, assertWritable, audit, ensureOrganizationForLibrary } from "@/lib/saas-server";
 
 const err = (message: string, status = 400, code?: string) => NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
 type Lean = Record<string, unknown> & { _id: unknown };
 type Day = Lean & { day: string; sessions?: Session[]; checkIn?: Date; checkOut?: Date };
 
-async function activeMembership(userId: unknown, libraryId: unknown, now = new Date()) {
-  return Membership.findOne({ userId, libraryId, status: "active", start: { $lte: now }, end: { $gt: now } }).select("end").lean<{ end: Date }>();
-}
-async function team(user: { _id: unknown; role: string; libraryId?: unknown }) {
-  if (user.role === "owner" && user.libraryId) return true;
-  if (user.role !== "staff" || !user.libraryId) return false;
-  const m = await StaffMembership.findOne({ userId: user._id, libraryId: user.libraryId }).lean<{ permissions: string[] }>();
-  return !!m?.permissions.includes("attendance");
-}
-type Fence = { lat?: number; lng?: number } | undefined;
-const hasFence = (f: Fence): f is { lat: number; lng: number } => typeof f?.lat === "number" && typeof f?.lng === "number";
-/** Students must be within PUNCH_RADIUS_M of the library to punch in or out. Coordinates are checked, never stored. */
-function assertInside(fence: Fence, reading: { lat?: number; lng?: number; accuracy?: number }) {
-  if (!hasFence(fence)) return;
-  const r = checkGeofence(fence, reading);
-  if (r.ok) return;
-  if (r.reason === "no-location") throw new Error("Allow location access to punch in or out. Your library only accepts punches from inside the library.");
-  if (r.reason === "inaccurate") throw new Error("Your phone's location is not accurate enough. Turn on GPS or move near a window, then try again.");
-  throw new Error(`You are out of geolocation. Come within ${PUNCH_RADIUS_M} m of the library to punch (you are about ${Math.round(r.distance ?? 0)} m away).`);
-}
 const shape = (d: Day, now: Date) => ({ day: d.day, sessions: (d.sessions ?? (d.checkIn ? [{ inAt: d.checkIn, outAt: d.checkOut }] : [])).map((s) => ({ inAt: s.inAt, outAt: s.outAt ?? null, method: s.method ?? "app", auto: !!s.auto })), minutes: sessionMinutes(d.sessions ?? (d.checkIn ? [{ inAt: d.checkIn, outAt: d.checkOut }] : []), now) });
 
 export async function GET(request: NextRequest) {
@@ -40,22 +22,26 @@ export async function GET(request: NextRequest) {
 
   if (user.role === "student") {
     if (!user.libraryId) return NextResponse.json({ linked: false });
+    const off = await guardMember(user, "attendance");
+    if (off) return off;
     await closeStaleSessions({ userId: user._id, libraryId: user.libraryId }, now);
+    const tz = await libraryTimeZone(user.libraryId);
     const [library, membership, days] = await Promise.all([
       Library.findById(user.libraryId).select("name punchPolicy geofence").lean<{ name: string; punchPolicy?: string; geofence?: Fence }>(),
       activeMembership(user._id, user.libraryId, now),
-      Attendance.find({ userId: user._id, libraryId: user.libraryId, day: { $gte: dayKey(new Date(now.getTime() - 14 * 86400000)) } }).sort({ day: -1 }).lean<Day[]>(),
+      Attendance.find({ userId: user._id, libraryId: user.libraryId, day: { $gte: dayKey(new Date(now.getTime() - 14 * 86400000), tz) } }).sort({ day: -1 }).lean<Day[]>(),
     ]);
     const rows = days.map((d) => shape(d, now));
     const open = days.flatMap((d) => d.sessions ?? []).find((s) => !s.outAt);
-    const week = rows.filter((r) => r.day >= dayKey(new Date(now.getTime() - 6 * 86400000))).reduce((s, r) => s + r.minutes, 0);
-    return NextResponse.json({ linked: true, library: library?.name, policy: library?.punchPolicy ?? "app", geo: hasFence(library?.geofence) ? { radiusM: PUNCH_RADIUS_M } : null, membershipActive: !!membership, membershipEnds: membership?.end ?? null, inside: !!open, since: open?.inAt ?? null, today: rows.find((r) => r.day === dayKey(now)) ?? { day: dayKey(now), sessions: [], minutes: 0 }, history: rows, weekMinutes: week, serverNow: now });
+    const week = rows.filter((r) => r.day >= dayKey(new Date(now.getTime() - 6 * 86400000), tz)).reduce((s, r) => s + r.minutes, 0);
+    return NextResponse.json({ linked: true, library: library?.name, policy: library?.punchPolicy ?? "app", geo: hasFence(library?.geofence) ? { radiusM: PUNCH_RADIUS_M } : null, membershipActive: !!membership, membershipEnds: membership?.end ?? null, inside: !!open, since: open?.inAt ?? null, today: rows.find((r) => r.day === dayKey(now, tz)) ?? { day: dayKey(now, tz), sessions: [], minutes: 0 }, history: rows, weekMinutes: week, serverNow: now });
   }
 
   // Library team: who is inside now and the log for a day.
-  if (!(await team(user))) return err("Library team access required", 403);
+  const denied = await guardTeam(user, "attendance", "attendance.view");
+  if (denied) return denied;
   const libraryId = user.libraryId!;
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get("day") ?? "") ? params.get("day")! : dayKey(now);
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get("day") ?? "") ? params.get("day")! : dayKey(now, await libraryTimeZone(libraryId));
   await closeStaleSessions({ libraryId }, now);
   const [records, openDocs] = await Promise.all([
     Attendance.find({ libraryId, day }).lean<Day[]>(),
@@ -86,7 +72,8 @@ export async function POST(request: NextRequest) {
     const now = new Date();
 
     if (body.action === "manual-out") {
-      if (!(await team(user))) return err("Library team access required", 403);
+      const denied = await guardTeam(user, "attendance", "attendance.mark");
+      if (denied) return denied;
       const target = body.data.userId;
       if (!target || !(await User.exists({ _id: target, libraryId: user.libraryId, role: "student" }))) throw new Error("Student not found");
       const r = await punchOut({ libraryId: user.libraryId, userId: target, now });
@@ -99,23 +86,13 @@ export async function POST(request: NextRequest) {
 
     if (user.role !== "student") return err("Student access required", 403);
     if (!user.libraryId) throw new Error("Join a library first: enter your Library ID.");
-    await assertWritable(user.libraryId);
+    await assertMember(user, "attendance");
     if (body.action === "in") {
-      if (!(await activeMembership(user._id, user.libraryId, now))) throw new Error("Your library has not activated your membership yet. Once they verify you and allot a seat, you can punch in.");
-      const library = await Library.findById(user.libraryId).select("punchPolicy geofence").lean<{ punchPolicy?: string; geofence?: Fence }>();
-      assertInside(library?.geofence, body.data);
-      let method: "app" | "qr" = "app";
-      if (library?.punchPolicy === "qr") {
-        // This library requires proof of presence: the signed code shown at the desk must be scanned.
-        if (!body.data.token) throw new Error("This library asks you to scan the QR code at the desk to punch in.");
-        const { payload } = await jwtVerify(body.data.token, secret(), { algorithms: ["HS256"] }).catch(() => { throw new Error("That QR code has expired or is invalid. Scan the current code at the desk."); });
-        if (payload.purpose !== "attendance" || payload.libraryId !== String(user.libraryId)) throw new Error("This QR code is not for your library.");
-        method = "qr";
-      }
-      const r = await punchIn({ libraryId: user.libraryId, userId: user._id, method, now });
-      if (!r.ok) throw new Error("You are already punched in. Punch out when you leave.");
+      const r = await studentPunchIn(user, body.data, now);
+      if (r.alreadyIn) throw new Error("You are already punched in. Punch out when you leave.");
       return NextResponse.json({ ok: true, at: now });
     }
+    await assertWritable(user.libraryId);
     const lib = await Library.findById(user.libraryId).select("geofence").lean<{ geofence?: Fence }>();
     assertInside(lib?.geofence, body.data);
     const r = await punchOut({ libraryId: user.libraryId, userId: user._id, now });
@@ -123,7 +100,10 @@ export async function POST(request: NextRequest) {
     const session = (r.record.sessions as Session[]).filter((s) => s.outAt && new Date(s.outAt).getTime() === now.getTime())[0];
     return NextResponse.json({ ok: true, at: now, minutes: session ? sessionMinutes([session]) : 0 });
   } catch (error) {
+    reportUnexpected(error, "/api/punch");
     if (error instanceof PlanError) return err(error.message, 402, error.code);
+    const accessDenied = accessResponse(error);
+    if (accessDenied) return accessDenied;
     return err(error instanceof z.ZodError ? "Check your entries" : error instanceof Error ? error.message : "Unable to record", error instanceof z.ZodError ? 422 : 400);
   }
 }

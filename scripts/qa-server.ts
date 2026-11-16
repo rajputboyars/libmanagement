@@ -15,7 +15,12 @@ async function main() {
   for (let i = 0; i < 60; i++) { try { if ((await fetch(base)).ok) break; } catch {} await new Promise((r) => setTimeout(r, 500)); }
   await mongoose.connect(replica.getUri());
   const { User, SyllabusNode, StudentExam, Library } = await import("../src/lib/models");
-  const reg = async (email: string, role: string, library?: string) => { const r = await fetch(base + "/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ name: "Demo Person", email, password: PASSWORD, role, library }) }); return r.headers.get("set-cookie")!.split(";")[0].split("=")[1]; };
+  const reg = async (email: string, role: string, library?: string) => { const r = await fetch(base + "/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ acceptTerms: true, name: "Demo Person", email, password: PASSWORD, role, library }) }); const set = r.headers.get("set-cookie");
+    if (set) return set.split(";")[0].split("=")[1];
+    // Owners get no session until they enrol (R9). Seeding needs one, so enrol-by-flag for seeding only; the owner is reset to unenrolled below.
+    const row = await mongoose.model("User").findOneAndUpdate({ email }, { $set: { twoFactorEnabled: true } }, { new: true });
+    return new SignJWT({ sv: row!.sessionVersion ?? 0 }).setProtectedHeader({ alg: "HS256" }).setSubject(String(row!._id)).setIssuedAt().setExpirationTime("3h").sign(new TextEncoder().encode(secret));
+  };
   const owner = await reg("owner@qa.in", "owner", "QA Library");
   const student = await reg("student@qa.in", "student");
   const post = (cookie: string, path: string, action: string, data: unknown) => fetch(base + path, { method: "POST", headers: { cookie: `sq-session=${cookie}`, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action, data }) });
@@ -32,11 +37,14 @@ async function main() {
   await SyllabusNode.create({ examKey: "ssc", type: "topic", title: "Percentages", parentId: chapter._id, order: 1 });
   await StudentExam.create({ userId: sub!._id, examKey: "ssc", examDate: new Date(Date.now() + 80 * 86400000) });
   const admin = await User.create({ name: "Admin", email: "admin@qa.in", passwordHash: await bcrypt.hash(PASSWORD, 10), role: "super-admin" });
+  // QA starts with an UNENROLLED owner and platform admin: they must go through the mandatory setup.
+  await User.updateMany({ email: { $in: ["owner@qa.in", "admin@qa.in"] } }, { $set: { twoFactorEnabled: false }, $inc: { sessionVersion: 1 } });
   const token = await new SignJWT({ sv: 0 }).setProtectedHeader({ alg: "HS256" }).setSubject(String(admin._id)).setIssuedAt().setExpirationTime("3h").sign(new TextEncoder().encode(secret));
   console.log(`Local QA server: ${base}
   owner   owner@qa.in   / ${PASSWORD}
   student student@qa.in / ${PASSWORD}
-  admin   admin@qa.in   / ${PASSWORD}`);
+  admin   admin@qa.in   / ${PASSWORD}
+  MONGODB_URI=${replica.getUri()}`);
   console.log("READY", JSON.stringify({ owner, student, admin: token }));
   await new Promise(() => {});
 }

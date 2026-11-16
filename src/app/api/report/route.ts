@@ -1,6 +1,9 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { guardMember } from "@/lib/access";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
+import { clientIp, ipLimit } from "@/lib/security";
 import { db } from "@/lib/db";
 import { studentFeatureBlocked } from "@/lib/student-access-server";
 import { ReportShare } from "@/lib/models";
@@ -13,8 +16,8 @@ export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("token");
   if (token !== null) {
     if (!/^[A-Za-z0-9_-]{20,40}$/.test(token)) return err("This report link is not valid", 404);
-    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-    if (limited(`report-view:${ip}`, 60)) return err("Please slow down", 429);
+    const ip = clientIp(request);
+    if (limited(`report-view:${ip}`, ipLimit(ip, 60))) return err("Please slow down", 429);
     await db(); // the public link has no session lookup, so connect explicitly
     const share = await ReportShare.findOne({ token, expiresAt: { $gt: new Date() } }).select("report expiresAt").lean<{ report: unknown; expiresAt: Date }>();
     if (!share) return err("This report link has expired or does not exist", 404);
@@ -23,6 +26,7 @@ export async function GET(request: NextRequest) {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Weekly reports are for students", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   const blocked = await studentFeatureBlocked(user, "weekly-report");
   if (blocked) return blocked;
   return NextResponse.json({ report: await buildWeeklyReport(user._id) });
@@ -33,6 +37,7 @@ export async function POST(request: NextRequest) {
   const user = await currentUser();
   if (!user) return err("Sign in required", 401);
   if (user.role !== "student") return err("Weekly reports are for students", 403);
+  { const off = await guardMember(user, "learning"); if (off) return off; }
   if (limited(`report-share:${user._id}`, 10)) return err("Please slow down", 429);
   const blocked = await studentFeatureBlocked(user, "weekly-report");
   if (blocked) return blocked;
@@ -46,6 +51,7 @@ export async function POST(request: NextRequest) {
     const { token } = await shareWeeklyReport(user._id);
     return NextResponse.json({ token, path: `/r/${token}` });
   } catch (e) {
+    reportUnexpected(e, "/api/report");
     return err(e instanceof Error ? e.message : "Could not create the link");
   }
 }

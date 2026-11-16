@@ -1,3 +1,4 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { currentUser, limited, validOrigin } from "@/lib/auth";
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json({ ok: true });
   } catch (e) {
+    reportUnexpected(e, "/api/push");
     if (e instanceof z.ZodError) return err("That subscription is not valid");
     return err(e instanceof Error ? e.message : "Could not save");
   }

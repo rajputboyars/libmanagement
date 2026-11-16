@@ -15,3 +15,5 @@ artifacts/lighthouse/
 artifacts/a11y/
 artifacts/a11y2/
 backups/
+
+pilot-evidence.json

@@ -1,11 +1,17 @@
 "use client";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { OwnerSeatChanges, StudentSeatChange } from "@/components/seat-change";
 import { FocusTools, Insights, ReportSwitch, StudyPartnerPage, SubjectInput, SyllabusTracker, TodayCards } from "@/components/self-study";
 import { focusQuality } from "@/lib/self-study";
+import { getPosition } from "@/components/join";
+import { SeatMap } from "@/components/seat-map";
+import { AccessNotice, filterNav, navBlocked } from "@/components/access";
+import { OwnerModules, OwnerTeam } from "@/components/team-modules";
+import { PlatformModules } from "@/components/platform-modules";
+import { getJson } from "@/components/prep-api";
+import { OwnerFees } from "@/components/fees";
 import { PushToggle } from "@/components/push-toggle";
 import { Leaderboard } from "@/components/leaderboard";
 import { LibraryNotes, OwnerSharedNotes } from "@/components/shared-notes";
@@ -54,11 +60,7 @@ import {
   Check,
   Play,
   Pause,
-  Menu,
   X,
-  Sun,
-  Moon,
-  LogOut,
   ShieldCheck,
   Leaf,
   CalendarDays,
@@ -76,7 +78,18 @@ import {
   Target,
   ListChecks,
 } from "lucide-react";
+import { ClipboardCheck, Hourglass, IndianRupee, Radio, UserCog, UserPlus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { OwnerDashboard } from "@/components/v2/owner-dashboard";
+import { OwnerPayments, OwnerStudents } from "@/components/v2/owner-lists";
+import { AttendanceBoard, OwnerComplaints, OwnerExpenses, OwnerMemberships, OwnerPlans, OwnerShifts } from "@/components/v2/owner-ops";
+import { OwnerSettings } from "@/components/v2/owner-settings";
+import { StatCard } from "@/components/v2/primitives";
+import { Btn, PageHead } from "@/components/v2/primitives";
+import { CanProvider } from "@/components/v2/can";
+import { AdminOverview } from "@/components/v2/admin-screens";
+import { StudentCheckIn, StudentDashboard, StudentMembership, StudentNotifications, StudentProfile } from "@/components/v2/student-screens";
+import { AdminShell, OwnerShell, StudentShell } from "@/components/v2/shell";
 import {
   FOCUS_LENGTHS,
   breakMinutes,
@@ -202,7 +215,7 @@ const studentNav: [string, string, LucideIcon][] = [
   ["/app/rewards", "Rewards", Gift],
   ["/app/library-requests", "Library requests", Building2],
   ["/app/join", "Join a library", Building2],
-  ["/app/punch", "Punch in / out", Clock3],
+  ["/app/punch", "Check in", Clock3],
   ["/app/prep", "Exam prep", Target],
   ["/app/planner", "Study planner", CalendarDays],
   ["/app/tracker", "Syllabus tracker", CheckCircle2],
@@ -228,20 +241,21 @@ const studentNav: [string, string, LucideIcon][] = [
 const ownerNav: [string, string, LucideIcon][] = [
   ["/owner", "Overview", LayoutDashboard],
   ["/owner/students", "Students", Users],
-  ["/owner/seats", "Seat map", Armchair],
+  ["/owner/seats", "Seats", Armchair],
   ["/owner/shifts", "Shifts", Clock3],
-  ["/owner/plans", "Fee plans", CreditCard],
+  ["/owner/plans", "Plans", CreditCard],
   ["/owner/memberships", "Memberships", BookOpen],
-  ["/owner/payments", "Payments", Wallet],
-  ["/owner/attendance", "Attendance", CheckCircle2],
+  ["/owner/fees", "Fees", Wallet],
+  ["/owner/payments", "Payments", IndianRupee],
+  ["/owner/attendance", "Attendance", ClipboardCheck],
   ["/owner/expenses", "Expenses", Receipt],
   ["/owner/reports", "Reports", ChartNoAxesCombined],
   ["/owner/complaints", "Complaints", MessageSquare],
   ["/owner/rewards", "Rewards", Trophy],
   ["/owner/discovery", "Public listing", Building2],
-  ["/owner/join-requests", "Join requests", Users],
-  ["/owner/presence", "Live presence", CheckCircle2],
-  ["/owner/waitlist", "Waitlist", Users],
+  ["/owner/join-requests", "Join requests", UserPlus],
+  ["/owner/presence", "Live presence", Radio],
+  ["/owner/waitlist", "Waitlist", Hourglass],
   ["/owner/crm", "Admissions", Users],
   ["/owner/branches", "Branches", Building2],
   ["/owner/billing", "Billing", CreditCard],
@@ -252,13 +266,14 @@ const ownerNav: [string, string, LucideIcon][] = [
   ["/owner/events", "Events", CalendarDays],
   ["/owner/maintenance", "Maintenance", Wrench],
   ["/owner/moderation", "Community safety", ShieldCheck],
+  ["/owner/team", "Team", UserCog],
+  ["/owner/modules", "Modules", ListChecks],
   ["/owner/security", "Account & privacy", ShieldCheck],
   ["/owner/settings", "Settings", Settings],
 ];
 export function Experience({ path }: { path: string }) {
   const router = useRouter();
   const { dark, toggle } = useUI();
-  const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState("");
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery<Data>({
@@ -322,23 +337,33 @@ export function Experience({ path }: { path: string }) {
     await queryClient.invalidateQueries({ queryKey: ["workspace"] });
     return result;
   }
-  const nav = owner
+  // What this person may open: library modules (on/off) and, for staff, their role. The server enforces the same rules on every request.
+  const accessQ = useQuery<Record<string, unknown>>({
+    queryKey: ["workspace", "access"],
+    queryFn: () => getJson("/api/access"),
+    enabled: role === "owner" || role === "staff" || role === "student",
+    staleTime: 20000,
+  });
+  const rawNav = owner
     ? ownerNav
     : admin
       ? ([
           ["/super-admin", "Overview", LayoutDashboard],
-          ["/super-admin/libraries", "Libraries", Building2],
+          ["/super-admin/libraries", "Organizations", Building2],
           ["/super-admin/subscriptions", "Subscriptions", CreditCard],
-          ["/super-admin/analytics", "Analytics", ChartNoAxesCombined],
+          ["/super-admin/analytics", "Product analytics", ChartNoAxesCombined],
           ["/super-admin/business", "Business", ChartNoAxesCombined],
           ["/super-admin/syllabus", "Syllabus", BookOpen],
           ["/super-admin/question-bank", "Question bank", ListChecks],
           ["/super-admin/features", "Feature access", ShieldCheck],
+          ["/super-admin/modules", "Module availability", ListChecks],
           ["/super-admin/student-features", "Student features", Users],
           ["/super-admin/accounts", "Accounts", Users],
-          ["/super-admin/plans", "Plans", CreditCard],
+          ["/super-admin/plans", "Plans & pricing", CreditCard],
         ] as typeof ownerNav)
       : studentNav;
+  const nav = admin ? rawNav : filterNav(rawNav, accessQ.data, role);
+  const pathBlocked = admin ? null : navBlocked(path, accessQ.data, role);
   const allowed =
     preview ||
     (!owner && !admin && d.user?.role === "student") ||
@@ -354,6 +379,15 @@ export function Experience({ path }: { path: string }) {
     ? "/owner/notifications"
     : "/app/notifications";
   const unread = d.notifications.some((n) => !n.read);
+  // Permission check for owner/staff screens (the server enforces the same rules on every request).
+  const canOwner = (permission: string) => preview || !accessQ.data || accessQ.data.kind === "owner" || ((accessQ.data.permissions as string[]) ?? []).includes(permission);
+  const Shell = owner ? OwnerShell : admin ? AdminShell : StudentShell;
+  const signOut = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    await clearClientCaches();
+    router.push("/login");
+    router.refresh();
+  };
   if (path === "/login" || path === "/register")
     return <Auth register={path === "/register"} />;
   if (path === "/discover") return <LibraryDiscovery />;
@@ -426,8 +460,8 @@ export function Experience({ path }: { path: string }) {
   ].includes(path);
   const importPath = path === "/owner/import";
   const securityPath = path === "/app/security" || path === "/owner/security";
-  const saasAdminPath = path === "/super-admin/business" || path === "/super-admin/plans";
-  const platformPath = ["/super-admin/features", "/super-admin/student-features", "/super-admin/accounts"].includes(path);
+  const saasAdminPath = ["/super-admin/business", "/super-admin/plans", "/super-admin/libraries", "/super-admin/subscriptions", "/super-admin/analytics"].includes(path);
+  const platformPath = ["/super-admin/features", "/super-admin/student-features", "/super-admin/accounts", "/super-admin/modules"].includes(path);
   const prepPath = path === "/app/prep";
   const reportPath = path === "/app/report";
   const leaderboardPath = path === "/app/leaderboard";
@@ -458,186 +492,60 @@ export function Experience({ path }: { path: string }) {
     "/super-admin/syllabus",
   ].includes(path);
   return (
-    <div className="workspace">
-      <aside className={`sidebar ${menu ? "open" : ""}`}>
-        <Link className="brand" href="/">
-          <span className="brand-mark">✳</span>StudyQuest
-          <span className="brand-dot">.</span>
-        </Link>
-        <button
-          className="mobile-close icon-btn"
-          onClick={() => setMenu(false)}
-          aria-label="Close navigation"
-        >
-          <X />
-        </button>
-        <Link
-          className="workspace-switch"
-          href={profileHref}
-          onClick={() => setMenu(false)}
-          aria-label={owner ? "Open library profile" : "Open my profile"}
-        >
-          <span className="workspace-icon">{owner ? "L" : "S"}</span>
-          <div>
-            <strong>
-              {owner
-                ? "Library workspace"
-                : admin
-                  ? "Platform administration"
-                  : "My study space"}
-            </strong>
-            <small>
-              {owner
-                ? "Build a thriving community"
-                : "A little better, every day"}
-            </small>
-          </div>
-          <ChevronRight size={15} />
-        </Link>
-        {owner && !preview && <BranchSwitcher />}
-        {owner && !preview && String(d.user?.role) === "owner" && (
-          <LibraryIdChip notify={setToast} />
-        )}
-        <div className="nav-label">{owner ? "WORKSPACE" : "YOUR JOURNEY"}</div>
-        <nav>
-          {nav.map(([href, label, Icon]) => (
-            <Link
-              key={href}
-              className={path === href ? "nav-item active" : "nav-item"}
-              href={href}
-              onClick={() => setMenu(false)}
-            >
-              <Icon size={19} />
-              {label}
-              {label === "My quests" && <span className="nav-count">✦</span>}
-              {lockedPaths.has(href) && (
-                <span className="nav-lock" title="Premium: clear your fees to unlock" aria-label="locked">
-                  🔒
-                </span>
+    <>
+      <Shell
+        path={path}
+        nav={nav}
+        lockedPaths={lockedPaths}
+        title={title}
+        workspaceName={
+          owner
+            ? "Library workspace"
+            : admin
+              ? "Platform administration"
+              : "My study space"
+        }
+        workspaceSub={
+          owner ? "Build a thriving community" : "A little better, every day"
+        }
+        profileHref={profileHref}
+        notificationsHref={admin ? undefined : notificationsHref}
+        unread={unread}
+        dark={dark}
+        onToggleTheme={toggle}
+        userName={preview ? "Alex Morgan" : String(d.user?.name ?? "")}
+        userSub={preview ? "Preview account" : String(d.user?.role ?? "")}
+        onSignOut={signOut}
+        extra={
+          owner && !preview ? (
+            <>
+              <BranchSwitcher />
+              {String(d.user?.role) === "owner" && (
+                <LibraryIdChip notify={setToast} />
               )}
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          {owner ? (
+            </>
+          ) : undefined
+        }
+        promo={
+          admin ? undefined : (
             <div className="grow-card">
               <Leaf size={23} />
-              <strong>Fill every seat.</strong>
-              <p>Share your Library ID so students can join and punch in.</p>
-              <Link href="/owner/join-requests" onClick={() => setMenu(false)}>
-                Invite students <ArrowUpRight size={15} />
+              <strong>{owner ? "Fill every seat." : "Small steps. Big things."}</strong>
+              <p>
+                {owner
+                  ? "Share your Library ID so students can join and punch in."
+                  : "Your next chapter starts with today’s focus."}
+              </p>
+              <Link href={owner ? "/owner/join-requests" : "/app/focus"}>
+                {owner ? "Invite students" : "Find your focus"}{" "}
+                <ArrowUpRight size={15} />
               </Link>
             </div>
-          ) : (
-            !admin && (
-              <div className="grow-card">
-                <Leaf size={23} />
-                <strong>Small steps. Big things.</strong>
-                <p>Your next chapter starts with today’s focus.</p>
-                <Link href="/app/focus" onClick={() => setMenu(false)}>
-                  Find your focus <ArrowUpRight size={15} />
-                </Link>
-              </div>
-            )
-          )}
-          {!admin && (
-            <Link
-              className="nav-item"
-              href={profileHref}
-              onClick={() => setMenu(false)}
-            >
-              <Settings size={19} />
-              Settings
-            </Link>
-          )}
-          <Link
-            className="nav-item"
-            href={
-              owner
-                ? "/guide?for=owner"
-                : admin
-                  ? "/features"
-                  : "/guide?for=student"
-            }
-          >
-            <HelpCircle size={19} />
-            Help & resources
-          </Link>
-          <div className="profile-row">
-            <span className="avatar">
-              {preview ? "A" : String(d.user?.name || "S").slice(0, 1)}
-            </span>
-            <div>
-              <strong>{preview ? "Alex Morgan" : String(d.user?.name)}</strong>
-              <small>
-                {preview ? "Preview account" : String(d.user?.role)}
-              </small>
-            </div>
-            <button
-              className="icon-btn"
-              aria-label="Sign out"
-              onClick={async () => {
-                await fetch("/api/auth/logout", { method: "POST" });
-                await clearClientCaches();
-                router.push("/login");
-                router.refresh();
-              }}
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-        </div>
-      </aside>
-      <div className="main-wrap">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <button
-              className="icon-btn menu-toggle"
-              onClick={() => setMenu(true)}
-              aria-label="Open navigation"
-            >
-              <Menu />
-            </button>
-            <span>{owner ? "Workspace" : "My study space"}</span>
-            <ChevronRight size={14} />
-            <strong>{title}</strong>
-          </div>
-          <div className="top-actions">
-            <span className="today">
-              <CalendarDays size={15} />
-              {new Date().toLocaleDateString("en-IN", {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              })}
-            </span>
-            <button
-              className="icon-btn"
-              aria-label="Toggle color theme"
-              onClick={toggle}
-            >
-              {dark ? <Sun size={19} /> : <Moon size={19} />}
-            </button>
-            {!admin && (
-              <Link
-                className="icon-btn bell"
-                aria-label={unread ? "Notifications (unread)" : "Notifications"}
-                href={notificationsHref}
-              >
-                <Bell size={20} />
-                {unread && <i />}
-              </Link>
-            )}
-            <Link
-              className="avatar small"
-              href={profileHref}
-              aria-label={owner ? "Open library profile" : "Open my profile"}
-            >
-              {preview ? "A" : String(d.user?.name || "S")[0]}
-            </Link>
-          </div>
-        </header>
-        <main className="main-content">
+          )
+        }
+      >
+        <CanProvider value={canOwner}>
+        <main className={app ? "main-content sq-v2-legacy" : "main-content"}>
           {owner && !preview && <RememberLibraryName />}
           {owner && !preview && path !== "/owner/onboarding" && <PlanBanner />}
           {!owner &&
@@ -671,6 +579,8 @@ export function Experience({ path }: { path: string }) {
             </div>
           ) : isLoading ? (
             <BrandLoader compact text="Loading your workspace…" />
+          ) : pathBlocked ? (
+            <AccessNotice blocked={pathBlocked} home={owner ? "/owner" : "/app"} />
           ) : lockedFeature ? (
             <div className="premium-lock">
               <span className="premium-lock-icon" aria-hidden="true">🔒</span>
@@ -725,6 +635,8 @@ export function Experience({ path }: { path: string }) {
           ) : platformPath ? (
             path === "/super-admin/features" ? (
               <PlatformFeatures notify={setToast} />
+            ) : path === "/super-admin/modules" ? (
+              <PlatformModules notify={setToast} />
             ) : path === "/super-admin/student-features" ? (
               <PlatformStudentRules notify={setToast} />
             ) : (
@@ -734,7 +646,7 @@ export function Experience({ path }: { path: string }) {
             <SaasAdmin
               key={path}
               notify={setToast}
-              initialTab={path === "/super-admin/plans" ? "plans" : "overview"}
+              initialTab={({ "/super-admin/plans": "plans", "/super-admin/libraries": "orgs", "/super-admin/subscriptions": "subscriptions", "/super-admin/analytics": "product" } as Record<string, "plans" | "orgs" | "subscriptions" | "product">)[path] ?? "overview"}
             />
           ) : saasOwnerPath ? (
             preview ? (
@@ -875,6 +787,7 @@ export function Experience({ path }: { path: string }) {
             />
           )}
         </main>
+        </CanProvider>
         <footer className="app-footer">
           <span>Made for a little more focus, and a lot more you.</span>
           <span>
@@ -882,29 +795,7 @@ export function Experience({ path }: { path: string }) {
             {preview ? "Preview mode" : "Your personal study space"}
           </span>
         </footer>
-      </div>
-      <nav className="bottom-nav">
-        {nav.slice(0, 4).map(([href, label, Icon]) => (
-          <Link
-            key={href}
-            href={href}
-            className={path === href ? "active" : ""}
-          >
-            <Icon size={21} />
-            <span>{label}</span>
-          </Link>
-        ))}
-        <button
-          type="button"
-          className={menu ? "active" : ""}
-          onClick={() => setMenu(true)}
-          aria-label="Open full menu"
-          aria-expanded={menu}
-        >
-          <Menu size={21} />
-          <span>More</span>
-        </button>
-      </nav>
+      </Shell>
       {toast && (
         <div role="status" className="toast">
           <CheckCircle2 size={18} />
@@ -918,7 +809,7 @@ export function Experience({ path }: { path: string }) {
           </button>
         </div>
       )}
-    </div>
+    </>
   );
 }
 type Props = {
@@ -930,6 +821,7 @@ type Props = {
 };
 function Student({ path, data: d, preview, mutate, notify }: Props) {
   const [complaintOpen, setComplaintOpen] = useState(false);
+  const studentAccess = useQuery<Record<string, unknown>>({ queryKey: ["workspace", "access"], queryFn: () => getJson("/api/access"), staleTime: 20000, enabled: !preview });
   const xp = preview ? 1240 : d.summary?.xp || 0;
   const lv = level(xp);
   const [goal, setGoal] = useState(Number(d.profile?.goalMinutes) || 120);
@@ -1063,95 +955,68 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
       )}
     </div>
   );
+  const concernModal = complaintOpen && (
+    <RecordModal
+      title="Share a concern"
+      fields={[
+        { name: "title", label: "Subject" },
+        { name: "message", label: "What can your library help with?" },
+      ]}
+      onClose={() => setComplaintOpen(false)}
+      onSubmit={async (values) => {
+        await mutate("complaints", values);
+        notify("Your concern has been shared with your library.");
+        setComplaintOpen(false);
+      }}
+    />
+  );
   if (path === "/app/check-in")
     return (
-      <>
-        {greeting}
-        <section className="card focus-room">
-          <span className="icon-tile mint">
-            <CheckCircle2 />
-          </span>
-          <h2>Make yourself at home.</h2>
-          <p>Check in to your library using this time-limited code.</p>
-          <button
-            className="button"
-            onClick={async () => {
-              try {
-                const token = new URLSearchParams(window.location.search).get(
-                  "token",
-                );
-                await mutate("check-in", { token });
-                notify("You’re checked in. Have a great study session.");
-              } catch (e) {
-                notify((e as Error).message);
-              }
-            }}
-          >
-            Confirm my check-in
-          </button>
-        </section>
-      </>
+      <StudentCheckIn
+        onConfirm={async () => {
+          const token = new URLSearchParams(window.location.search).get("token");
+          // Location is only asked for when the library has set one; the server enforces it either way.
+          const info = await fetch("/api/punch").then((r) => r.json()).catch(() => null);
+          const here = info?.geo ? await getPosition() : {};
+          await mutate("check-in", { token, ...here });
+          notify("You’re checked in. Have a great study session.");
+        }}
+      />
     );
   if (path === "/app/profile")
     return (
       <>
-        {greeting}
-        <section className="card form-card">
-          <h2>Your study preferences</h2>
-          <label>
-            Exam / preparation category
-            <input value={exam} onChange={(e) => setExam(e.target.value)} />
-          </label>
-          <label>
-            Daily focus goal (minutes)
-            <input
-              type="number"
-              min="25"
-              max="480"
-              value={goal}
-              onChange={(e) => setGoal(+e.target.value)}
-            />
-          </label>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={anonymous}
-              onChange={(e) => setAnonymous(e.target.checked)}
-            />
-            Keep my profile private on leaderboards
-          </label>
-          <button
-            className="button"
-            onClick={async () => {
+        <StudentProfile
+          d={d}
+          access={studentAccess.data}
+          onConcern={() => setComplaintOpen(true)}
+          push={!preview ? <PushToggle notify={notify} /> : undefined}
+          form={{
+            exam,
+            setExam,
+            goal,
+            setGoal,
+            anonymous,
+            setAnonymous,
+            onSave: async () => {
               try {
                 await mutate("profile", { exam, goalMinutes: goal, anonymous });
                 notify("Preferences saved");
               } catch (e) {
                 notify((e as Error).message);
               }
-            }}
-          >
-            Save preferences
-          </button>
-          <p className="muted">
-            Rest days preserve your momentum. No public leaderboard is enabled.
-          </p>
-          <button
-            className="button secondary"
-            onClick={async () => {
+            },
+            onRest: async () => {
               try {
                 await mutate("rest-day");
                 notify("Rest day saved. Your streak is protected.");
               } catch (e) {
                 notify((e as Error).message);
               }
-            }}
-          >
-            <Leaf size={17} />
-            Take a rest day
-          </button>
-        </section>
-        {!preview && <PushToggle notify={notify} />}
+            },
+          }}
+        />
+        {concernModal}
       </>
     );
   if (path === "/app/focus")
@@ -1171,124 +1036,35 @@ function Student({ path, data: d, preview, mutate, notify }: Props) {
         </div>
       </>
     );
-  if (path === "/app/notifications")
-    return (
-      <>
-        {greeting}
-        <section className="card">
-          {d.notifications.length ? (
-            d.notifications.map((n) => (
-              <div className="list-row" key={String(n._id)}>
-                <Bell />
-                <div>
-                  <strong>{n.title}</strong>
-                  <p>{n.message}</p>
-                </div>
-              </div>
-            ))
-          ) : (
-            <Empty
-              icon={Bell}
-              title="A quiet moment"
-              text="Library announcements and personal updates will appear here."
-            />
-          )}
-        </section>
-      </>
-    );
+  if (path === "/app/notifications") return <StudentNotifications d={d} />;
   if (path === "/app/membership")
     return (
       <>
-        {greeting}
-        <section className="card">
-          {d.memberships.length ? (
-            d.memberships.map((m) => (
-              <div className="membership-detail" key={String(m._id)}>
-                <BookOpen />
-                <h2>Your membership</h2>
-                <p>
-                  Valid until {new Date(String(m.end)).toLocaleDateString()}
-                </p>
-                <span className="pill">{m.status}</span>
-                <p>
-                  Seat{" "}
-                  {String(
-                    d.seats.find(
-                      (s) =>
-                        String(s._id) ===
-                        String(
-                          d.assignments?.find(
-                            (a) => String(a.membershipId) === String(m._id),
-                          )?.seatId,
-                        ),
-                    )?.label || "—",
-                  )}
-                </p>
-                <h3>
-                  Balance due:{" "}
-                  {money(
-                    Number(m.amount) - Number(m.discount) - Number(m.paid),
-                  )}
-                </h3>
-                <p>
-                  Contact your library to renew or record a cash / UPI payment.
-                </p>
-              </div>
-            ))
-          ) : (
-            <Empty
-              icon={BookOpen}
-              title="Your next favourite study spot"
-              text="Already a library member? Ask the owner to connect your registered email. Standalone study mode is always available."
-            />
-          )}
-        </section>
-        {!preview && <LibraryTimings library={d.library} />}
-        {!preview && d.user?.libraryId && d.memberships.length > 0 && (
-          <StudentSeatChange seats={d.seats} shifts={d.shifts} notify={notify} />
-        )}
-        {d.user?.libraryId && (
-          <section className="card" style={{ marginTop: 20 }}>
-            <div className="section-heading">
-              <h2>Your library, your voice.</h2>
-              <button
-                className="button secondary"
-                onClick={() => setComplaintOpen(true)}
-              >
-                Raise a concern
-              </button>
-            </div>
-            {d.payments.map((p) => (
-              <Link
-                key={String(p._id)}
-                className="list-row"
-                href={`/api/receipts/${p._id}`}
-                target="_blank"
-              >
-                <Receipt size={18} />
-                <strong>{p.receipt}</strong>
-                <span>{money(Number(p.amount))}</span>
-                <ArrowUpRight size={16} />
-              </Link>
-            ))}
-          </section>
-        )}
-        {complaintOpen && (
-          <RecordModal
-            title="Share a concern"
-            fields={[
-              { name: "title", label: "Subject" },
-              { name: "message", label: "What can your library help with?" },
-            ]}
-            onClose={() => setComplaintOpen(false)}
-            onSubmit={async (values) => {
-              await mutate("complaints", values);
-              notify("Your concern has been shared with your library.");
-              setComplaintOpen(false);
-            }}
-          />
-        )}
+        <StudentMembership
+          d={d}
+          preview={preview}
+          onConcern={() => setComplaintOpen(true)}
+          slots={{
+            timings: !preview ? <LibraryTimings library={d.library} /> : undefined,
+            seatChange: !preview && d.user?.libraryId && d.memberships.length > 0 ? <StudentSeatChange seats={d.seats} shifts={d.shifts} notify={notify} /> : undefined,
+          }}
+        />
+        {concernModal}
       </>
+    );
+  if (path === "/app" && !preview)
+    return (
+      <StudentDashboard
+        d={d}
+        access={studentAccess.data}
+        study={
+          <>
+            <LibraryToday library={d.library} />
+            <ExamCountdown exam={d.exam} />
+            <TodayCards notify={notify} />
+          </>
+        }
+      />
     );
   return (
     <>
@@ -1635,109 +1411,58 @@ function OwnerReports({ data: d }: { data: Data }) {
   const seats = d.summary?.seats || d.seats.length;
   const list = (rows: [string, number][], empty: string) =>
     rows.length ? (
-      rows.map(([label, amount]) => (
-        <div className="list-row" key={label}>
-          <strong style={{ textTransform: "capitalize" }}>{label}</strong>
-          <span style={{ marginLeft: "auto" }}>{money(amount)}</span>
-        </div>
-      ))
+      <ul className="sq-v2-feed">
+        {rows.map(([label, amount]) => (
+          <li key={label}>
+            <span style={{ textTransform: "capitalize" }}><strong>{label}</strong></span>
+            <strong className="sq-v2-num">{money(amount)}</strong>
+          </li>
+        ))}
+      </ul>
     ) : (
-      <p className="muted">{empty}</p>
+      <p className="sq-v2-muted">{empty}</p>
     );
   return (
     <>
-      <div className="stats-grid">
-        <Stat
-          icon={Wallet}
-          color="mint"
-          label="Money in"
-          value={money(revenue)}
-          detail="All confirmed payments"
-        />
-        <Stat
-          icon={Receipt}
-          color="amber"
-          label="Money out"
-          value={money(expenses)}
-          detail="All recorded expenses"
-        />
-        <Stat
-          icon={ChartNoAxesCombined}
-          color="violet"
-          label="Net profit"
-          value={money(revenue - expenses)}
-          detail="Money in minus money out"
-        />
-        <Stat
-          icon={CreditCard}
-          color="peach"
-          label="Fees still due"
-          value={money(due)}
-          detail="Unpaid membership balance"
-        />
+      <PageHead title="Reports" sub="Money in, money out and who is studying. Charts use your latest 100 payments and expenses." />
+      <div className="sq-v2-statgrid">
+        <StatCard label="Money in" value={money(revenue)} sub="All confirmed payments" />
+        <StatCard label="Money out" value={money(expenses)} sub="All recorded expenses" />
+        <StatCard label="Net profit" value={money(revenue - expenses)} sub="Money in minus money out" tone={revenue - expenses < 0 ? "down" : "up"} />
+        <StatCard label="Fees still due" value={money(due)} sub="Unpaid membership balance" tone={due > 0 ? "down" : undefined} />
       </div>
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <h2>Last 6 months</h2>
-            <p>
-              Money in (green) and money out (orange) each month, from your
-              latest 100 payments and expenses.
-            </p>
-          </div>
-          <ChartNoAxesCombined size={20} />
-        </div>
+      <section className="sq-v2-panel" style={{ marginBottom: 14 }} aria-label="Last 6 months">
+        <h2 className="sq-v2-h2">Last 6 months</h2>
+        <p className="sq-v2-muted">Money in (green) and money out (amber) each month.</p>
         <div className="chart">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={months}>
               <XAxis dataKey="name" axisLine={false} tickLine={false} />
               <Tooltip formatter={(v) => money(Number(v) * 100)} />
-              <Bar dataKey="Revenue" fill="#438d75" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="Revenue" fill="#217a60" radius={[6, 6, 0, 0]} />
               <Bar dataKey="Expenses" fill="#d9925b" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </section>
-      <div className="dashboard-grid">
-        <section className="card">
-          <h2>Where money goes</h2>
-          <p className="muted">Expenses by category.</p>
+      <div className="sq-v2-grid2">
+        <section className="sq-v2-panel" aria-label="Where money goes">
+          <h2 className="sq-v2-h2">Where money goes</h2>
+          <p className="sq-v2-muted">Expenses by category.</p>
           {list(byCategory, "No expenses recorded yet.")}
         </section>
-        <section className="card">
-          <h2>How students pay</h2>
-          <p className="muted">Payments by method.</p>
+        <section className="sq-v2-panel" aria-label="How students pay">
+          <h2 className="sq-v2-h2">How students pay</h2>
+          <p className="sq-v2-muted">Payments by method.</p>
           {list(byMethod, "No payments recorded yet.")}
         </section>
       </div>
-      <div className="stats-grid">
-        <Stat
-          icon={Armchair}
-          color="mint"
-          label="Seats in use now"
-          value={`${seatsTaken} / ${seats}`}
-          detail={
-            seats
-              ? `${Math.round((seatsTaken / seats) * 100)}% filled`
-              : "Add seats to start"
-          }
-        />
-        <Stat
-          icon={CheckCircle2}
-          color="violet"
-          label="Visits this week"
-          value={String(visits)}
-          detail="Check-ins in the last 7 days"
-        />
+      <h2 className="sq-v2-h2" style={{ marginTop: 20 }}>Library activity</h2>
+      <div className="sq-v2-statgrid">
+        <StatCard label="Seats in use now" value={`${seatsTaken} / ${seats}`} progress={seats ? (seatsTaken / seats) * 100 : 0} sub={seats ? `${Math.round((seatsTaken / seats) * 100)}% filled` : "Add seats to start"} />
+        <StatCard label="Visits this week" value={visits} sub="Check-ins in the last 7 days" />
         {[...statusCounts].slice(0, 2).map(([status, count]) => (
-          <Stat
-            key={status}
-            icon={BookOpen}
-            color="peach"
-            label={`${status[0].toUpperCase()}${status.slice(1)} memberships`}
-            value={String(count)}
-            detail="From your latest 100"
-          />
+          <StatCard key={status} label={`${status[0].toUpperCase()}${status.slice(1)} memberships`} value={count} sub="From your latest 100" />
         ))}
       </div>
     </>
@@ -2232,23 +1957,31 @@ type Field = {
   type?: string;
   options?: { value: string; label: string }[];
   default?: string;
+  optional?: boolean;
 };
+const QR_REFRESH_MS = 60_000; // keep below the server QR lifetime (attendance-token.ts)
+// Sections that render their own v2 page header.
+const V2_SECTIONS = ["overview", "students", "payments", "seats", "fees", "memberships", "plans", "shifts", "complaints", "expenses", "attendance", "reports", "team", "modules", "settings"];
 function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const [modal, setModal] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedSeat, setSelectedSeat] = useState("");
+  const [selectedMembership, setSelectedMembership] = useState("");
   const section = path.split("/")[2] || "overview";
+  // Buttons that change things are shown only to people allowed to use them (the server checks again on every request).
+  const accessNow = useQuery<Record<string, unknown>>({ queryKey: ["workspace", "access"], queryFn: () => getJson("/api/access"), staleTime: 20000 });
+  const canDo = (permission: string) => preview || !accessNow.data || accessNow.data.kind === "owner" || ((accessNow.data.permissions as string[]) ?? []).includes(permission);
+  const CREATE: Record<string, string> = { seats: "seats.create", shifts: "seats.create", plans: "memberships.create", memberships: "memberships.create", payments: "fees.create", expenses: "expenses.create", attendance: "attendance.mark", notifications: "notifications.create", students: "students.create" };
   const title =
     ownerNav.find((n) => n[0] === path)?.[1] ||
     (section === "notifications" ? "Notifications" : "Overview");
-  const total = d.summary?.revenue || 0,
-    cost = d.summary?.expenses || 0,
-    due = d.summary?.due || 0;
   const options = (rows: Row[], key = "name") =>
     rows.map((r) => ({
       value: String(r._id),
       label: String(r[key] || r.label || r._id),
     }));
+  const studentName = (userId: unknown) => String(d.students.find((x) => String(x._id) === String(userId))?.name ?? "Student");
+  const membershipLabel = (m: Row) => `${studentName(m.userId)} · ends ${String(m.end).slice(0, 10)} · ${String(m.status)}`;
   const fields: Record<string, Field[]> = {
     students: [
       { name: "name", label: "Student name" },
@@ -2301,10 +2034,12 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
       {
         name: "membershipId",
         label: "Membership",
-        options: d.memberships.map((m) => ({
-          value: String(m._id),
-          label: `${String(m._id).slice(-6)} · Due ${money(Number(m.amount) - Number(m.paid) - Number(m.discount))}`,
-        })),
+        options: d.memberships
+          .filter((m) => m.status !== "cancelled" && Number(m.amount) - Number(m.paid) - Number(m.discount) > 0)
+          .map((m) => ({
+            value: String(m._id),
+            label: `${membershipLabel(m)} · Due ${money(Number(m.amount) - Number(m.paid) - Number(m.discount))}`,
+          })),
       },
       { name: "amount", label: "Confirmed amount (₹)", type: "number" },
       {
@@ -2359,7 +2094,16 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
     {
       name: "membershipId",
       label: "Membership to renew",
-      options: options(d.memberships, "_id"),
+      default: selectedMembership,
+      options: d.memberships
+        .filter((m) => m.status === "active" || m.status === "expired")
+        .map((m) => ({ value: String(m._id), label: membershipLabel(m) })),
+    },
+    {
+      name: "discount",
+      label: "Discount (₹) — leave empty to repeat the previous discount",
+      type: "number",
+      optional: true,
     },
     {
       name: "method",
@@ -2371,14 +2115,15 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
     },
     {
       name: "confirmation",
-      label: "Type RECEIVED to confirm full plan payment",
+      label: "Type RECEIVED to confirm you collected the plan price minus the discount",
     },
   ];
   fields["membership-status"] = [
     {
       name: "membershipId",
       label: "Membership",
-      options: options(d.memberships, "_id"),
+      default: selectedMembership,
+      options: d.memberships.map((m) => ({ value: String(m._id), label: membershipLabel(m) })),
     },
     {
       name: "status",
@@ -2391,7 +2136,8 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
     },
   ];
   const [action, setAction] = useState(section);
-  const add = (a = section) => {
+  const add = (a = section, preset = "") => {
+    setSelectedMembership(preset);
     setAction(a);
     setModal(true);
   };
@@ -2503,6 +2249,21 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
   const floors = [...new Set(seats.map((s) => String(s.floor)))];
   return (
     <>
+      {section === "seats" && (
+        <PageHead
+          title="Seats"
+          sub="A place for every student. A clear view of every seat."
+          actions={canDo("seats.create") ? <Btn onClick={() => add("seats")}><Plus size={17} /> Add seat</Btn> : undefined}
+        />
+      )}
+      {section === "fees" && (
+        <PageHead
+          title="Fees"
+          sub="Who owes what, and every payment received."
+          actions={canDo("fees.create") ? <Btn onClick={() => add("payments")}><Plus size={17} /> Record payment</Btn> : undefined}
+        />
+      )}
+      {!V2_SECTIONS.includes(section) && (
       <div className="page-heading">
         <div>
           <div className="eyebrow">A BETTER SPACE TO GROW</div>
@@ -2522,7 +2283,7 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
                     : "Keep the little details in order. Make room for the big things."}
           </p>
         </div>
-        {fields[section] && (
+        {fields[section] && canDo(CREATE[section] ?? "") && (
           <button className="button" onClick={() => add()}>
             <Plus size={17} />
             {section === "payments"
@@ -2534,44 +2295,13 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
                   : `Add ${section === "memberships" ? "membership" : section === "students" ? "student" : section === "seats" ? "seat" : section === "shifts" ? "shift" : section === "plans" ? "plan" : "expense"}`}
           </button>
         )}
-        {section === "overview" && (
+        {section === "overview" && canDo("students.create") && (
           <button className="button" onClick={() => add("students")}>
             <Plus size={17} />
             Add a student
           </button>
         )}
       </div>
-      {section === "attendance" && !preview && (
-        <section className="card qr-panel">
-          <Image
-            src="/api/attendance-qr"
-            width={160}
-            height={160}
-            alt="Scan to check in to this library"
-            unoptimized
-          />
-          <div>
-            <h2>A warmer welcome. A quicker check-in.</h2>
-            <p>
-              Students can scan this code and confirm attendance with an active
-              membership. Codes expire after 10 minutes. Reload to generate a
-              new code. Set APP_URL to your reachable site address.
-            </p>
-          </div>
-        </section>
-      )}
-      {section === "memberships" && (
-        <div className="lifecycle-toolbar">
-          <button className="button secondary" onClick={() => add("renew")}>
-            Renew with confirmed payment
-          </button>
-          <button
-            className="button secondary"
-            onClick={() => add("membership-status")}
-          >
-            Pause / resume / cancel
-          </button>
-        </div>
       )}
       {section === "reports" ? (
         <OwnerReports data={d} />
@@ -2596,126 +2326,36 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           )}
         </section>
       ) : section === "overview" ? (
-        <>
-          <div className="stats-grid">
-            <Stat
-              icon={Wallet}
-              color="mint"
-              label="Confirmed revenue"
-              value={money(total)}
-              detail="From recorded payments only"
-            />
-            <Stat
-              icon={Users}
-              color="violet"
-              label="Active community"
-              value={String(d.summary?.students || 0)}
-              detail="Registered library students"
-            />
-            <Stat
-              icon={Armchair}
-              color="peach"
-              label="Study spaces"
-              value={String(d.summary?.seats || 0)}
-              detail="Across all library floors"
-            />
-            <Stat
-              icon={Receipt}
-              color="amber"
-              label="Outstanding dues"
-              value={money(due)}
-              detail="Membership balance remaining"
-            />
-          </div>
-          <div className="dashboard-grid">
-            <section className="card">
-              <div className="section-heading">
-                <div>
-                  <h2>A healthier library</h2>
-                  <p>Your revenue and expenses at a glance.</p>
-                </div>
-                <ChartNoAxesCombined size={20} />
-              </div>
-              <div className="chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={[
-                      { name: "Revenue", amount: total / 100 },
-                      { name: "Expenses", amount: cost / 100 },
-                      { name: "Profit", amount: (total - cost) / 100 },
-                    ]}
-                  >
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                    <Tooltip />
-                    <Bar
-                      dataKey="amount"
-                      fill="#438d75"
-                      radius={[6, 6, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="report-bottom">
-                Net profit <strong>{money(total - cost)}</strong>
-              </div>
-            </section>
-            <section className="card">
-              <h2>Your next steps</h2>
-              <p className="muted">Build a space that works for everyone.</p>
-              {[
-                ["Configure your shifts", "shifts", Clock3],
-                ["Set up your seat map", "seats", Armchair],
-                ["Create a membership plan", "plans", CreditCard],
-                ["Connect registered students", "students", Users],
-              ].map(([text, route, Icon]) => {
-                const I = Icon as LucideIcon;
-                return (
-                  <Link
-                    className="list-row"
-                    href={`/owner/${route}`}
-                    key={String(route)}
-                  >
-                    <span className="icon-tile mint">
-                      <I size={19} />
-                    </span>
-                    <strong>{String(text)}</strong>
-                    <ChevronRight size={17} />
-                  </Link>
-                );
-              })}
-            </section>
-          </div>
-          <section className="card">
-            <div className="section-heading">
-              <div>
-                <h2>Library announcements</h2>
-                <p>Keep your community in the loop.</p>
-              </div>
-              <button
-                className="button secondary"
-                onClick={() => add("notifications")}
-              >
-                <Plus size={16} />
-                Create announcement
-              </button>
-            </div>
-            {d.notifications.length ? (
-              d.notifications.map((n) => (
-                <div className="list-row" key={String(n._id)}>
-                  <Bell />
-                  <div>
-                    <strong>{n.title}</strong>
-                    <p>{n.message}</p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="muted">
-                No announcements yet. Create one to share an update in the app.
-              </p>
-            )}
-          </section>
-        </>
+        <OwnerDashboard d={d} preview={preview} role={String(d.user?.role)} access={accessNow.data} canDo={canDo} onAdd={add} />
+      ) : section === "students" ? (
+        <OwnerStudents d={d} preview={preview} canDo={canDo} onAdd={add} showMemberships={canDo("memberships.view") && !navBlocked("/owner/memberships", accessNow.data, String(d.user?.role))} />
+      ) : section === "payments" ? (
+        <OwnerPayments d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "memberships" ? (
+        <OwnerMemberships d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "shifts" ? (
+        <OwnerShifts d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "complaints" ? (
+        <OwnerComplaints d={d} preview={preview} canDo={canDo} onResolve={async (id) => { try { await mutate("resolve", { id }); notify("Complaint resolved"); } catch (e) { notify((e as Error).message); } }} />
+      ) : section === "plans" ? (
+        <OwnerPlans d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "expenses" ? (
+        <OwnerExpenses d={d} preview={preview} canDo={canDo} onAdd={add} />
+      ) : section === "attendance" ? (
+        <AttendanceBoard mode="attendance" canDo={canDo} notify={notify} onCheckIn={() => add("attendance")} qrRefreshMs={preview ? undefined : QR_REFRESH_MS} canQr={!preview && !!accessNow.data && (accessNow.data.kind === "owner" || ((accessNow.data.permissions as string[]) ?? []).includes("attendance.qr"))} />
+      ) : section === "team" ? (
+        <OwnerTeam notify={notify} />
+      ) : section === "modules" ? (
+        <OwnerModules notify={notify} />
+      ) : section === "fees" ? (
+        <OwnerFees canReverse={canDo("fees.reverse")} canRecord={canDo("fees.create")} notify={notify} />
+      ) : section === "seats" && !preview ? (
+        <SeatMap
+          onAllocate={canDo("memberships.create") ? (id) => {
+            setSelectedSeat(id);
+            add("memberships");
+          } : undefined}
+        />
       ) : section === "seats" ? (
         <section className="card seat-panel">
           <div className="section-heading">
@@ -2780,59 +2420,14 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           </div>
         </section>
       ) : section === "settings" ? (
-        <>
-          <section className="card">
-            <h2>Your library workspace</h2>
-            <div className="lifecycle-toolbar">
-              <button className="button secondary" onClick={() => add("staff")}>
-                Grant staff access
-              </button>
-            </div>
-            <p className="muted">
-              Library ID: {String(d.user?.libraryId || "Not connected")}
-            </p>
-            <div className="list-row">
-              <ShieldCheck />
-              <div>
-                <strong>Tenant isolation enabled</strong>
-                <p>
-                  All library records are scoped to your authenticated library.
-                </p>
-              </div>
-            </div>
-            <div className="list-row">
-              <MessageSquare />
-              <div>
-                <strong>In-app messaging</strong>
-                <p>
-                  Announcements are delivered inside StudyQuest. No WhatsApp
-                  provider is configured.
-                </p>
-              </div>
-            </div>
-            <button className="button" onClick={() => add("notifications")}>
-              Create announcement
-            </button>
-            <h2 style={{ marginTop: 28 }}>Recent audit history</h2>
-            {(d.audit || []).map((a) => (
-              <div className="list-row" key={String(a._id)}>
-                <ShieldCheck size={16} />
-                <strong>{a.action}</strong>
-                <span className="muted">
-                  {new Date(String(a.createdAt)).toLocaleString()}
-                </span>
-              </div>
-            ))}
-          </section>
-          {!preview && String(d.user?.role) === "owner" && (
-            <LibraryHoursEditor
-              library={d.library}
-              mutate={mutate}
-              notify={notify}
-            />
-          )}
-          {!preview && <PushToggle notify={notify} />}
-        </>
+        <OwnerSettings
+          d={d}
+          isOwner={String(d.user?.role) === "owner"}
+          canDo={canDo}
+          onAnnounce={() => add("notifications")}
+          hours={!preview && String(d.user?.role) === "owner" ? <LibraryHoursEditor library={d.library} mutate={mutate} notify={notify} /> : undefined}
+          push={!preview ? <PushToggle notify={notify} /> : undefined}
+        />
       ) : (
         <section className="card table-card">
           <div className="table-toolbar">
@@ -2967,6 +2562,8 @@ function Owner({ path, data: d, preview, mutate, notify }: Props) {
           onClose={() => setModal(false)}
           onSubmit={async (values) => {
             const data: Record<string, unknown> = { ...values };
+            // An empty renewal discount means "repeat the previous one", not zero.
+            if (action === "renew" && (data.discount === undefined || data.discount === "")) delete data.discount;
             for (const key of ["amount", "discount"])
               if (key in data) data[key] = Math.round(Number(data[key]) * 100);
             if ("days" in data) data.days = Number(data.days);
@@ -3099,7 +2696,7 @@ function RecordModal({
               ) : (
                 <input
                   autoFocus={i === 0}
-                  required
+                  required={!f.optional}
                   name={f.name}
                   type={f.type || "text"}
                   min={f.type === "number" ? 0 : undefined}
@@ -3139,83 +2736,7 @@ function Admin({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">THE BIGGER PICTURE</div>
-          <h1>A growing community of spaces.</h1>
-          <p>
-            Platform administration ·{" "}
-            {preview
-              ? "Sign in with an administrator account to view data."
-              : "Live library overview"}
-          </p>
-        </div>
-        <button className="button" onClick={() => setOpen(true)}>
-          Manage subscription
-        </button>
-      </div>
-      <div className="stats-grid">
-        <Stat
-          icon={Building2}
-          label="Libraries"
-          value={String(data.libraries.length)}
-          detail="Registered workspaces"
-          color="mint"
-        />
-        <Stat
-          icon={CheckCircle2}
-          label="Active subscriptions"
-          value={String(
-            data.libraries.filter((l) => l.subscriptionStatus === "active")
-              .length,
-          )}
-          detail="Manually confirmed status"
-          color="violet"
-        />
-        <Stat
-          icon={Clock3}
-          label="Trial libraries"
-          value={String(
-            data.libraries.filter((l) => l.subscriptionStatus === "trial")
-              .length,
-          )}
-          detail="Getting started"
-          color="amber"
-        />
-        <Stat
-          icon={Pause}
-          label="Paused"
-          value={String(
-            data.libraries.filter((l) => l.subscriptionStatus === "paused")
-              .length,
-          )}
-          detail="Subscription status"
-          color="peach"
-        />
-      </div>
-      <section className="card">
-        <h2>Libraries & subscriptions</h2>
-        {data.libraries.length ? (
-          data.libraries.map((l) => (
-            <div className="list-row" key={String(l._id)}>
-              <Building2 />
-              <strong>{l.name}</strong>
-              <span className="pill">{l.plan}</span>
-              <span className="pill neutral">{l.subscriptionStatus}</span>
-            </div>
-          ))
-        ) : (
-          <Empty
-            icon={Building2}
-            title="A fresh start"
-            text="Registered libraries will appear here. External subscription billing is not connected."
-          />
-        )}
-        <p className="tiny muted">
-          Subscription status is managed manually. Changing it does not charge
-          an account.
-        </p>
-      </section>
+      <AdminOverview preview={preview} libraries={data.libraries} onManage={() => setOpen(true)} />
       {open && (
         <RecordModal
           title="Manage a library subscription"

@@ -1,11 +1,14 @@
+import { reportUnexpected } from "./api-errors";
+import { recordConsent } from "./consent";
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "./db";
 import { User } from "./models";
 import { PasswordReset } from "./ops-models";
-import { currentUser, issueSession } from "./auth";
-import { clientIp, hashToken, limitedShared, newToken, warnAuth } from "./security";
+import { currentUser, enrollmentRequired, issueChallenge, issueSession } from "./auth";
+import { verifySecondFactor } from "./two-factor-server";
+import { clientIp, hashToken, ipLimit, limitedShared, newToken, warnAuth } from "./security";
 import { emailConfigured, sendEmail } from "./saas-notify";
 import { log } from "./log";
 
@@ -26,7 +29,7 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
         log("error", "auth.reset_email_not_configured");
         return NextResponse.json({ error: "Password reset by email is not available right now. Please contact support.", code: "email-not-configured" }, { status: 503 });
       }
-      if (await limitedShared(`forgot:ip:${ip}`, 20, 3600) || await limitedShared(`forgot:acct:${email.toLowerCase()}`, 3, 3600))
+      if (await limitedShared(`forgot:ip:${ip}`, ipLimit(ip, 20), 3600) || await limitedShared(`forgot:acct:${email.toLowerCase()}`, 3, 3600))
         return NextResponse.json({ ok: true, message: "If that account exists, a reset link has been sent." }); // same answer: no enumeration or limit leak
       const user = await User.findOne({ email: email.toLowerCase(), deletedAt: { $exists: false } }).select("_id").lean<{ _id: unknown }>();
       let sandboxToken: string | undefined;
@@ -45,16 +48,24 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
       return NextResponse.json({ ok: true, message: "If that account exists, a reset link has been sent.", ...(sandboxToken ? { sandboxToken, notice: "Local sandbox: no email provider is configured." } : {}) });
     }
     if (action === "reset") {
-      const v = z.object({ token: z.string().min(20).max(100), password }).parse(await req.json());
-      if (await limitedShared(`reset:ip:${ip}`, 20, 3600)) return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+      const v = z.object({ token: z.string().min(20).max(100), password, acceptTerms: z.boolean().optional(), marketing: z.boolean().optional() }).parse(await req.json());
+      if (await limitedShared(`reset:ip:${ip}`, ipLimit(ip, 20), 3600)) return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
       const record = await PasswordReset.findOne({ tokenHash: hashToken(v.token), usedAt: { $exists: false }, expiresAt: { $gt: new Date() } });
       if (!record) { warnAuth("reset_invalid_token", { ip }); return NextResponse.json({ error: "This reset link is invalid or has expired." }, { status: 400 }); }
+      // A person whose library created their account (import or invitation) has never seen the Terms: activating it requires accepting them. The link is not consumed if they have not.
+      const invitedUser = await User.findById(record.userId).select("invited").lean<{ invited?: boolean }>();
+      if (invitedUser?.invited && v.acceptTerms !== true) return NextResponse.json({ error: "Accept the Terms of Service and acknowledge the Privacy Notice to activate your account.", code: "terms-required" }, { status: 400 });
       const claimed = await PasswordReset.findOneAndUpdate({ _id: record._id, usedAt: { $exists: false } }, { usedAt: new Date() });
       if (!claimed) return NextResponse.json({ error: "This reset link was already used." }, { status: 400 });
       const user = await User.findByIdAndUpdate(record.userId, { passwordHash: await bcrypt.hash(v.password, 12), $inc: { sessionVersion: 1 }, invited: false }, { new: true });
       await PasswordReset.updateMany({ userId: record.userId, usedAt: { $exists: false } }, { usedAt: new Date() });
       if (!user) return NextResponse.json({ error: "Account not found" }, { status: 400 });
       log("info", "auth.password_reset", { userId: String(user._id) });
+      if (invitedUser?.invited) await recordConsent(user._id, [{ kind: "terms", accepted: true }, ...(typeof v.marketing === "boolean" ? [{ kind: "marketing" as const, accepted: v.marketing }] : [])], "invite-activation");
+      // A reset link proves access to the mailbox, not to the authenticator: accounts with two-step sign-in still need the second factor.
+      if (user.twoFactorEnabled) return NextResponse.json({ ok: true, twoFactorRequired: true, challenge: await issueChallenge(String(user._id), user.sessionVersion ?? 0) });
+      const enroll = await enrollmentRequired(user);
+      if (enroll) return NextResponse.json({ ok: true, ...enroll });
       const response = NextResponse.json({ ok: true, role: user.role });
       cookie(response, await issueSession(String(user._id), user.sessionVersion));
       return response;
@@ -68,10 +79,15 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
       log("info", "auth.logout_all", { userId: String(user._id), version: updated?.sessionVersion });
       return response;
     }
-    const v = z.object({ current: z.string().min(1).max(100), password }).parse(await req.json());
+    const v = z.object({ current: z.string().min(1).max(100), password, code: z.string().trim().max(20).optional(), recoveryCode: z.string().trim().max(30).optional() }).parse(await req.json());
     if (await limitedShared(`chpw:${user._id}`, 5, 900)) return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
     const full = await User.findById(user._id).select("+passwordHash");
     if (!full || !(await bcrypt.compare(v.current, full.passwordHash))) return NextResponse.json({ error: "Your current password is not correct" }, { status: 400 });
+    if (full.twoFactorEnabled) {
+      if (!v.code && !v.recoveryCode) return NextResponse.json({ error: "Enter a code from your authenticator app to change your password.", twoFactorRequired: true }, { status: 400 });
+      const second = await verifySecondFactor(String(full._id), v, ip);
+      if (!second.ok) return NextResponse.json({ error: second.error }, { status: second.status });
+    }
     full.passwordHash = await bcrypt.hash(v.password, 12);
     full.sessionVersion = (full.sessionVersion ?? 0) + 1; // signs out every other device
     await full.save();
@@ -79,6 +95,7 @@ export async function handleAuthExtra(action: string, req: Request): Promise<Nex
     cookie(response, await issueSession(String(full._id), full.sessionVersion));
     return response;
   } catch (error) {
+    reportUnexpected(error, "/api/auth/account");
     return NextResponse.json({ error: error instanceof z.ZodError ? "Check your entries. Passwords need at least 10 characters." : "Unable to complete the request." }, { status: 400 });
   }
 }

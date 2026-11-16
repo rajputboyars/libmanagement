@@ -1,5 +1,7 @@
 "use client";
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
+import { EmptyState } from "./v2/primitives";
 
 export function Garden() {
   return (
@@ -37,11 +39,18 @@ export function Empty({
   icon: Icon,
   title,
   text,
+  action,
+  v2,
 }: {
   icon: LucideIcon;
   title: string;
   text: string;
+  /** Optional call to action. */
+  action?: ReactNode;
+  /** Render with the redesigned empty-state look. */
+  v2?: boolean;
 }) {
+  if (v2) return <EmptyState icon={Icon} title={title} text={text} action={action} />;
   return (
     <div className="empty">
       <span className="icon-tile mint">
@@ -49,6 +58,7 @@ export function Empty({
       </span>
       <h2>{title}</h2>
       <p>{text}</p>
+      {action}
     </div>
   );
 }

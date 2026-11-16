@@ -1,5 +1,7 @@
+import { reportUnexpected } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
+import { guardTeam } from "@/lib/access";
 import { Expense, Library, Membership, Payment, Seat, SeatAssignment, User } from "@/lib/models";
 import { AdmissionLead } from "@/lib/saas-models";
 import { rate } from "@/lib/saas";
@@ -11,7 +13,9 @@ const sum = async (Model: typeof Payment, match: object) => (await Model.aggrega
 export async function GET(request: NextRequest) {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
-  if (!["owner", "staff"].includes(user.role) || !user.libraryId) return NextResponse.json({ error: "Library team access required" }, { status: 403 });
+  if (!user.libraryId) return NextResponse.json({ error: "Library team access required" }, { status: 403 });
+  const denied = await guardTeam(user, "analytics", "analytics.view");
+  if (denied) return denied;
   try {
     const access = await accessForLibrary(user.libraryId);
     if (!access) return NextResponse.json({ error: "Organization not found" }, { status: 404 });
@@ -26,7 +30,7 @@ export async function GET(request: NextRequest) {
       const [students, newStudents, seats, inUse, activeMemberships, revenue, expenses, leads, converted] = await Promise.all([
         User.countDocuments({ role: "student", libraryId }), User.countDocuments({ role: "student", libraryId, createdAt: { $gte: from } }),
         Seat.countDocuments({ libraryId, operationalStatus: { $ne: "maintenance" } }), SeatAssignment.distinct("seatId", { libraryId, start: { $lte: now }, end: { $gt: now } }),
-        Membership.countDocuments({ libraryId, status: "active", end: { $gt: now } }), sum(Payment as never, { libraryId, createdAt: { $gte: from } }), sum(Expense as never, { libraryId, date: { $gte: from } }),
+        Membership.countDocuments({ libraryId, status: "active", end: { $gt: now } }), sum(Payment as never, { libraryId, createdAt: { $gte: from }, reversedAt: { $exists: false } }), sum(Expense as never, { libraryId, date: { $gte: from } }),
         AdmissionLead.countDocuments({ libraryId, createdAt: { $gte: from } }), AdmissionLead.countDocuments({ libraryId, createdAt: { $gte: from }, stage: "converted" }),
       ]);
       const lib = await Library.findById(libraryId).select("name branchName").lean<{ name: string; branchName: string }>();
@@ -35,6 +39,7 @@ export async function GET(request: NextRequest) {
     const total = rows.reduce((t, r) => ({ students: t.students + r.students, revenuePaise: t.revenuePaise + r.revenuePaise, expensesPaise: t.expensesPaise + r.expensesPaise, netPaise: t.netPaise + r.netPaise, seats: t.seats + r.seats, seatsInUse: t.seatsInUse + r.seatsInUse, leads: t.leads + r.leads, converted: t.converted + r.converted }), { students: 0, revenuePaise: 0, expensesPaise: 0, netPaise: 0, seats: 0, seatsInUse: 0, leads: 0, converted: 0 });
     return NextResponse.json({ days, comparison: advanced, branches: rows, total: { ...total, utilizationPct: rate(total.seatsInUse, total.seats), leadConversionPct: rate(total.converted, total.leads) }, note: advanced ? undefined : "Branch comparison is part of advanced reporting (Pro and above)." });
   } catch (error) {
+    reportUnexpected(error, "/api/org-analytics");
     if (error instanceof PlanError) return NextResponse.json({ error: error.message }, { status: 402 });
     throw error;
   }
