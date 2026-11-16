@@ -243,3 +243,48 @@ console.log("PING:" + (await ping("https://hooks.example.test/x", { timeoutMs: 6
     assert.equal(r.status, 0);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+async function withEnv(patch: Record<string, string | undefined>, fn: () => Promise<void>) {
+  const env = process.env as Record<string, string | undefined>, saved: Record<string, string | undefined> = {};
+  for (const k of Object.keys(patch)) { saved[k] = env[k]; if (patch[k] === undefined) delete env[k]; else env[k] = patch[k]; }
+  try { await fn(); } finally { for (const k of Object.keys(saved)) { if (saved[k] === undefined) delete env[k]; else env[k] = saved[k]; } }
+}
+const clean = { APP_ENV: undefined, VERCEL: undefined, VERCEL_ENV: undefined, MONGODB_URI: "mongodb://127.0.0.1:1/x", SESSION_SECRET: "s".repeat(40), ALERT_WEBHOOK_URL: undefined, PROTECTED_DB_TARGETS: undefined, RAZORPAY_KEY_ID: undefined };
+
+test("instrumentation.ts is Edge-safe: no Node-only API or static import, everything Node-only lives in instrumentation-node.ts", async () => {
+  const { readFileSync } = await import("node:fs");
+  const edge = readFileSync("src/instrumentation.ts", "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  assert.ok(!/process\.(exit|on|once|kill|cwd|hrtime|memoryUsage)\b/.test(edge), "no Node-only process API in the file Next.js also compiles for the Edge runtime");
+  assert.ok(!/^\s*import\s/m.test(edge), "no static imports: everything is loaded lazily behind the NEXT_RUNTIME check");
+  assert.equal((edge.match(/NEXT_RUNTIME\s*!==\s*"nodejs"/g) ?? []).length, 2, "register and onRequestError both return early outside Node.js");
+  assert.match(readFileSync("src/instrumentation-node.ts", "utf8"), /process\.exit\(code\)/, "start-up refusal is still implemented, in the Node-only module");
+  // on the Edge runtime register() does nothing and never touches the process
+  await withEnv({ NEXT_RUNTIME: "edge" }, async () => {
+    const realExit = process.exit; let exited = false; process.exit = (() => { exited = true; }) as never;
+    try { const { register, onRequestError } = await import("../src/instrumentation"); await register(); await onRequestError(new Error("x"), { path: "/", method: "GET", headers: {} }, { routePath: "/", routeType: "route" }); } finally { process.exit = realExit; }
+    assert.equal(exited, false);
+  });
+});
+
+test("start-up refusal: invalid production configuration exits (never serves), is logged without secrets and alerted; valid or unprofiled configuration starts", async () => {
+  const { registerNode } = await import("../src/instrumentation-node");
+  const run = async (env: Record<string, string | undefined>) => {
+    const exits: number[] = []; let out = "";
+    await withEnv({ ...clean, ...env }, async () => { out = await capture(() => registerNode({ exit: (c) => { exits.push(c); } })); });
+    return { exits, out };
+  };
+  const broken = await run({ APP_ENV: "production", NODE_ENV: "production", APP_URL: "http://insecure.example.test", SESSION_SECRET: "k".repeat(40) });
+  assert.deepEqual(broken.exits, [1], "a production profile with invalid configuration exits with code 1");
+  assert.match(broken.out, /"event":"server.refused_to_start"/); assert.match(broken.out, /"event":"config.refused"/); assert.match(broken.out, /"key":"APP_URL"/);
+  assert.ok(!broken.out.includes("mongodb://") && !broken.out.includes("k".repeat(40)), "no secret or connection string in the refusal log");
+  assert.ok(!/"event":"server.started"/.test(broken.out), "a refused start never reports started");
+  const mislabelled = await run({ VERCEL: "1", VERCEL_ENV: "production", NODE_ENV: "production" });
+  assert.deepEqual(mislabelled.exits, [1], "a Vercel Production deployment without APP_ENV=production is refused");
+  const previewProd = await run({ VERCEL: "1", VERCEL_ENV: "preview", APP_ENV: "production", NODE_ENV: "production" });
+  assert.deepEqual(previewProd.exits, [1], "a Preview deployment labelled production is refused");
+  const protectedDb = await run({ VERCEL: "1", VERCEL_ENV: "preview", APP_ENV: "staging", NODE_ENV: "production", MONGODB_URI: "mongodb+srv://u:p@cluster0.abcde.mongodb.net/studyquest", PROTECTED_DB_TARGETS: "cluster0.abcde.mongodb.net/studyquest" });
+  assert.deepEqual(protectedDb.exits, [1], "a Preview pointing at a protected production database is refused");
+  assert.ok(!protectedDb.out.includes("u:p@"), "the credentials never appear");
+  const dev = await run({ NODE_ENV: "development" });
+  assert.deepEqual(dev.exits, []); assert.match(dev.out, /"event":"server.started"/);
+});
