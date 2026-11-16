@@ -223,3 +223,23 @@ test("origin (CSRF) validation: production stays strict; only a Preview deployme
   assert.equal(validOrigin(req("https://studyquest.example.in"), {}), true, "no APP_URL: the request host");
   assert.equal(validOrigin(req(null), {}), true); assert.equal(validOrigin(req(null, { "sec-fetch-site": "cross-site" }), {}), false);
 });
+
+test("a hanging webhook is cut off and reported even when nothing else keeps the process alive (Node 22 regression)", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join, resolve } = await import("node:path");
+  const { pathToFileURL } = await import("node:url");
+  const dir = mkdtempSync(join(tmpdir(), "sq-hang-"));
+  try {
+    const alertsPath = pathToFileURL(resolve("src/lib/alerts.ts")).href;
+    const file = join(dir, "hang.mts");
+    writeFileSync(file, `import { ping } from ${JSON.stringify(alertsPath)};
+const hang = (_u: string, init: { signal: AbortSignal }) => new Promise<Response>((_r, rej) => init.signal.addEventListener("abort", () => rej(new Error("aborted"))));
+console.log("PING:" + (await ping("https://hooks.example.test/x", { timeoutMs: 60, fetch: hang as never })));
+`);
+    const r = spawnSync(process.execPath, [resolve("node_modules/tsx/dist/cli.mjs"), file], { encoding: "utf8", timeout: 20_000, env: { ...process.env, NODE_ENV: "test", LOG_LEVEL: "error" } });
+    assert.match(r.stdout, /PING:false/, `the process must stay alive until the timeout settles (exit ${r.status}): ${r.stderr.slice(0, 200)}`);
+    assert.equal(r.status, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

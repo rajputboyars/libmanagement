@@ -2,6 +2,17 @@ import { defer } from "./defer";
 import { log, redact, scrubText } from "./log";
 
 /**
+ * Request timeout that keeps the process alive until it settles. `AbortSignal.timeout()` uses an unref'd timer: a process whose only pending work is
+ * a hanging webhook can exit before the request is cut off and reported (observed as "Promise resolution is still pending but the event loop has
+ * already resolved" on Node 22). This timer is ref'd and cleared as soon as the request settles, so it never delays anything.
+ */
+export function timeoutGuard(ms: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("The operation timed out", "TimeoutError")), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+
+/**
  * Operational alerting through ALERT_WEBHOOK_URL (Slack/Teams/Discord-style JSON webhook, or any HTTPS endpoint that accepts JSON).
  *  - Deduplication: one notification per key per cooldown; repeats are counted and summarised in the next one.
  *  - Storm protection: at most `maxPerWindow` notifications per window across all keys; the rest are counted, not sent.
@@ -49,7 +60,8 @@ export function createAlertManager(deps: AlertDeps = {}) {
     try {
       const u = new URL(target);
       if (u.protocol !== "https:" && !(u.protocol === "http:" && environment() !== "production")) throw new Error("ALERT_WEBHOOK_URL must be https:// in production");
-      const response = await doFetch(target, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs), redirect: "error" });
+      const guard = timeoutGuard(timeoutMs);
+      const response = await doFetch(target, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: guard.signal, redirect: "error" }).finally(guard.clear);
       if (!response.ok) throw new Error(`webhook answered HTTP ${response.status}`);
       delivered++;
       return true;
@@ -155,7 +167,8 @@ export function notify(promise: Promise<unknown>) { defer(promise, { label: "ale
 export async function ping(url: string | undefined, opts: { fetch?: typeof fetch; timeoutMs?: number } = {}) {
   if (!url) return false;
   try {
-    const r = await (opts.fetch ?? fetch)(url, { method: "POST", signal: AbortSignal.timeout(opts.timeoutMs ?? 8000), redirect: "error" });
+    const guard = timeoutGuard(opts.timeoutMs ?? 8000);
+    const r = await (opts.fetch ?? fetch)(url, { method: "POST", signal: guard.signal, redirect: "error" }).finally(guard.clear);
     return r.ok;
   } catch (error) {
     log("warn", "heartbeat.failed", { reason: scrubText(error instanceof Error ? error.message : String(error)).slice(0, 120) });
