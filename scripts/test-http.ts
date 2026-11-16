@@ -55,6 +55,7 @@ async function main() {
         SESSION_SECRET: sessionSecret,
         APP_URL: base,
         ALLOW_BILLING_SANDBOX: "1",
+        TRUST_PROXY: "1", // the rate-limit tests identify callers by X-Forwarded-For, which is only honoured behind a trusted proxy; do not depend on an untracked .env.production
         ...(failingSink ? { ALERT_WEBHOOK_URL: failingSink.url, NODE_TLS_REJECT_UNAUTHORIZED: "0" } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
