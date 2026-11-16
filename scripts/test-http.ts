@@ -12,16 +12,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // A local HTTPS "alert webhook" with a throwaway self-signed certificate (the application refuses plain http alert destinations in production).
-type Sink = { url: string; hits: { body: Record<string, unknown> }[]; status: number; server: HttpsServer };
+type Sink = { url: string; hits: { body: Record<string, unknown> }[]; reqs: { path: string; at: number }[]; status: number; server: HttpsServer };
 async function startSink(status: number): Promise<Sink | null> {
   const dir = mkdtempSync(join(tmpdir(), "sq-sink-"));
   try {
     execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(dir, "k.pem"), "-out", join(dir, "c.pem"), "-days", "1", "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1"], { stdio: "ignore" });
-    const sink = { hits: [] as Sink["hits"], status } as Sink;
+    const sink = { hits: [] as Sink["hits"], reqs: [] as Sink["reqs"], status } as Sink;
     sink.server = createHttpsServer({ key: readFileSync(join(dir, "k.pem")), cert: readFileSync(join(dir, "c.pem")) }, (req, res) => {
       let data = "";
       req.on("data", (c) => { data += c; });
-      req.on("end", () => { try { sink.hits.push({ body: JSON.parse(data) }); } catch { /* ignore */ } res.writeHead(sink.status); res.end("{}"); });
+      req.on("end", () => { sink.reqs.push({ path: req.url ?? "", at: Date.now() }); try { sink.hits.push({ body: JSON.parse(data) }); } catch { /* ignore */ } res.writeHead(sink.status); res.end("{}"); });
     });
     await new Promise<void>((r) => sink.server.listen(0, "127.0.0.1", r));
     sink.url = `https://127.0.0.1:${(sink.server.address() as { port: number }).port}/alert`;
@@ -1979,6 +1979,124 @@ async function main() {
       assert.ok(!csvB.includes("pilot-student@example.invalid"), "owner B's export contains none of library A's students");
       assert.equal((await fetch(base + "/api/export?resource=students", { headers: { cookie: studentCookie } })).status, 403);
     }
+
+    // ---- R17: /api/jobs/run (Vercel Cron) over HTTP: authorization, jobs, heartbeats, alerts, lock and idempotency. Isolated database, local HTTPS sinks only. ----
+    const beatSink = okSink ? await startSink(200) : null, cronAlertSink = okSink ? await startSink(200) : null;
+    if (beatSink && cronAlertSink) try {
+      const cronSecret = "cron-" + randomBytes(24).toString("hex");
+      const jobNames = ["saas-jobs", "membership-expiry", "stale-punches", "fee-due-reminders", "revision-reminders", "billing-reconciliation", "weekly-reports"];
+      const cdb = await mongoose.createConnection(replica.getUri("r17cron")).asPromise();
+      const [runs, locks, members] = [cdb.collection("jobruns"), cdb.collection("ratelimits"), cdb.collection("memberships")];
+      const spawnCron = async (port: number, uri: string) => {
+        const proc = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", String(port), "--hostname", "127.0.0.1"], {
+          env: { ...process.env, MONGODB_URI: uri, SESSION_SECRET: sessionSecret, APP_URL: `http://127.0.0.1:${port}`, CRON_SECRET: cronSecret, ALERT_WEBHOOK_URL: cronAlertSink.url, JOBS_HEARTBEAT_URL: beatSink.url, NODE_TLS_REJECT_UNAUTHORIZED: "0" },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        extraServers.push(proc);
+        const logs = { text: "" };
+        proc.stdout!.on("data", (c) => { logs.text += c; }); proc.stderr!.on("data", (c) => { logs.text += c; });
+        for (let i = 0; i < 60; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break; } catch { /* starting */ } await new Promise((r) => setTimeout(r, 500)); }
+        return { url: `http://127.0.0.1:${port}/api/jobs/run`, logs };
+      };
+      const cron = await spawnCron(3109, replica.getUri("r17cron"));
+      const call = (target: string, init: { method?: string; headers?: Record<string, string> } = {}) => fetch(target, { method: init.method ?? "GET", headers: init.headers });
+      const bearer = { authorization: `Bearer ${cronSecret}` };
+      const reset = async () => { await runs.deleteMany({}); await locks.deleteMany({}); await members.deleteMany({}); beatSink.reqs.length = 0; cronAlertSink.hits.length = 0; };
+      const staleMember = () => members.insertOne({ userId: new mongoose.Types.ObjectId(), libraryId: new mongoose.Types.ObjectId(), status: "active", amount: 0, paid: 0, start: new Date("2020-01-01"), end: new Date("2020-02-01") });
+      const leaks = (text: string, log = "") => { assert.ok(!text.includes(cronSecret) && !log.includes(cronSecret), "the cron secret never appears in a response or log"); assert.ok(!/mongodb:\/\/|ECONNREFUSED|MongoServerError|node_modules|\sat\s.+\(.*:\d+:\d+\)|"stack"|Document failed validation/i.test(text), "no internals or stack traces in the response: " + text.slice(0, 200)); };
+      const waitFor = async (cond: () => boolean) => { for (let i = 0; i < 40 && !cond(); i++) await new Promise((r) => setTimeout(r, 250)); };
+      const alertKeys = () => cronAlertSink.hits.map((h) => (h.body as { key?: string }).key);
+
+      // 1. missing / invalid secret: 401, no job runs, no heartbeat, no lock taken
+      await reset(); await staleMember();
+      for (const [method, headers] of [["GET", {}], ["GET", { authorization: "Bearer wrong-secret" }], ["POST", { "x-cron-secret": "wrong-secret" }], ["GET", { authorization: `Basic ${cronSecret}` }]] as const) {
+        const r = await call(cron.url, { method, headers }); const t = await r.text();
+        assert.equal(r.status, 401); leaks(t, cron.logs.text);
+        assert.ok(!t.includes("wrong-secret"));
+      }
+      assert.equal(await runs.countDocuments(), 0, "no job ran");
+      assert.equal(await locks.countDocuments({ key: "job-lock:all" }), 0, "no lock was taken");
+      assert.equal(await members.countDocuments({ status: "active" }), 1, "no data was touched");
+      assert.equal(beatSink.reqs.length, 0, "no heartbeat"); assert.ok(!alertKeys().includes("cron.failed"));
+
+      // 2 + 3. valid authorization runs every job; the success heartbeat arrives once, after every job finished
+      const ok = await call(cron.url, { headers: bearer }); const okText = await ok.text();
+      assert.equal(ok.status, 200); leaks(okText, cron.logs.text);
+      assert.equal(ok.headers.get("cache-control"), "no-store");
+      const okBody = JSON.parse(okText); assert.equal(okBody.ok, true);
+      for (const name of jobNames) assert.equal(await runs.countDocuments({ name, status: "ok" }), 1, `${name} ran once and succeeded`);
+      assert.equal(await runs.countDocuments({ name: "cron", status: "ok" }), 1);
+      assert.equal(okBody.result.results["membership-expiry"].expired, 1);
+      assert.equal(await members.countDocuments({ status: "expired" }), 1, "the job performed its real work");
+      assert.deepEqual(beatSink.reqs.map((r) => r.path), ["/alert"], "exactly one SUCCESS heartbeat");
+      const lastJobEnd = Math.max(...(await runs.find({ name: { $in: jobNames } }).toArray()).map((r) => +new Date(r.startedAt) + (r.durationMs ?? 0)));
+      assert.ok(beatSink.reqs[0].at >= lastJobEnd, "the heartbeat came after the last job completed");
+      assert.ok(!alertKeys().includes("cron.failed"));
+
+      // 7. a repeated request does not run the jobs again (lock) and the data is unchanged; once the lock is gone a re-run is idempotent
+      const again = await call(cron.url, { headers: bearer });
+      assert.deepEqual(await again.json(), { ok: true, skipped: true });
+      for (const name of jobNames) assert.equal(await runs.countDocuments({ name }), 1, `${name} was not repeated`);
+      assert.equal(beatSink.reqs.length, 1, "a skipped run sends no further heartbeat");
+      await locks.deleteMany({});
+      const rerun = await (await call(cron.url, { method: "POST", headers: { "x-cron-secret": cronSecret } })).json();
+      assert.equal(rerun.ok, true); assert.equal(rerun.result.results["membership-expiry"].expired, 0, "idempotent: nothing is expired twice");
+      assert.equal(await members.countDocuments({ status: "expired" }), 1);
+      assert.equal(await runs.countDocuments({ name: "membership-expiry" }), 2);
+
+      // 6. a lock held by another run: no jobs, no heartbeat, no alert
+      await reset(); await staleMember();
+      await locks.insertOne({ key: "job-lock:all", count: 1, resetAt: new Date(Date.now() + 120_000) });
+      const held = await call(cron.url, { headers: bearer }); const heldText = await held.text();
+      assert.equal(held.status, 200); assert.deepEqual(JSON.parse(heldText), { ok: true, skipped: true }); leaks(heldText);
+      assert.equal(await runs.countDocuments(), 0, "no job executed");
+      assert.equal(await members.countDocuments({ status: "active" }), 1, "no data changed");
+      assert.equal(beatSink.reqs.length, 0, "no heartbeat"); await new Promise((r) => setTimeout(r, 500)); assert.equal(cronAlertSink.hits.length, 0, "no alert");
+
+      // 7 (concurrent). a burst of simultaneous cron calls runs the jobs exactly once
+      await reset(); await staleMember();
+      const burst = await Promise.all([0, 1, 2, 3].map(() => call(cron.url, { headers: bearer }).then((r) => r.json())));
+      assert.equal(burst.filter((b) => !b.skipped).length, 1, "exactly one request executed the jobs");
+      assert.equal(burst.filter((b) => b.skipped).length, 3);
+      for (const name of jobNames) assert.equal(await runs.countDocuments({ name }), 1, `${name} ran once in the burst`);
+      assert.equal(beatSink.reqs.length, 1, "one heartbeat for the burst");
+
+      // 4. a failing job: 500, failure heartbeat only, cron.failed reported, other jobs still ran, nothing sensitive in the response
+      await reset(); await staleMember();
+      await cdb.db!.command({ collMod: "memberships", validator: { status: { $ne: "expired" } }, validationLevel: "strict", validationAction: "error" });
+      const bad = await call(cron.url, { headers: bearer }); const badText = await bad.text();
+      assert.equal(bad.status, 500); assert.deepEqual(JSON.parse(badText), { ok: false, failed: ["membership-expiry"] }); leaks(badText, cron.logs.text);
+      assert.equal(await runs.countDocuments({ name: "membership-expiry", status: "failed" }), 1);
+      for (const name of jobNames.filter((n) => n !== "membership-expiry")) assert.equal(await runs.countDocuments({ name, status: "ok" }), 1, `${name} still ran`);
+      assert.equal(await runs.countDocuments({ name: "cron", status: "failed" }), 1);
+      assert.deepEqual(beatSink.reqs.map((r) => r.path), ["/alert/fail"], "failure heartbeat only, no success heartbeat");
+      await waitFor(() => alertKeys().includes("cron.failed"));
+      const cronAlerts = cronAlertSink.hits.filter((h) => (h.body as { key?: string }).key === "cron.failed");
+      assert.equal(cronAlerts.length, 1, "cron.failed reported exactly once");
+      assert.equal((cronAlerts[0].body as { severity?: string }).severity, "critical");
+      assert.ok(!JSON.stringify(cronAlerts[0].body).includes(cronSecret));
+      // recovery: after the cause is fixed and the lock expired, the next run succeeds, heartbeats success and resolves the alert
+      await cdb.db!.command({ collMod: "memberships", validator: {}, validationLevel: "off" });
+      await locks.deleteMany({}); beatSink.reqs.length = 0;
+      const fixed = await call(cron.url, { headers: bearer });
+      assert.equal(fixed.status, 200); assert.deepEqual(beatSink.reqs.map((r) => r.path), ["/alert"]);
+      await waitFor(() => cronAlertSink.hits.filter((h) => (h.body as { key?: string }).key === "cron.failed").length >= 2);
+      assert.ok(cronAlertSink.hits.filter((h) => (h.body as { key?: string }).key === "cron.failed").some((h) => /resolved/i.test(JSON.stringify(h.body))), "a recovery notice follows the first good run");
+
+      // 5. an unexpected exception (database unreachable) takes the same failure path
+      beatSink.reqs.length = 0; cronAlertSink.hits.length = 0;
+      const dead = await spawnCron(3110, "mongodb://127.0.0.1:1/r17dead?serverSelectionTimeoutMS=1500");
+      const unauth = await call(dead.url); assert.equal(unauth.status, 401);
+      assert.equal(beatSink.reqs.length, 0);
+      const boom = await call(dead.url, { headers: bearer }); const boomText = await boom.text();
+      assert.equal(boom.status, 500); assert.deepEqual(JSON.parse(boomText), { ok: false, error: "Scheduled jobs failed" }); leaks(boomText, dead.logs.text);
+      assert.deepEqual(beatSink.reqs.map((r) => r.path), ["/alert/fail"], "failure heartbeat after an exception");
+      await waitFor(() => alertKeys().includes("cron.failed"));
+      assert.ok(alertKeys().includes("cron.failed"), "the exception was reported as cron.failed");
+      assert.ok(!JSON.stringify(cronAlertSink.hits).includes("mongodb://"), "alerts carry no database URI");
+      assert.ok(!dead.logs.text.includes("mongodb://") && !dead.logs.text.includes(cronSecret), "logs carry no URI or secret");
+      await cdb.close();
+    } finally { beatSink.server.close(); cronAlertSink.server.close(); }
 
     // ---- R8: Content-Security-Policy on public and authenticated pages (production build) ----
     const cspOf = async (path: string, cookie?: string) => { const r = await fetch(base + path, { headers: cookie ? { cookie } : {} }); return { r, csp: r.headers.get("content-security-policy") ?? "", html: await r.text() }; };

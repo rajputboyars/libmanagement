@@ -27,7 +27,9 @@ export async function limitedShared(key: string, limit: number, windowSeconds: n
   const hit = await RateLimit.findOneAndUpdate({ key, resetAt: { $gt: now } }, { $inc: { count: 1 } }, { new: true }).lean<{ count: number }>();
   if (hit) return hit.count > limit;
   try {
-    await RateLimit.findOneAndUpdate({ key }, { $set: { count: 1, resetAt: new Date(now.getTime() + windowSeconds * 1000) } }, { upsert: true, new: true });
+    // Only an expired (or absent) window may be restarted: a concurrent caller that already restarted it makes this filter miss, the upsert then
+    // collides on the unique key (11000) and that caller is counted in the live window instead of silently resetting it.
+    await RateLimit.findOneAndUpdate({ key, resetAt: { $lte: now } }, { $set: { count: 1, resetAt: new Date(now.getTime() + windowSeconds * 1000) } }, { upsert: true, new: true });
   } catch (error) {
     if ((error as { code?: number }).code !== 11000) throw error;
     const again = await RateLimit.findOneAndUpdate({ key }, { $inc: { count: 1 } }, { new: true }).lean<{ count: number }>();
