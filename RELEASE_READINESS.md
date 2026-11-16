@@ -1,10 +1,78 @@
 ACCEPTED (design limit): documented in README under Offline behaviour 
 
-**Release decision: NOT READY for production launch.**
-The application passes every automated check that can run without real infrastructure, but mandatory production controls that need accounts, infrastructure or people (backups on the real database, monitoring and alerting, live payment gateway, email delivery, HTTPS domain, legal pages, a pilot) have not been done and cannot be done from the codebase. Nothing here has been deployed, no live credentials were used and no live payment was made.
+**Final go-live audit (R15, 2026-11-16): ENGINEERING READINESS: PASS (pilot scope) · CONTROLLED PILOT: NO-GO · PUBLIC LAUNCH: NO-GO.**
+All automated checks pass, but every mandatory pilot entry criterion that needs real infrastructure, accounts, people or approvals is **NOT VERIFIED** or **FAIL**, and nothing external was contacted. `npm run pilot:gate` = **0 pass, 2 fail, 15 not verified**; `pilot-evidence.json` does not exist, so **no real-world evidence has been recorded for any item**. The operator actions are in **docs/GO_LIVE_CHECKLIST.md**. This document is updated, never replaced, as real evidence arrives.
 
-Last verified: 2026-10-17 on Windows 10 / Node 24 / local disposable MongoDB replica sets.
-Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **NOT TESTED**. A category is PASS only if every mandatory item in it is evidenced.
+Last verified: 2026-11-16 (R15) on Windows 10 / Node 24 / local disposable MongoDB replica sets. Sections dated earlier (for example the 2026-10-17 PWA and container evidence) are historical and were **not re-run** in R15.
+Status values: **PASS** · **FAIL** · **NOT VERIFIED** (could not be checked from the codebase or this machine: needs infrastructure, credentials, people or approvals) · **NOT TESTED** (a test does not exist). A row is PASS only with evidence of the kind it claims: *local evidence* (tests, local builds, disposable databases, simulators) never turns a **real-world** item into PASS.
+
+## Final audit tables (R15)
+
+### A. Engineering readiness (local evidence only)
+
+| # | Check | Status | Evidence / exact missing action | Blocks pilot | Blocks public |
+|---|---|---|---|---|---|
+| A1 | Typecheck | PASS | `npm run typecheck`, 0 errors | no | no |
+| A2 | Lint | PASS | `npm run lint`, 0 errors on all tracked code. (R15 fix: the local, git-ignored `.claude/` tooling folder was being linted, 2,514 errors; now ignored. CI is unaffected.) | no | no |
+| A3 | Unit tests | PASS | 219 tests: 214 pass, 0 fail, 5 skipped (database tests that run in the integration suite) | no | no |
+| A4 | Integration tests (real MongoDB replica set, disposable) | PASS | 6/6: tenant scope, token signing, backup drill, encrypted backup/restore, billing pipeline, demo-data isolation + PII-free metrics | no | no |
+| A5 | HTTP end-to-end suite (production build + real MongoDB, 5 server instances) | PASS | registration, tenant/role isolation, mandatory 2FA, CSP, consent, payments pipeline (simulator), health, outage behaviour, smoke test, refusal to start, onboarding rehearsal | no | no |
+| A6 | Production build | PASS | `npm run build` | no | no |
+| A7 | Production dependency audit | PASS | `npm audit --omit=dev`: 0 vulnerabilities | no | no |
+| A8 | Full dependency audit | PASS (accepted) | 15 findings (2 low, 12 moderate, 1 high), all in dev/tooling dependencies that are not shipped; fixing needs a breaking lint-toolchain upgrade. Re-check before public launch | no | no |
+| A9 | Container web entrypoint (`node server.js` from `.next/standalone`, as in the Dockerfile `CMD`) | PASS (local) | R15: booted without Docker: `/api/health` 200 with no database, `/privacy` 200, static asset 200, nonce CSP, `/api/ready` 503 with an unreachable database; with `APP_ENV=production` and bad config it exits 1 (`server.refused_to_start`) | no | no |
+| A10 | Worker process | PASS (local) | R15: `scripts/worker.ts` started against a disposable replica set, completed a tick (`jobs.completed`), 0 errors logged | no | no |
+| A11 | Docker image builds (web and worker) | **NOT VERIFIED** | `docker` is not installed on this machine. Earlier session notes (2026-10-17) record successful builds; they were not re-run. Action: CI `image` job must pass on the hosted service, or build locally on a machine with Docker | no (needed before deploy: gate item "staging deployed") | yes |
+| A12 | CI on the hosted service | **NOT VERIFIED** | Workflows exist (`ci.yml`, `backup.yml`); never run on GitHub. Action: push the branch and record a green run | no | yes |
+| A13 | Browser QA | PASS (manual, local) | Real-browser journeys for mandatory 2FA, recovery, reset, responsive layouts (R9.1) and legal pages (R13). There is **no automated browser suite in CI** | no | no (recommended) |
+| A14 | Performance | **FAIL** (landing page) | Lighthouse mobile: `/` 84 (target ≥ 90), LCP 3.0 s (target ≤ 2.5 s); other public pages pass. Load, soak and API latency are **NOT TESTED** | no | **yes** |
+| A15 | Rate limiting beyond sign-in | PARTIAL | General API limits are per-process memory: acceptable for one instance, must move to the shared limiter or edge before several instances | no (pilot = single web instance) | yes |
+| A16 | Accessibility | PASS (automated) / manual **NOT TESTED** | Lighthouse a11y 100; no screen-reader, keyboard-only or zoom audit | no | yes |
+| A17 | Independent security review / penetration test | **NOT VERIFIED** | None commissioned | recommended before real data | **yes** |
+
+**Engineering readiness: PASS for the controlled-pilot scope** (every automated check passes and no release-blocking defect remains open). **FAIL against public-launch engineering targets** (A11, A12, A14, A15, A17 plus untested load).
+
+### B. Release-critical paths: local evidence vs real-world evidence
+
+| Path | Local evidence (code, tests, simulators) | Real-world evidence | Blocks pilot | Blocks public |
+|---|---|---|---|---|
+| Mandatory 2FA for owners/admins and recovery | PASS: server-side gate in `currentUser()`, enrolment-only token, no disable, reset/change bypasses refused, operator reset re-enrolment (HTTP R9 block); browser-verified QR/code/recovery/expiry/back/reload (R9.1) | **NOT VERIFIED**: no deployed host; a dedicated `TWO_FACTOR_KEY` is not set; no platform admins enrolled | yes | yes |
+| Cross-tenant isolation and role access | PASS: library-scoped server checks; HTTP suite across owners, staff roles, students, admins; consent records user-scoped; two-new-library onboarding rehearsal (R14); backup restore verifies per-library counts | **NOT VERIFIED** on real pilot data (manual spot checks in the first week are a runbook step) | yes | yes |
+| Payment-key separation; webhook-only financial updates | PASS: profiles (staging = test keys only, production declares live/test), live key refused outside production/https, no browser success path, signature/idempotency/validation (unit, integration, HTTP) | **NOT VERIFIED**: no Razorpay credentials; **never run against Razorpay itself**; no real webhook delivery; live payments not approved | yes | yes |
+| Backup encryption, integrity, isolated restore | PASS: AES-256-GCM, tamper/wrong-key/truncation rejected, deep checks, restore only into new empty named database, verified counts/indexes/tenants (unit, integration, drill on a disposable database) | **NOT VERIFIED**: no storage, key, read-only user, schedule or Atlas backup/PITR; **no restore from a real backup**; the Atlas cluster in the env files was never contacted | yes | yes |
+| Monitoring, alert delivery, heartbeats | PASS: scrubbed logs, health/readiness, deduplicated alerts, recovery, heartbeats (unit, HTTP against a local HTTPS sink) | **NOT VERIFIED**: no alert destination, uptime probe, heartbeat monitor or log collector; no real alert ever delivered | yes | yes |
+| Legal consent enforcement and public legal pages | PASS: server-enforced acceptance (register, invited activation, checkout), append-only versioned records, public pages, no lock-out, tenant-private (unit, HTTP, browser) | **FAIL**: texts are an unreviewed DRAFT; owner details missing; no lawyer/CA review | yes | yes |
+| Container web/worker deployment and readiness | PASS (local): standalone entrypoint and worker process run; readiness and refusal behave; profiles validated | **NOT VERIFIED**: no host, no image built here, nothing deployed | yes | yes |
+| Demo data isolation and purge | PASS: `[DEMO]`/`isTest`/`@demo.invalid`, never in production, purge exact, real tenants unchanged (integration) | n/a (tooling) | no | no |
+| Pilot onboarding, support, incident response, rollback | PASS (documented and rehearsed on code paths): docs/PILOT_RUNBOOK.md, onboarding rehearsal in HTTP, PII-free metrics | **NOT VERIFIED**: rollback never rehearsed; no named support owner/contacts; no trained staff; no participant agreements | yes | yes |
+
+### C. Controlled pilot readiness: **NO-GO**
+
+Entry gate (`npm run pilot:gate -- --profile production`, 2026-11-16: **0 pass, 2 fail, 15 not verified**). Every row must be PASS with real evidence recorded in `pilot-evidence.json`; **all rows currently block the pilot**. Exact actions: docs/GO_LIVE_CHECKLIST.md.
+
+| Gate item | Status | Missing real-world action |
+|---|---|---|
+| Deployment configuration valid for profile | **FAIL** | `.env.production` lacks `APP_ENV`, `TWO_FACTOR_KEY`, `EMAIL_WEBHOOK_URL`, `ALERT_WEBHOOK_URL`; no payment keys; no staging environment |
+| Legal review and placeholders | **FAIL** | lawyer review; fill placeholders; set `LEGAL_REVIEW_STATUS` |
+| Deployed smoke test | NOT VERIFIED | deploy staging, run `npm run smoke -- --url …` |
+| Fresh, integrity-checked off-site backup | NOT VERIFIED | storage + key + read-only user; run `backup:run`/`check --deep` |
+| Staging deployed from the release commit | NOT VERIFIED | choose host, deploy, record evidence |
+| Real backup restored into isolated staging | NOT VERIFIED | restore drill on real backup (runbook 6.1) |
+| Atlas Cloud Backup/PITR or written limitation | NOT VERIFIED | Atlas check or written acceptance |
+| Uptime probes | NOT VERIFIED | create probes on `/api/ready`, `/api/health` |
+| Real alert + recovery delivered | NOT VERIFIED | webhook + recipients + staging outage test |
+| Heartbeat monitors | NOT VERIFIED | backup, deep check and worker dead-man's-switches |
+| Razorpay test mode with real deliveries | NOT VERIFIED | test keys, plans, real test checkout |
+| Reconciliation against real test traffic | NOT VERIFIED | `npm run billing:reconcile` clean |
+| Export and closure on staging | NOT VERIFIED | exercise on staging |
+| Rollback rehearsed | NOT VERIFIED | rehearse on staging |
+| Two platform admins enrolled | NOT VERIFIED | enrol, store recovery codes offline |
+| Staff trained, support contacts named | NOT VERIFIED | business names people; training |
+| Participants' written agreement | NOT VERIFIED | agreements; business go/no-go signature |
+
+### D. Public production readiness: **NO-GO**
+
+Everything in C, plus (all NOT VERIFIED or FAIL, all block public launch): a completed and signed-off controlled pilot (docs/PILOT_RUNBOOK.md exit criteria); **live** Razorpay verification with written approval and a real low-value transaction; CA sign-off on GST/invoicing and the refund policy; final lawyer-approved legal texts and DPDP position (main obligations apply from about May 2027, to be verified on the Gazette); children's-data decision; independent security review/penetration test; landing-page performance target (A14); load/soak/failover testing; shared rate limiting before multiple instances (A15); hosted CI green and a built, scanned, slimmed worker image (A11/A12; the worker image was 2.9 GB earlier); manual accessibility audit (A16); production support model and monitoring in place.
 
 ## Summary
 
@@ -29,16 +97,16 @@ Status values: **PASS** · **FAIL** · **BLOCKED** (needs external access) · **
 | Check | Result | Evidence |
 |---|---|---|
 | Typecheck | PASS | `npm run typecheck` |
-| Lint | PASS | `npm run lint`, 0 errors, 0 warnings |
+| Lint | PASS | `npm run lint`, 0 errors on tracked code (R15) |
 | Unit tests | PASS | 219 tests: 214 pass, 0 fail, 5 skipped (the database tests, which run in the integration suite) |
 | Integration | PASS | 6 pass: tenant scope and concurrent seat writes, token signing, backup→restore drill, encrypted backup → check → verified restore, billing webhook pipeline (atomicity, idempotency, validation, tenants, reconciliation) |
 | HTTP workflow ("E2E") | PASS | `npm run test:http`: one continuous workflow against a production build and real MongoDB replica set |
 | Production build | PASS | `npm run build` |
 | Production dependency audit | PASS | `npm audit --omit=dev`: 0 vulnerabilities |
-| Dev dependency audit | 5 high (dev-only) | `braces` ReDoS via `eslint-config-next`; not shipped; fix needs a breaking lint upgrade |
-| Browser-driven E2E (Playwright) | **NOT TESTED** | Not installed; the HTTP workflow covers the same flows at API level and screens were checked with Chrome (see Accessibility/Responsive) |
-| Container image (web) | PASS | `docker build --target web` succeeds; container runs as non-root, `/api/health` 200, `/api/ready` returns 503 when the database is unreachable (correct), CSP/HSTS/X-Frame-Options present |
-| Container image (worker) | PASS (build only) | `docker build --target worker` succeeds (2.9 GB because it carries dev dependencies; slim it before production). The worker process itself was exercised through the integration/HTTP suites, not run from the image |
+| Dev dependency audit | 15 findings (1 high), dev/tooling only | not shipped; fix needs a breaking lint-toolchain upgrade (R15 re-check); production audit is 0 |
+| Browser-driven E2E | Manual only (R8/R9.1/R13), no CI suite | A real browser was driven through 2FA, recovery, legal pages and responsive layouts on local servers; the HTTP workflow covers the same flows at API level; there is no automated browser regression suite |
+| Container image (web) | Historical (2026-10-17), not re-run in R15 | `docker build --target web` succeeds; container runs as non-root, `/api/health` 200, `/api/ready` returns 503 when the database is unreachable (correct), CSP/HSTS/X-Frame-Options present |
+| Container image (worker) | Historical (2026-10-17), not re-run in R15 | `docker build --target worker` succeeds (2.9 GB because it carries dev dependencies; slim it before production). The worker process itself was exercised through the integration/HTTP suites, not run from the image |
 
 A defect found and fixed in this phase: `package-lock.json` was missing `@emnapi/*` packages, so `npm ci` failed on Linux (CI and Docker). Fixed by adding them as devDependencies; `npm ci` now succeeds in the container.
 
@@ -155,7 +223,7 @@ Present: README, DEPLOYMENT, BACKUP_RESTORE, MONITORING, BILLING, SECURITY, PILO
 
 ### 11. Deployment — PARTIAL
 Done: Dockerfile (web and worker targets), `.dockerignore`, GitHub Actions CI (verify, dependency audit, image build), health/readiness endpoints, environment validation (rejects weak secrets, non-https `APP_URL`, enabled sandbox billing in production), worker, deployment/rollback procedures, staging/production configuration table.
-Verified: web image builds, runs non-root and serves health/readiness/headers correctly. Worker image builds (2.9 GB, not yet slimmed or run from the image).
+Earlier notes (2026-10-17, not re-run; Docker is unavailable on the R15 machine): web image built and served health/readiness/headers; worker image built (2.9 GB, not slimmed). R15 verified locally, without Docker, that the standalone web entrypoint and the worker process start and behave (A9, A10).
 Not done (needs authorization/infrastructure): CI has never run on the hosted service; no staging environment exists; no production domain, TLS, reverse proxy (`TRUST_PROXY`), secrets manager, database cluster, email provider or alert webhook. Nothing was deployed. Severity High.
 
 ### 12. Pilot acceptance — NOT TESTED

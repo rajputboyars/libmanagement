@@ -4,7 +4,7 @@
 > developer machine this was prepared on (2026-11-16). Nothing external has been verified: no staging or production host exists, no backup
 > storage, uptime probe, alert destination, Razorpay credentials or Atlas backup setting has been checked, no legal review has happened, and
 > **no real library, owner or student has been onboarded.** A staging deployment that boots is not "production-ready", and passing the gate
-> is necessary but never sufficient: the approvals in section 3 are also required. Role names below are placeholders until the business names people.
+> is necessary but never sufficient: the approvals in section 3 are also required. Role names below are placeholders until the business names people. The concrete remaining actions, owners and evidence are in **docs/GO_LIVE_CHECKLIST.md** (R15 final audit: pilot NO-GO).
 
 ## 1. Supported deployment path (decision, from the repository)
 
