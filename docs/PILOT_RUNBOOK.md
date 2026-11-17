@@ -40,6 +40,7 @@ Vercel provides `VERCEL_ENV` (`production` | `preview` | `development`) itself. 
 | `RAZORPAY_KEY_ID` / secret / webhook secret | live keys, Production only | **test keys only** (a `rzp_live_` key in Preview is refused) | test keys |
 | `CRON_SECRET` | set (Vercel sends it as the Bearer token) | not needed (crons run on Production only) | not needed |
 | `SESSION_SECRET`, `ALERT_WEBHOOK_URL`, encryption keys | distinct per scope | distinct per scope | distinct per scope |
+| `EMAIL_WEBHOOK_URL` / `ALERT_WEBHOOK_URL` | https endpoints (required). Until they exist you may knowingly set `EMAIL_DELIVERY_OPTIONAL=1` and/or `ALERTS_OPTIONAL=1` (exactly `1`): the deployment then starts with a warning, emails are not delivered and alerts are only logged. **Remove the flags once the services exist; running with them is not pilot-ready.** | test endpoints or unset | unset |
 | `JOBS_HEARTBEAT_URL` | production monitor | unset | unset |
 | `MONGODB_POOL_SIZE` | optional (default 5 on Vercel) | optional | optional |
 
