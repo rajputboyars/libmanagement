@@ -6,7 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ArrowRight, Check, PlayCircle } from "lucide-react";
-import { ownerGuide, studentGuide, type GuideVideo } from "@/lib/guide-videos";
+import { explainers, ownerGuide, studentGuide, type GuideVideo } from "@/lib/guide-videos";
 import { buttonVariants } from "@/components/ui/button";
 import { useUI } from "@/lib/ui-store";
 import {
@@ -169,7 +169,7 @@ function Wins({ list }: { list: typeof copy.ownerWins }) {
   );
 }
 
-/** The two Overview videos (student and owner) with links into the full guide. */
+/** The two captioned tour videos (student and owner) with links into the full guide. */
 function HomeVideos() {
   const lang = useLang();
   const v = copy.videos;
@@ -178,14 +178,14 @@ function HomeVideos() {
       role: "student",
       label: v.student,
       text: v.studentText,
-      video: studentGuide[0],
+      video: explainers.student,
       count: studentGuide.length,
     },
     {
       role: "owner",
       label: v.owner,
       text: v.ownerText,
-      video: ownerGuide[0],
+      video: explainers.owner,
       count: ownerGuide.length,
     },
   ];
@@ -213,7 +213,11 @@ function HomeVideos() {
               playsInline
               preload="none"
               className="block aspect-video w-full max-w-full rounded-2xl bg-[#123b2e]"
-            />
+            >
+              {it.video.captions.map((c) => (
+                <track key={c.lang} kind="captions" src={c.src} srcLang={c.lang === "hi" ? "hi-Latn" : "en"} label={c.lang === "hi" ? "Hinglish" : "English"} default={c.lang === lang} />
+              ))}
+            </video>
             <div className="grid gap-1 px-1.5 pb-1.5">
               <h3 className={`${serif} m-0 text-[22px]`}>
                 {say(lang, it.label)}

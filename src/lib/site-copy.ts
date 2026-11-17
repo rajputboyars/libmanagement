@@ -114,11 +114,11 @@ export const copy = {
     note: p("StudyQuest is in a careful pilot with a small number of libraries.", "StudyQuest abhi kuch libraries ke saath dhyaan se pilot mein hai."),
   },
   videos: {
-    eyebrow: p("Video guide · Hindi audio", "Video guide · Hindi audio"),
+    eyebrow: p("Quick tour · with captions", "Quick tour · captions ke saath"),
     title: p("See how it works", "Dekhiye kaise kaam karta hai"),
     lede: p(
-      "Short videos for every screen, for students and for library owners.",
-      "Har screen ke chhote videos, students aur library owners ke liye.",
+      "A 1-minute captioned tour for students and for library owners. Every screen also has its own video below.",
+      "Students aur library owners ke liye 1 minute ka captions wala tour. Har screen ka apna video bhi hai.",
     ),
     student: p("For students", "Students ke liye"),
     studentText: p(

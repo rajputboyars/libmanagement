@@ -520,3 +520,17 @@ export const ownerGuide: GuideVideo[] = [
     seconds: 40,
   },
 ];
+
+/** Short captioned tours (no audio) recorded by scripts/record-guide.mjs against the current UI. */
+export const explainers: Record<GuideRole, GuideVideo & { captions: { lang: "en" | "hi"; src: string }[] }> = {
+  student: {
+    slug: "tour", title: "Student tour", subtitle: "A quick look at the student app", page: "Tour",
+    src: "/guide/explainer/student.mp4", poster: "/guide/explainer/student.jpg", seconds: 48,
+    captions: [{ lang: "en", src: "/guide/explainer/student.en.vtt" }, { lang: "hi", src: "/guide/explainer/student.hi.vtt" }],
+  },
+  owner: {
+    slug: "tour", title: "Owner tour", subtitle: "A quick look at the owner dashboard", page: "Tour",
+    src: "/guide/explainer/owner.mp4", poster: "/guide/explainer/owner.jpg", seconds: 55,
+    captions: [{ lang: "en", src: "/guide/explainer/owner.en.vtt" }, { lang: "hi", src: "/guide/explainer/owner.hi.vtt" }],
+  },
+};
