@@ -323,10 +323,33 @@ export function MarketingHome() {
             </Link>
           ))}
         </div>
+        <TrustStrip />
         <HomeVideos />
         <MarketingCta />
       </div>
     </section>
+  );
+}
+
+function TrustStrip() {
+  const lang = useLang();
+  const t = copy.trust;
+  return (
+    <div className="mt-14 grid gap-5">
+      <div className="grid max-w-[60ch] gap-2">
+        <span className={eyebrow}>{say(lang, t.eyebrow)}</span>
+        <h2 className={`${serif} m-0 text-[clamp(26px,3.6vw,38px)] !leading-tight`}>{say(lang, t.title)}</h2>
+      </div>
+      <div className="grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
+        {t.items.map(([name, text], i) => (
+          <div key={i} className="grid min-w-0 content-start gap-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5">
+            <strong>{say(lang, name)}</strong>
+            <span className={`text-sm ${muted}`}>{say(lang, text)}</span>
+          </div>
+        ))}
+      </div>
+      <p className={`m-0 text-sm ${muted}`}>{say(lang, t.note)}</p>
+    </div>
   );
 }
 

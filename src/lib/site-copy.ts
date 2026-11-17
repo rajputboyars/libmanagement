@@ -81,6 +81,17 @@ export const copy = {
       ],
     ] as [string, Pair, Pair][],
   },
+  trust: {
+    eyebrow: p("Built to be trusted", "Bharose ke liye bana"),
+    title: p("Your students' data stays safe and private.", "Aapke students ka data surakshit aur private."),
+    items: [
+      [p("Two-step sign-in", "Two-step sign-in"), p("Owners and admins must use an authenticator code with their password.", "Owners aur admins ko password ke saath authenticator code lagana padta hai.")],
+      [p("Your library's data is separate", "Library ka data alag"), p("Every library only ever sees its own students, fees and reports.", "Har library sirf apne students, fees aur reports dekhti hai.")],
+      [p("Clear privacy and consent", "Saaf privacy aur consent"), p("Privacy policy, terms and consent are shown before you start.", "Shuru karne se pehle privacy policy, terms aur consent dikhte hain.")],
+      [p("Backed up", "Backup surakshit"), p("Encrypted backups with restore checks, so records are not lost.", "Encrypted backup aur restore checks, taaki records na khoyein.")],
+    ] as [Pair, Pair][],
+    note: p("StudyQuest is in a careful pilot with a small number of libraries.", "StudyQuest abhi kuch libraries ke saath dhyaan se pilot mein hai."),
+  },
   videos: {
     eyebrow: p("Video guide · Hindi audio", "Video guide · Hindi audio"),
     title: p("See how it works", "Dekhiye kaise kaam karta hai"),
@@ -697,11 +708,11 @@ export const comingSoon: {
   },
   {
     for: [p("Student", "Student"), p("Owner", "Owner")],
-    stage: p("Coded · needs live keys", "Code taiyaar · keys baaki"),
+    stage: p("Coded · sandbox-tested only", "Code taiyaar · sirf sandbox test"),
     title: p("Pay fees online in the app", "App se online fees payment"),
     text: p(
-      "Students pay fees straight from the app (Razorpay). Already tested.",
-      "Student seedha app se fees bhare (Razorpay). Test ho chuka hai.",
+      "Students pay fees straight from the app (Razorpay). Tested in sandbox only; live payments are not switched on yet.",
+      "Student seedha app se fees bhare (Razorpay). Abhi sirf sandbox mein test hua hai; live payment abhi chalu nahi hai.",
     ),
     gain: p(
       "No more cash hassle, and fees arrive on time.",
@@ -719,19 +730,6 @@ export const comingSoon: {
     gain: p(
       "Builds trust for libraries with school students.",
       "School ke bachchon wali libraries ka bharosa badhega.",
-    ),
-  },
-  {
-    for: [p("Owner", "Owner"), p("Student", "Student")],
-    stage: p("Before launch", "Launch se pehle"),
-    title: p("Two-step login", "Two-step login"),
-    text: p(
-      "An extra code with your password to keep accounts and fee data safer.",
-      "Password ke saath ek extra code, taaki account aur fees data surakshit rahe.",
-    ),
-    gain: p(
-      "Your account stays safe even if a password leaks.",
-      "Password leak ho, tab bhi account safe.",
     ),
   },
   {

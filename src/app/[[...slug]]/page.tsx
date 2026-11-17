@@ -14,6 +14,14 @@ const PUBLIC: Record<string, { title: string; description: string }> = {
   "/demo": { title: "Book a demo", description: "See StudyQuest running a real library. Book a short walkthrough." },
   "/discover": { title: "Find a study library", description: "Search study libraries by location, fees, facilities and live seat availability." },
 };
+const SOFTWARE_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "StudyQuest",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  description: PUBLIC["/"].description,
+};
 const PRIVATE = ["/app", "/owner", "/super-admin", "/billing", "/login", "/register", "/forgot-password", "/reset-password", "/onboarding"];
 
 export async function generateMetadata({ params }: { params: Promise<{ slug?: string[] }> }): Promise<Metadata> {
@@ -31,5 +39,11 @@ export default async function Page({
   params: Promise<{ slug?: string[] }>;
 }) {
   const { slug = [] } = await params;
-  return <AppEntry path={"/" + slug.join("/")} />;
+  const path = "/" + slug.join("/");
+  return (
+    <>
+      {path === "/" && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(SOFTWARE_LD) }} />}
+      <AppEntry path={path} />
+    </>
+  );
 }
