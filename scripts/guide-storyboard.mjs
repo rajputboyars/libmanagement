@@ -31,4 +31,41 @@ export const storyboards = {
       { path: "/app/security", caption: ["Manage your sign-in and security settings here.", "Apni sign-in aur security settings yahan sambhalein."] },
     ],
   },
+  "owner-overview": { session: "owner", group: "pages", dir: "owner", name: "01-overview", scenes: [
+      { path: "/owner", caption: ["This is your dashboard: today's money, students and seats at a glance.", "Yeh aapka dashboard hai: aaj ka paisa, students aur seats ek nazar mein."] },
+      { path: "/owner", caption: ["Scroll down for what needs attention: dues, expiring memberships and requests.", "Neeche dekhein: baaki fees, khatam hoti memberships aur requests."], scroll: 500 },
+      { path: "/owner", caption: ["The menu on the left takes you to every part of your library.", "Left menu se library ke har hisse mein jaa sakte hain."], scroll: 500 },
+  ] },
+  "owner-branches": { session: "owner", group: "pages", dir: "owner", name: "25-branches", scenes: [
+      { path: "/owner/branches", caption: ["If you run more than one library, see every branch in one view.", "Agar ek se zyada library hain, toh sab branches ek jagah dekhein."] },
+      { path: "/owner/branches", caption: ["Each branch keeps its own seats, shifts, fees, staff and accounts.", "Har branch ki apni seats, shifts, fees, staff aur hisaab hota hai."], scroll: 400 },
+      { path: "/owner/branches", caption: ["Add a branch, then give staff the branches they should handle.", "Nayi branch jodein, phir staff ko unki branch saunpein."], scroll: 400 },
+  ] },
+  "owner-billing": { session: "owner", group: "pages", dir: "owner", name: "26-billing", scenes: [
+      { path: "/owner/billing", caption: ["This is your StudyQuest plan. It is separate from your students' fees.", "Yeh aapka StudyQuest plan hai. Yeh students ki fees se alag hai."] },
+      { path: "/owner/billing", caption: ["See your limits and usage. The free plan needs no card.", "Apni limits aur usage dekhein. Free plan mein card nahi chahiye."], scroll: 450 },
+      { path: "/owner/billing", caption: ["A paid plan starts only after the payment gateway confirms the payment.", "Paid plan tabhi shuru hota hai jab payment gateway payment confirm kare."], scroll: 450 },
+  ] },
+  "owner-settings": { session: "owner", group: "pages", dir: "owner", name: "28-settings", scenes: [
+      { path: "/owner/settings", caption: ["Your library workspace details live here, and stay private to your library.", "Library workspace ki jaankari yahan hai, aur sirf aapki library tak seemit rehti hai."] },
+      { path: "/owner/settings", caption: ["Under Manage, Team & roles gives staff limited access, for example only attendance or only payments.", "Manage mein Team & roles se staff ko seemit access dein, jaise sirf attendance ya sirf payments."] },
+      { path: "/owner/settings", caption: ["The Activity tab shows who changed what, and when.", "Activity tab mein dikhta hai kisne, kab, kya badla."], click: "Activity" },
+  ] },
+  "owner-security": { session: "owner", group: "pages", dir: "owner", name: "29-security", scenes: [
+      { path: "/owner/security", caption: ["Account and privacy: change your password here.", "Account aur privacy: yahan apna password badlein."] },
+      { path: "/owner/security", caption: ["Two-step sign-in is required for owners: a code from your authenticator app, plus recovery codes.", "Owners ke liye two-step sign-in zaroori hai: authenticator app ka code, aur recovery codes."], scroll: 350 },
+      { path: "/owner/security", caption: ["Sign out of all devices, download your data and review the terms you accepted.", "Sabhi devices se logout, apna data download aur accept kiye terms dekhein."], scroll: 450 },
+  ] },
+  "student-overview": { session: "student", group: "pages", dir: "student", name: "01-overview", scenes: [
+      { path: "/app", caption: ["Your home screen: your library, membership and what to do next.", "Aapki home screen: aapki library, membership aur aage kya karna hai."] },
+      { path: "/app", caption: ["Scroll for your quests, announcements and progress.", "Quests, announcements aur progress ke liye neeche dekhein."], scroll: 450 },
+  ] },
+  "student-join": { session: "student", group: "pages", dir: "student", name: "02-join", scenes: [
+      { path: "/app/join", caption: ["Ask your library for its Library ID and type it here.", "Apni library se Library ID maangein aur yahan daalein."] },
+      { path: "/app/join", caption: ["Your request goes to the owner. Once approved you get a seat and a membership.", "Request owner ke paas jaati hai. Approve hone par seat aur membership milti hai."], scroll: 300 },
+  ] },
+  "student-security": { session: "student", group: "pages", dir: "student", name: "27-security", scenes: [
+      { path: "/app/security", caption: ["Account and privacy: change your password and see your devices.", "Account aur privacy: password badlein aur devices dekhein."] },
+      { path: "/app/security", caption: ["Sign out of all devices, download your data, or delete your account.", "Sabhi devices se logout, apna data download, ya account delete karein."], scroll: 450 },
+  ] },
 };

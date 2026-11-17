@@ -75,8 +75,8 @@ export const copy = {
         "/guide",
         p("56 video guides", "56 video guides"),
         p(
-          "Every screen explained in a short video with Hindi audio.",
-          "Har screen ek chhote video mein, Hindi audio ke saath.",
+          "Every screen explained in a short video, with Hindi audio or captions.",
+          "Har screen ek chhote video mein, Hindi audio ya captions ke saath.",
         ),
       ],
     ] as [string, Pair, Pair][],
@@ -220,8 +220,8 @@ export const copy = {
       "Yeh order asli hai: har kadam pichhle par tika hai.",
     ),
     note: p(
-      "Every one of the 56 screens has a short video guide with Hindi audio, so owners, staff and students learn without training.",
-      "Saare 56 screens ka chhota video guide hai, Hindi audio ke saath, taaki owner, staff aur students bina training seekh lein.",
+      "Every one of the 56 screens has a short video guide (Hindi audio or English/Hinglish captions), so owners, staff and students learn without training.",
+      "Saare 56 screens ka chhota video guide hai, Hindi audio ya captions ke saath, taaki owner, staff aur students bina training seekh lein.",
     ),
     noteCta: p("Open the video guide", "Video guide kholein"),
   },

@@ -24,8 +24,8 @@ export function guideMeta(
       title: who,
       description:
         r.role === "owner"
-          ? "Every page of the StudyQuest owner portal explained, with a Hindi video for each: seats, shifts, admissions, fees, attendance and reports."
-          : "Every page of the StudyQuest student portal explained, with a Hindi video for each: joining a library, attendance, focus timer, XP and exam prep.",
+          ? "Every page of the StudyQuest owner portal explained, with a short video for each: seats, shifts, admissions, fees, attendance and reports."
+          : "Every page of the StudyQuest student portal explained, with a short video for each: joining a library, attendance, focus timer, XP and exam prep.",
     };
   const page = guidePages[r.role].find((p) => p.slug === r.slug)!;
   const video = (r.role === "owner" ? ownerGuide : studentGuide).find(

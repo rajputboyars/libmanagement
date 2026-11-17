@@ -9,6 +9,8 @@ export type GuideVideo = {
   src: string;
   poster: string;
   seconds: number;
+  /** Silent, captioned video: <name>.en.vtt and <name>.hi.vtt sit beside the mp4. */
+  captions?: boolean;
 };
 
 export const studentGuide: GuideVideo[] = [
@@ -19,7 +21,8 @@ export const studentGuide: GuideVideo[] = [
     page: "Overview",
     src: "/guide/student/01-overview.mp4",
     poster: "/guide/student/01-overview.jpg",
-    seconds: 87,
+    seconds: 12,
+    captions: true,
   },
   {
     slug: "join",
@@ -28,7 +31,8 @@ export const studentGuide: GuideVideo[] = [
     page: "Join a library",
     src: "/guide/student/02-join.mp4",
     poster: "/guide/student/02-join.jpg",
-    seconds: 84,
+    seconds: 12,
+    captions: true,
   },
   {
     slug: "membership",
@@ -253,7 +257,8 @@ export const studentGuide: GuideVideo[] = [
     page: "Account & privacy",
     src: "/guide/student/27-security.mp4",
     poster: "/guide/student/27-security.jpg",
-    seconds: 54,
+    seconds: 12,
+    captions: true,
   },
 ];
 
@@ -265,7 +270,8 @@ export const ownerGuide: GuideVideo[] = [
     page: "Overview",
     src: "/guide/owner/01-overview.mp4",
     poster: "/guide/owner/01-overview.jpg",
-    seconds: 84,
+    seconds: 18,
+    captions: true,
   },
   {
     slug: "onboarding",
@@ -481,7 +487,8 @@ export const ownerGuide: GuideVideo[] = [
     page: "Branches",
     src: "/guide/owner/25-branches.mp4",
     poster: "/guide/owner/25-branches.jpg",
-    seconds: 50,
+    seconds: 18,
+    captions: true,
   },
   {
     slug: "billing",
@@ -490,7 +497,8 @@ export const ownerGuide: GuideVideo[] = [
     page: "Billing",
     src: "/guide/owner/26-billing.mp4",
     poster: "/guide/owner/26-billing.jpg",
-    seconds: 50,
+    seconds: 18,
+    captions: true,
   },
   {
     slug: "support",
@@ -508,7 +516,8 @@ export const ownerGuide: GuideVideo[] = [
     page: "Settings",
     src: "/guide/owner/28-settings.mp4",
     poster: "/guide/owner/28-settings.jpg",
-    seconds: 58,
+    seconds: 19,
+    captions: true,
   },
   {
     slug: "security",
@@ -517,12 +526,13 @@ export const ownerGuide: GuideVideo[] = [
     page: "Account & privacy",
     src: "/guide/owner/29-security.mp4",
     poster: "/guide/owner/29-security.jpg",
-    seconds: 40,
+    seconds: 19,
+    captions: true,
   },
 ];
 
 /** Short captioned tours (no audio) recorded by scripts/record-guide.mjs against the current UI. */
-export const explainers: Record<GuideRole, GuideVideo & { captions: { lang: "en" | "hi"; src: string }[] }> = {
+export const explainers: Record<GuideRole, Omit<GuideVideo, "captions"> & { captions: { lang: "en" | "hi"; src: string }[] }> = {
   student: {
     slug: "tour", title: "Student tour", subtitle: "A quick look at the student app", page: "Tour",
     src: "/guide/explainer/student.mp4", poster: "/guide/explainer/student.jpg", seconds: 48,

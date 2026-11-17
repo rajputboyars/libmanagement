@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CaptionTracks } from "@/components/caption-tracks";
 import { motion } from "motion/react";
 import {
   ArrowLeft,
@@ -248,7 +249,9 @@ export function GuidePortal({ role }: { role: GuideRole }) {
           playsInline
           preload="none"
           className="aspect-video w-full rounded-3xl bg-[#123b2e] shadow-[0_30px_80px_-40px_rgba(18,59,46,.6)]"
-        />
+        >
+          <CaptionTracks video={first} />
+        </video>
       </div>
       {guideCategories[role].map((cat) => {
         const inCat = pages.filter((p) => p.category === cat);
@@ -325,9 +328,11 @@ export function GuideDetail({ role, slug }: { role: GuideRole; slug: string }) {
             playsInline
             preload="none"
             className="aspect-video w-full rounded-3xl bg-[#123b2e] shadow-[0_30px_80px_-40px_rgba(18,59,46,.6)]"
-          />
+          >
+            <CaptionTracks video={v} />
+          </video>
           <p className={`mt-2 text-sm ${muted}`}>
-            Hindi video · {clock(v.seconds)}
+            {v.captions ? "Captioned video" : "Hindi video"} · {clock(v.seconds)}
           </p>
         </div>
       )}

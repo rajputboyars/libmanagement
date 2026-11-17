@@ -163,8 +163,9 @@ export function PublicPage({ path }: { path: string }) {
               <span className="eyebrow">VIDEO GUIDE · HINDI AUDIO</span>
               <h1>Har screen, aasaan bhasha mein</h1>
               <p>
-                Short Hindi videos that explain every page of StudyQuest, for
-                students and for library owners.
+                Short videos that explain every page of StudyQuest, for students
+                and for library owners, with Hindi audio or English/Hinglish
+                captions.
               </p>
             </div>
             <GuideHubCards />
