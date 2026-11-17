@@ -288,3 +288,25 @@ test("start-up refusal: invalid production configuration exits (never serves), i
   const dev = await run({ NODE_ENV: "development" });
   assert.deepEqual(dev.exits, []); assert.match(dev.out, /"event":"server.started"/);
 });
+
+test("email and alert destinations: required in production unless knowingly acknowledged; the acknowledgement never hides anything else", () => {
+  const ok = { NODE_ENV: "production", APP_ENV: "production", VERCEL: "1", VERCEL_ENV: "production", MONGODB_URI: "mongodb+srv://u:p@cluster0.abcde.mongodb.net/studyquest", SESSION_SECRET: "s".repeat(40), TWO_FACTOR_KEY: "t".repeat(40), APP_URL: "https://app.example.in" };
+  const errs = (env: Record<string, string | undefined>) => mustRefuseToStart(env, "web").problems.filter((p) => p.level === "error").map((p) => p.key).sort();
+  assert.deepEqual(errs(ok), ["ALERT_WEBHOOK_URL", "EMAIL_WEBHOOK_URL"], "by default both are required and the deployment refuses to start");
+  assert.equal(mustRefuseToStart(ok, "web").refuse, true);
+  const both = { ...ok, EMAIL_DELIVERY_OPTIONAL: "1", ALERTS_OPTIONAL: "1" };
+  assert.deepEqual(errs(both), []); assert.equal(mustRefuseToStart(both, "web").refuse, false, "acknowledged: starts");
+  const warned = mustRefuseToStart(both, "web").problems.filter((p) => p.level === "warn").map((p) => p.key);
+  assert.ok(warned.includes("EMAIL_WEBHOOK_URL") && warned.includes("ALERT_WEBHOOK_URL"), "it is still reported, as a warning");
+  assert.deepEqual(errs({ ...ok, EMAIL_DELIVERY_OPTIONAL: "1" }), ["ALERT_WEBHOOK_URL"], "each acknowledgement covers only its own destination");
+  assert.deepEqual(errs({ ...ok, ALERTS_OPTIONAL: "1" }), ["EMAIL_WEBHOOK_URL"]);
+  for (const v of ["true", "yes", "0", ""]) assert.deepEqual(errs({ ...ok, EMAIL_DELIVERY_OPTIONAL: v, ALERTS_OPTIONAL: v }), ["ALERT_WEBHOOK_URL", "EMAIL_WEBHOOK_URL"], `only "1" counts (${JSON.stringify(v)})`);
+  assert.deepEqual(errs({ ...both, EMAIL_WEBHOOK_URL: "http://mail.example.in", ALERT_WEBHOOK_URL: "http://hooks.example.in" }), ["ALERT_WEBHOOK_URL", "EMAIL_WEBHOOK_URL"], "a configured but insecure URL is still an error");
+  assert.deepEqual(errs({ ...both, TWO_FACTOR_KEY: undefined }), ["TWO_FACTOR_KEY"], "mandatory 2FA key can never be waived");
+  assert.deepEqual(errs({ ...both, APP_ENV: undefined }), ["APP_ENV"], "environment labelling can never be waived");
+  assert.deepEqual(errs({ ...both, ALLOW_BILLING_SANDBOX: "1" }), ["ALLOW_BILLING_SANDBOX"]);
+  // the runtime readiness check follows the same rule
+  const ready = (env: Record<string, string | undefined>) => checkEnv(env).filter((i) => i.level === "error").map((i) => i.key);
+  assert.ok(ready({ ...ok }).includes("EMAIL_WEBHOOK_URL")); assert.ok(!ready({ ...both }).includes("EMAIL_WEBHOOK_URL"));
+  assert.equal(mustRefuseToStart(both, "backup").problems.some((p) => p.key === "ALERT_WEBHOOK_URL" && p.level === "error"), true, "the backup job still must be able to alert: the acknowledgement does not cover it");
+});

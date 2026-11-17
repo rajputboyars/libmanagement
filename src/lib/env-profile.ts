@@ -47,7 +47,7 @@ export function profileProblems(env: Env, profile: Profile, role: Role = "web"):
     else if (LOCAL.test(hostOf(url))) err("APP_URL", "Must be the public domain, not a local address");
     else if (profile === "staging" && !/staging|stg|test|qa|preview/i.test(hostOf(url))) warn("APP_URL", "A staging URL should be clearly distinguishable from production (for example staging.<domain>)");
     if (env.TRUST_PROXY !== "1" && env.VERCEL !== "1") err("TRUST_PROXY", "Set TRUST_PROXY=1 when behind the TLS proxy/load balancer that overwrites X-Forwarded-For; without it every visitor shares one rate-limit bucket");
-    if (!env.EMAIL_WEBHOOK_URL) err("EMAIL_WEBHOOK_URL", "Required: password reset, invitations and verification cannot work without it");
+    if (!env.EMAIL_WEBHOOK_URL) { if (env.EMAIL_DELIVERY_OPTIONAL === "1") warn("EMAIL_WEBHOOK_URL", "Not configured (acknowledged with EMAIL_DELIVERY_OPTIONAL=1): password reset, invitations and verification emails are NOT delivered. Remove the flag once an email relay is set up"); else err("EMAIL_WEBHOOK_URL", "Required: password reset, invitations and verification cannot work without it (set EMAIL_DELIVERY_OPTIONAL=1 only to knowingly run without email)"); }
     else if (!env.EMAIL_WEBHOOK_URL.startsWith("https://")) err("EMAIL_WEBHOOK_URL", "Must be https://");
     if (env.ALLOW_BILLING_SANDBOX === "1") err("ALLOW_BILLING_SANDBOX", "Must be unset: the local sandbox moves no money and must not exist in a deployed environment");
     if (!env.CRON_SECRET && env.VERCEL === "1") warn("CRON_SECRET", "Needed for the HTTP job trigger on serverless hosting");
@@ -65,7 +65,7 @@ export function profileProblems(env: Env, profile: Profile, role: Role = "web"):
   }
 
   if (role !== "backup") {
-    if (!env.ALERT_WEBHOOK_URL) err("ALERT_WEBHOOK_URL", "Required: nobody would be told about outages, crashes or failed payments");
+    if (!env.ALERT_WEBHOOK_URL) { if (env.ALERTS_OPTIONAL === "1") warn("ALERT_WEBHOOK_URL", "Not configured (acknowledged with ALERTS_OPTIONAL=1): alerts are only written to the logs and nobody is notified of outages or failed payments. Remove the flag once an alert destination is set up"); else err("ALERT_WEBHOOK_URL", "Required: nobody would be told about outages, crashes or failed payments (set ALERTS_OPTIONAL=1 only to knowingly run without notifications)"); }
     else if (!env.ALERT_WEBHOOK_URL.startsWith("https://")) err("ALERT_WEBHOOK_URL", "Must be https://");
     if (role === "worker" && !env.WORKER_HEARTBEAT_URL) warn("WORKER_HEARTBEAT_URL", "Recommended: a dead-man's-switch that notices a worker that silently stopped");
   }
