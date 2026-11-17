@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AppEntry } from "@/components/app-entry";
-import { guideMeta } from "@/lib/guide-route";
+import { guideMeta, guideRoute } from "@/lib/guide-route";
+import { ownerGuide, studentGuide } from "@/lib/guide-videos";
 
 const PUBLIC: Record<string, { title: string; description: string }> = {
   "/": { title: "StudyQuest — A little focus. A bigger future.", description: "Manage your study library and give students a rewarding way to focus: seats, memberships, attendance, fees and study progress in one place." },
@@ -9,11 +10,28 @@ const PUBLIC: Record<string, { title: string; description: string }> = {
   "/owners": { title: "For library owners", description: "Seats, shifts, fee receipts, live attendance, admissions and profit reports: everything a study library owner needs in one dashboard." },
   "/students": { title: "For students", description: "A study app connected to your library: focus timer, XP and quests, attendance, fees and receipts, mock tests and smart revision." },
   "/how-it-works": { title: "How it works", description: "A day in a StudyQuest library, from joining with a Library ID to a fee receipt, in five steps." },
-  "/coming-soon": { title: "Coming soon", description: "What StudyQuest is building next: SMS and WhatsApp reminders, online fee payment, parent updates, two-step login and a visual syllabus map." },
-  "/guide": { title: "Video guide", description: "Short videos with Hindi audio explaining every StudyQuest screen for students and library owners." },
+  "/coming-soon": { title: "Coming soon", description: "What StudyQuest is building next: SMS and WhatsApp reminders, online fee payment, parent updates, and a visual syllabus map." },
+  "/guide": { title: "Video guide", description: "Short videos explaining every StudyQuest screen for students and library owners, with Hindi audio or English/Hinglish captions." },
   "/demo": { title: "Book a demo", description: "See StudyQuest running a real library. Book a short walkthrough." },
   "/discover": { title: "Find a study library", description: "Search study libraries by location, fees, facilities and live seat availability." },
 };
+const SOFTWARE_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "StudyQuest",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  description: PUBLIC["/"].description,
+};
+const origin = () => (process.env.APP_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
+/** VideoObject structured data for a single guide page (captioned videos were recorded 17 Nov 2026, the older ones 22 Oct 2026). */
+function videoLd(path: string) {
+  const r = guideRoute(path), meta = guideMeta(path);
+  if (!r?.slug || !meta) return null;
+  const v = (r.role === "owner" ? ownerGuide : studentGuide).find((x) => x.slug === r.slug);
+  if (!v) return null;
+  return { "@context": "https://schema.org", "@type": "VideoObject", name: meta.title, description: meta.description, thumbnailUrl: origin() + v.poster, contentUrl: origin() + v.src, duration: `PT${v.seconds}S`, uploadDate: v.captions ? "2026-11-17" : "2026-10-22", inLanguage: v.captions ? ["en", "hi-Latn"] : "hi" };
+}
 const PRIVATE = ["/app", "/owner", "/super-admin", "/billing", "/login", "/register", "/forgot-password", "/reset-password", "/onboarding"];
 
 export async function generateMetadata({ params }: { params: Promise<{ slug?: string[] }> }): Promise<Metadata> {
@@ -31,5 +49,12 @@ export default async function Page({
   params: Promise<{ slug?: string[] }>;
 }) {
   const { slug = [] } = await params;
-  return <AppEntry path={"/" + slug.join("/")} />;
+  const path = "/" + slug.join("/");
+  return (
+    <>
+      {path === "/" && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(SOFTWARE_LD) }} />}
+      {(() => { const ld = videoLd(path); return ld && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld) }} />; })()}
+      <AppEntry path={path} />
+    </>
+  );
 }

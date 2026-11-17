@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CaptionTracks } from "@/components/caption-tracks";
 import { Suspense, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowRight, ListVideo, Play } from "lucide-react";
@@ -84,6 +85,7 @@ function GuidePlayer({ initial }: { initial: GuideRole }) {
       <div className="vg-player" ref={playerRef}>
         <video
           key={current.src}
+          aria-label={`${current.title} video`}
           src={current.src}
           poster={current.poster}
           controls
@@ -94,7 +96,9 @@ function GuidePlayer({ initial }: { initial: GuideRole }) {
             if (playAll && index < videos.length - 1) open(index + 1, true);
             else setPlayAll(false);
           }}
-        />
+        >
+          <CaptionTracks video={current} />
+        </video>
         <div className="vg-now">
           <div>
             <span className="eyebrow">
@@ -173,20 +177,23 @@ export function GuideTeaser() {
         <span className="eyebrow">VIDEO GUIDE · HINDI AUDIO</span>
         <h2>Dekhiye kaise kaam karta hai</h2>
         <p>
-          Short Hindi videos for every screen, for students and for library
-          owners.
+          Short videos for every screen, for students and for library owners,
+          with Hindi audio or English/Hinglish captions.
         </p>
       </div>
       <div className="vg-teaser-grid">
         {items.map((it) => (
           <article key={it.role} className="vg-teaser-card">
             <video
+              aria-label={`${it.video.title} video`}
               src={it.video.src}
               poster={it.video.poster}
               controls
               playsInline
               preload="none"
-            />
+            >
+              <CaptionTracks video={it.video} />
+            </video>
             <div>
               <h3>{it.label}</h3>
               <p>{it.text}</p>

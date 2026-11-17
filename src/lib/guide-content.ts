@@ -1604,7 +1604,7 @@ export const guidePages: Record<GuideRole, GuidePage[]> = {
       category: "Account & help",
       appPath: "/owner/security",
       summary:
-        "Change password, sign out of all devices and download your data.",
+        "Change password, manage two-step sign-in and recovery codes, sign out of all devices and download your data.",
       benefit: "Keep your library account secure.",
       steps: [
         {
@@ -1614,6 +1614,10 @@ export const guidePages: Record<GuideRole, GuidePage[]> = {
         {
           caption: "Password badlein",
           text: "Yahan aap apna password badal sakte hain. Naya password kam se kam das akshar ka hona chahiye.",
+        },
+        {
+          caption: "Two-step sign-in",
+          text: "Owners ke liye password ke saath authenticator app ka code zaroori hai. Recovery codes sambhal kar rakhein, taaki phone kho jaye tab bhi aap andar aa sakein.",
         },
         {
           caption: "Sabhi devices se logout",

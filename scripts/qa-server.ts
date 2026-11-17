@@ -38,7 +38,8 @@ async function main() {
   await StudentExam.create({ userId: sub!._id, examKey: "ssc", examDate: new Date(Date.now() + 80 * 86400000) });
   const admin = await User.create({ name: "Admin", email: "admin@qa.in", passwordHash: await bcrypt.hash(PASSWORD, 10), role: "super-admin" });
   // QA starts with an UNENROLLED owner and platform admin: they must go through the mandatory setup.
-  await User.updateMany({ email: { $in: ["owner@qa.in", "admin@qa.in"] } }, { $set: { twoFactorEnabled: false }, $inc: { sessionVersion: 1 } });
+  // QA_ENROLLED=1 keeps them enrolled so their session cookies stay valid (used by scripts/record-guide.mjs to film signed-in screens).
+  if (process.env.QA_ENROLLED !== "1") await User.updateMany({ email: { $in: ["owner@qa.in", "admin@qa.in"] } }, { $set: { twoFactorEnabled: false }, $inc: { sessionVersion: 1 } });
   const token = await new SignJWT({ sv: 0 }).setProtectedHeader({ alg: "HS256" }).setSubject(String(admin._id)).setIssuedAt().setExpirationTime("3h").sign(new TextEncoder().encode(secret));
   console.log(`Local QA server: ${base}
   owner   owner@qa.in   / ${PASSWORD}

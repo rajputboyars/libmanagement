@@ -75,18 +75,50 @@ export const copy = {
         "/guide",
         p("56 video guides", "56 video guides"),
         p(
-          "Every screen explained in a short video with Hindi audio.",
-          "Har screen ek chhote video mein, Hindi audio ke saath.",
+          "Every screen explained in a short video, with Hindi audio or captions.",
+          "Har screen ek chhote video mein, Hindi audio ya captions ke saath.",
         ),
       ],
     ] as [string, Pair, Pair][],
   },
+  tour: {
+    eyebrow: p("See it in 60 seconds", "60 second mein dekhiye"),
+    title: p("Pick who you are. Follow the day.", "Aap kaun hain, chuniye. Din dekhiye."),
+    owner: p("Library owner", "Library owner"),
+    student: p("Student", "Student"),
+    steps: {
+      owner: [
+        [p("Set up seats and shifts", "Seats aur shifts set karein"), p("Add your floor plan, shifts and fee plans once. Everything else builds on it.", "Floor plan, shifts aur fee plans ek baar daalein. Baaki sab isi par chalta hai."), "A01–A48"],
+        [p("Approve a join request", "Join request approve karein"), p("A student sends your Library ID. You pick a seat, shift and plan, then approve.", "Student aapki Library ID bhejta hai. Seat, shift, plan chuniye aur approve."), "A12 · Morning"],
+        [p("Record fees, share the receipt", "Fees darj karein, receipt bhejein"), p("Log cash or UPI. The receipt appears in the student's app.", "Cash ya UPI darj karein. Receipt student ke app mein aa jaati hai."), "₹1,200"],
+        [p("Watch attendance and reports", "Attendance aur reports dekhein"), p("See who is in the library now, who is due, and how the month went.", "Abhi kaun library mein hai, kiski fees baaki hai, aur mahina kaisa gaya."), "Live"],
+      ],
+      student: [
+        [p("Join with a Library ID", "Library ID se judein"), p("Type the ID you got at the desk. Your request goes to the owner.", "Counter se mili ID daalein. Request owner ke paas jaati hai."), "LIB-AB12CD"],
+        [p("Punch in from the library", "Library se punch in karein"), p("One tap, only from inside the library. No punch-ins from home.", "Ek tap, sirf library ke andar se. Ghar se punch in nahi."), "≤ 100 m"],
+        [p("Study with a focus timer", "Focus timer ke saath padhein"), p("Timed focus sessions earn XP and build a daily streak.", "Timed focus session se XP milta hai aur streak banti hai."), "25 min"],
+        [p("Track fees and progress", "Fees aur progress dekhein"), p("See your membership, receipts, quests and exam prep in one app.", "Membership, receipts, quests aur exam prep ek hi app mein."), "1 app"],
+      ],
+    } as Record<"owner" | "student", [Pair, Pair, string][]>,
+    more: p("Watch the full video guide", "Poora video guide dekhein"),
+  },
+  trust: {
+    eyebrow: p("Built to be trusted", "Bharose ke liye bana"),
+    title: p("Your students' data stays safe and private.", "Aapke students ka data surakshit aur private."),
+    items: [
+      [p("Two-step sign-in", "Two-step sign-in"), p("Owners and admins must use an authenticator code with their password.", "Owners aur admins ko password ke saath authenticator code lagana padta hai.")],
+      [p("Your library's data is separate", "Library ka data alag"), p("Every library only ever sees its own students, fees and reports.", "Har library sirf apne students, fees aur reports dekhti hai.")],
+      [p("Clear privacy and consent", "Saaf privacy aur consent"), p("Privacy policy, terms and consent are shown before you start.", "Shuru karne se pehle privacy policy, terms aur consent dikhte hain.")],
+      [p("Backed up", "Backup surakshit"), p("Encrypted backups with restore checks, so records are not lost.", "Encrypted backup aur restore checks, taaki records na khoyein.")],
+    ] as [Pair, Pair][],
+    note: p("StudyQuest is in a careful pilot with a small number of libraries.", "StudyQuest abhi kuch libraries ke saath dhyaan se pilot mein hai."),
+  },
   videos: {
-    eyebrow: p("Video guide · Hindi audio", "Video guide · Hindi audio"),
+    eyebrow: p("Quick tour · with captions", "Quick tour · captions ke saath"),
     title: p("See how it works", "Dekhiye kaise kaam karta hai"),
     lede: p(
-      "Short videos for every screen, for students and for library owners.",
-      "Har screen ke chhote videos, students aur library owners ke liye.",
+      "A 1-minute captioned tour for students and for library owners. Every screen also has its own video below.",
+      "Students aur library owners ke liye 1 minute ka captions wala tour. Har screen ka apna video bhi hai.",
     ),
     student: p("For students", "Students ke liye"),
     studentText: p(
@@ -188,8 +220,8 @@ export const copy = {
       "Yeh order asli hai: har kadam pichhle par tika hai.",
     ),
     note: p(
-      "Every one of the 56 screens has a short video guide with Hindi audio, so owners, staff and students learn without training.",
-      "Saare 56 screens ka chhota video guide hai, Hindi audio ke saath, taaki owner, staff aur students bina training seekh lein.",
+      "Every one of the 56 screens has a short video guide (Hindi audio or English/Hinglish captions), so owners, staff and students learn without training.",
+      "Saare 56 screens ka chhota video guide hai, Hindi audio ya captions ke saath, taaki owner, staff aur students bina training seekh lein.",
     ),
     noteCta: p("Open the video guide", "Video guide kholein"),
   },
@@ -697,11 +729,11 @@ export const comingSoon: {
   },
   {
     for: [p("Student", "Student"), p("Owner", "Owner")],
-    stage: p("Coded · needs live keys", "Code taiyaar · keys baaki"),
+    stage: p("Coded · sandbox-tested only", "Code taiyaar · sirf sandbox test"),
     title: p("Pay fees online in the app", "App se online fees payment"),
     text: p(
-      "Students pay fees straight from the app (Razorpay). Already tested.",
-      "Student seedha app se fees bhare (Razorpay). Test ho chuka hai.",
+      "Students pay fees straight from the app (Razorpay). Tested in sandbox only; live payments are not switched on yet.",
+      "Student seedha app se fees bhare (Razorpay). Abhi sirf sandbox mein test hua hai; live payment abhi chalu nahi hai.",
     ),
     gain: p(
       "No more cash hassle, and fees arrive on time.",
@@ -719,19 +751,6 @@ export const comingSoon: {
     gain: p(
       "Builds trust for libraries with school students.",
       "School ke bachchon wali libraries ka bharosa badhega.",
-    ),
-  },
-  {
-    for: [p("Owner", "Owner"), p("Student", "Student")],
-    stage: p("Before launch", "Launch se pehle"),
-    title: p("Two-step login", "Two-step login"),
-    text: p(
-      "An extra code with your password to keep accounts and fee data safer.",
-      "Password ke saath ek extra code, taaki account aur fees data surakshit rahe.",
-    ),
-    gain: p(
-      "Your account stays safe even if a password leaks.",
-      "Password leak ho, tab bhi account safe.",
     ),
   },
   {
