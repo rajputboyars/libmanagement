@@ -85,6 +85,7 @@ function GuidePlayer({ initial }: { initial: GuideRole }) {
       <div className="vg-player" ref={playerRef}>
         <video
           key={current.src}
+          aria-label={`${current.title} video`}
           src={current.src}
           poster={current.poster}
           controls
@@ -184,6 +185,7 @@ export function GuideTeaser() {
         {items.map((it) => (
           <article key={it.role} className="vg-teaser-card">
             <video
+              aria-label={`${it.video.title} video`}
               src={it.video.src}
               poster={it.video.poster}
               controls

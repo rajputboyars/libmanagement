@@ -243,6 +243,7 @@ export function GuidePortal({ role }: { role: GuideRole }) {
           </div>
         </div>
         <video
+          aria-label={`${first.title} video`}
           src={first.src}
           poster={first.poster}
           controls
@@ -322,6 +323,7 @@ export function GuideDetail({ role, slug }: { role: GuideRole; slug: string }) {
         <div className="mt-7">
           <video
             key={v.src}
+            aria-label={`${v.title} video`}
             src={v.src}
             poster={v.poster}
             controls

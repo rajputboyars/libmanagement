@@ -207,6 +207,7 @@ function HomeVideos() {
             className="grid min-w-0 gap-3.5 rounded-[20px] border border-[var(--line)] bg-[var(--surface)] p-3.5"
           >
             <video
+              aria-label={`${it.video.title} video`}
               src={it.video.src}
               poster={it.video.poster}
               controls
