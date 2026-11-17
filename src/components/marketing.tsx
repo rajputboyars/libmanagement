@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ArrowRight, Check, PlayCircle } from "lucide-react";
 import { ownerGuide, studentGuide, type GuideVideo } from "@/lib/guide-videos";
 import { buttonVariants } from "@/components/ui/button";
@@ -323,11 +326,71 @@ export function MarketingHome() {
             </Link>
           ))}
         </div>
+        <HomeTour />
         <TrustStrip />
         <HomeVideos />
         <MarketingCta />
       </div>
     </section>
+  );
+}
+
+function HomeTour() {
+  const lang = useLang();
+  const t = copy.tour;
+  const reduce = useReducedMotion();
+  const root = useRef<HTMLDivElement>(null);
+  const [role, setRole] = useState<"owner" | "student">("owner");
+  const [step, setStep] = useState(0);
+  const steps = t.steps[role];
+  const [, , tag] = steps[step];
+  const [stepTitle, stepText] = steps[step];
+  useEffect(() => {
+    gsap.registerPlugin(ScrollTrigger);
+    const mm = gsap.matchMedia();
+    mm.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(root.current!.querySelectorAll("[data-reveal]"), { y: 28, opacity: 0, duration: 0.7, stagger: 0.12, ease: "power3.out", scrollTrigger: { trigger: root.current, start: "top 80%", once: true } });
+    });
+    return () => mm.revert();
+  }, []);
+  return (
+    <div ref={root} className="mt-14 grid gap-6">
+      <div data-reveal className="grid max-w-[60ch] gap-2">
+        <span className={eyebrow}>{say(lang, t.eyebrow)}</span>
+        <h2 className={`${serif} m-0 text-[clamp(28px,4vw,44px)] !leading-tight`}>{say(lang, t.title)}</h2>
+      </div>
+      <div data-reveal className="inline-flex w-fit gap-1 rounded-xl border border-[var(--line)] p-1" role="group" aria-label={say(lang, t.title)}>
+        {(["owner", "student"] as const).map((r) => (
+          <button key={r} type="button" aria-pressed={role === r} onClick={() => { setRole(r); setStep(0); }} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${role === r ? "bg-[var(--green)] text-white" : "text-[var(--text)] hover:bg-[var(--soft)]"}`}>
+            {say(lang, t[r])}
+          </button>
+        ))}
+      </div>
+      <div data-reveal className="grid items-stretch gap-5 lg:grid-cols-[1fr_1.1fr]">
+        <ol className="m-0 grid list-none gap-2.5 p-0">
+          {steps.map(([title], i) => (
+            <li key={i}>
+              <button type="button" aria-current={i === step ? "step" : undefined} onClick={() => setStep(i)} className={`flex w-full items-center gap-3.5 rounded-2xl border p-4 text-left transition ${i === step ? "border-[var(--green)] bg-[var(--soft)]" : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--green)]"}`}>
+                <span className={`grid size-8 shrink-0 place-items-center rounded-full text-sm font-bold ${i === step ? "bg-[var(--green)] text-white" : "bg-[var(--soft)] text-[var(--green)]"}`}>{i + 1}</span>
+                <span className="font-semibold text-[var(--text)]">{say(lang, title)}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+        <div className="relative grid min-h-[260px] min-w-0 place-items-center overflow-hidden rounded-[20px] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_28px_60px_-42px_rgba(32,116,91,.55)]" aria-live="polite">
+          <AnimatePresence mode="wait">
+            <motion.div key={`${role}-${step}`} initial={reduce ? false : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }} transition={{ duration: 0.28 }} className="grid w-full max-w-[420px] gap-4 text-center">
+              <span className={`${serif} text-[clamp(40px,7vw,68px)] !leading-none text-[var(--green)]`}>{tag}</span>
+              <h3 className={`${serif} m-0 text-2xl`}>{say(lang, stepTitle)}</h3>
+              <p className={`m-0 text-[15px] ${muted}`}>{say(lang, stepText)}</p>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </div>
+      <Link data-reveal href={`/guide/${role}`} className="inline-flex w-fit items-center gap-1.5 font-semibold !text-[var(--green)] no-underline">
+        {say(lang, t.more)} <ArrowRight size={16} />
+      </Link>
+    </div>
   );
 }
 

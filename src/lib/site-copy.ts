@@ -81,6 +81,27 @@ export const copy = {
       ],
     ] as [string, Pair, Pair][],
   },
+  tour: {
+    eyebrow: p("See it in 60 seconds", "60 second mein dekhiye"),
+    title: p("Pick who you are. Follow the day.", "Aap kaun hain, chuniye. Din dekhiye."),
+    owner: p("Library owner", "Library owner"),
+    student: p("Student", "Student"),
+    steps: {
+      owner: [
+        [p("Set up seats and shifts", "Seats aur shifts set karein"), p("Add your floor plan, shifts and fee plans once. Everything else builds on it.", "Floor plan, shifts aur fee plans ek baar daalein. Baaki sab isi par chalta hai."), "A01–A48"],
+        [p("Approve a join request", "Join request approve karein"), p("A student sends your Library ID. You pick a seat, shift and plan, then approve.", "Student aapki Library ID bhejta hai. Seat, shift, plan chuniye aur approve."), "A12 · Morning"],
+        [p("Record fees, share the receipt", "Fees darj karein, receipt bhejein"), p("Log cash or UPI. The receipt appears in the student's app.", "Cash ya UPI darj karein. Receipt student ke app mein aa jaati hai."), "₹1,200"],
+        [p("Watch attendance and reports", "Attendance aur reports dekhein"), p("See who is in the library now, who is due, and how the month went.", "Abhi kaun library mein hai, kiski fees baaki hai, aur mahina kaisa gaya."), "Live"],
+      ],
+      student: [
+        [p("Join with a Library ID", "Library ID se judein"), p("Type the ID you got at the desk. Your request goes to the owner.", "Counter se mili ID daalein. Request owner ke paas jaati hai."), "LIB-AB12CD"],
+        [p("Punch in from the library", "Library se punch in karein"), p("One tap, only from inside the library. No punch-ins from home.", "Ek tap, sirf library ke andar se. Ghar se punch in nahi."), "≤ 100 m"],
+        [p("Study with a focus timer", "Focus timer ke saath padhein"), p("Timed focus sessions earn XP and build a daily streak.", "Timed focus session se XP milta hai aur streak banti hai."), "25 min"],
+        [p("Track fees and progress", "Fees aur progress dekhein"), p("See your membership, receipts, quests and exam prep in one app.", "Membership, receipts, quests aur exam prep ek hi app mein."), "1 app"],
+      ],
+    } as Record<"owner" | "student", [Pair, Pair, string][]>,
+    more: p("Watch the full video guide", "Poora video guide dekhein"),
+  },
   trust: {
     eyebrow: p("Built to be trusted", "Bharose ke liye bana"),
     title: p("Your students' data stays safe and private.", "Aapke students ka data surakshit aur private."),
