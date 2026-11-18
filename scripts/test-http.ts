@@ -728,6 +728,8 @@ async function main() {
     await bill(owner, "switch-free");
     const freeCtx = await getJson("/api/org", owner);
     assert.equal(freeCtx.entitlements.limits.activeStudents, 25);
+    await org(owner, "member-add", { email: "manager@example.invalid", role: "staff", branchIds: [String(branch2.record._id)] }, 402); // team management needs advanced controls
+    await org(owner, "student-transfer", { studentId: String(minorUser!._id), toBranchId: String(branch2.record._id) }, 402); // transfers need multi-branch
     const qr = await fetch(`${base}/api/attendance-qr`, { headers: { cookie: owner } });
     assert.equal(qr.status, 402);
     const blockedPay = await fetch(base + "/api/workspace", { method: "POST", headers: { cookie: owner, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ action: "expenses", data: { title: "Tea", amount: 100, category: "Other", date: new Date().toISOString() } }) });

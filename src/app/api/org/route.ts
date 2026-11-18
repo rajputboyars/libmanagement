@@ -6,7 +6,7 @@ import { currentUser, limited, validOrigin } from "@/lib/auth";
 import { Library, Membership, SeatAssignment, StaffMembership, StudentProfile, User } from "@/lib/models";
 import { Organization, OrganizationMembership, StudentTransfer } from "@/lib/saas-models";
 import { newLibraryCode } from "@/lib/join";
-import { PlanError, accessForLibrary, accessibleBranches, activeStudentCount, assertWritable, audit, verifyBranchAccess, verifyOrgOwner } from "@/lib/saas-server";
+import { PlanError, accessForLibrary, accessibleBranches, activeStudentCount, assertWritable, audit, requireFeature, verifyBranchAccess, verifyOrgOwner } from "@/lib/saas-server";
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i);
 const err = (message: string, status = 400, code?: string) => NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
@@ -83,7 +83,8 @@ export async function POST(request: NextRequest) {
       case "member-add": {
         const orgId = await verifyOrgOwner(user);
         const v = z.object({ email: z.email(), role: z.enum(["branch-manager", "staff"]), branchIds: z.array(objectId).min(1).max(20) }).parse(body.data);
-        await assertWritable(user.libraryId);
+        await requireFeature(user.libraryId, "advanced-controls", "Organization team management");
+        if (v.branchIds.length > 1) await requireFeature(user.libraryId, "multi-branch", "Multi-branch access");
         const owned = await Library.find({ organizationId: orgId, _id: { $in: v.branchIds } }).select("_id").lean<{ _id: unknown }[]>();
         if (owned.length !== new Set(v.branchIds).size) throw new Error("Choose branches from your organization");
         const member = await User.findOne({ email: v.email.toLowerCase() });
@@ -124,6 +125,7 @@ export async function POST(request: NextRequest) {
         if (!student?.libraryId) throw new Error("Student not found");
         const from = await verifyBranchAccess(user, String(student.libraryId), ["org-owner", "branch-manager"]);
         const to = await verifyBranchAccess(user, v.toBranchId, ["org-owner", "branch-manager"]);
+        await requireFeature(user.libraryId, "multi-branch", "Student transfer between branches");
         if (String(from.organizationId) !== String(to.organizationId)) throw new Error("Branches belong to different organizations");
         if (String(from._id) === String(to._id)) throw new Error("Student is already in that branch");
         await assertWritable(to._id);

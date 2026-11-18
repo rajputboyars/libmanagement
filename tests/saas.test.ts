@@ -135,3 +135,21 @@ describe("CRM and CSV", () => {
     assert.equal(parseStudentCsv("foo,bar\n1,2").errors[0].error, "Header must include name and email");
   });
 });
+
+describe("Plan modules are enforced on the server", () => {
+  const allowed = (key: string, feature: string, overrides?: { features?: { add?: string[]; remove?: string[] } }) =>
+    resolveEntitlements({ status: "active" as const, planSnapshot: snap(key), currentPeriodEnd: d("2026-07-15"), overrides }, free, now, 7).features.includes(feature);
+  it("advanced controls and multi-branch are Business only, unless the platform owner adds them", () => {
+    for (const f of ["advanced-controls", "multi-branch"]) {
+      assert.ok(!allowed("starter", f) && !allowed("pro", f) && allowed("business", f));
+      assert.ok(allowed("pro", f, { features: { add: [f] } }));
+      assert.ok(!allowed("business", f, { features: { remove: [f] } }));
+    }
+  });
+  it("the org API checks the plan for team management and student transfers", async () => {
+    const src = (await import("node:fs")).readFileSync("src/app/api/org/route.ts", "utf8");
+    assert.match(src, /requireFeature\(user\.libraryId, "advanced-controls"/);
+    assert.match(src, /requireFeature\(user\.libraryId, "multi-branch", "Student transfer/);
+    assert.match(src, /includes\("multi-branch"\)/);
+  });
+});
